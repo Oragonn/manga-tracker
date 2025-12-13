@@ -1,5 +1,18 @@
-/logs
-/data
-/backend/__pycache__
-/backend/tracker/__pycache__
-/venv
+# Directories
+logs/
+data/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
