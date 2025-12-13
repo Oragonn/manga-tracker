@@ -1,0 +1,320 @@
+# backend/activity_logger.py
+"""
+Activity logging system with undo support.
+Logs all user actions (add, delete, status changes, progress updates).
+"""
+
+import json
+from datetime import datetime, timezone, timedelta
+from .database import get_db, release_db
+
+def init_activity_log_table():
+    """Create activity_log table if it doesn't exist."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            action_type TEXT NOT NULL,
+            series_id INTEGER,
+            series_title TEXT,
+            old_value TEXT,
+            new_value TEXT,
+            is_bulk BOOLEAN DEFAULT 0,
+            bulk_id TEXT,
+            can_undo BOOLEAN DEFAULT 1,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE SET NULL
+        )
+    """)
+    
+    # Create indexes for performance
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_log(timestamp)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_type ON activity_log(action_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_bulk ON activity_log(bulk_id)")
+    
+    release_db(conn)
+
+def detect_source_type(url):
+    """Detect source type from URL."""
+    if 'mangadex.org' in url:
+        return 'MangaDex'
+    elif 'kagane.org' in url:
+        return 'Kagane'
+    return 'Unknown'
+
+def log_activity(action_type, series_id=None, series_title=None, old_value=None, new_value=None, 
+                 is_bulk=False, bulk_id=None):
+    """
+    Log an activity to the database.
+    
+    Args:
+        action_type: 'added', 'deleted', 'progress', 'status', 'edited'
+        series_id: ID of the series (None if deleted)
+        series_title: Title of the series
+        old_value: Dict of old values (will be JSON-encoded)
+        new_value: Dict of new values (will be JSON-encoded)
+        is_bulk: Whether this is part of a bulk operation
+        bulk_id: Unique ID grouping bulk operations
+    """
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        old_json = json.dumps(old_value, ensure_ascii=False) if old_value else None
+        new_json = json.dumps(new_value, ensure_ascii=False) if new_value else None
+        
+        timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        
+        cursor.execute("""
+            INSERT INTO activity_log (
+                timestamp, action_type, series_id, series_title,
+                old_value, new_value, is_bulk, bulk_id, can_undo
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+        """, (timestamp, action_type, series_id, series_title, old_json, new_json, 
+              int(is_bulk), bulk_id))
+        
+        release_db(conn)
+    except Exception as e:
+        print(f"[Activity Log] Failed to log {action_type}: {e}")
+        # Don't crash the app if logging fails
+        try:
+            release_db(conn)
+        except:
+            pass
+
+def get_series_snapshot(series_id):
+    """
+    Get a complete snapshot of a series for logging.
+    Returns a dict suitable for old_value in delete operations.
+    """
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM series WHERE id = ?", (series_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            release_db(conn)
+            return None
+        
+        # Get column names
+        columns = [desc[0] for desc in cursor.description]
+        series_dict = dict(zip(columns, row))
+        
+        # Store as future-proof multi-source format
+        snapshot = {
+            'title': series_dict.get('title'),
+            'sources': [{
+                'url': series_dict.get('source_url'),
+                'type': detect_source_type(series_dict.get('source_url', '')),
+                'is_primary': True,
+                'current_chapter': series_dict.get('current_chapter'),
+                'latest_chapter': series_dict.get('latest_chapter')
+            }],
+            'status': series_dict.get('status'),
+            'cover_url': series_dict.get('cover_url'),
+            'banner_url': series_dict.get('banner_url'),
+            'anilist_id': series_dict.get('anilist_id'),
+            'title_en': series_dict.get('title_en'),
+            'title_romaji': series_dict.get('title_romaji'),
+            'title_native': series_dict.get('title_native'),
+            'source_status': series_dict.get('source_status'),
+            'source_type': series_dict.get('source_type'),
+            'alt_titles': series_dict.get('alt_titles'),
+            'genres': series_dict.get('genres'),
+            'content_rating': series_dict.get('content_rating', 'unknown')
+        }
+        
+        release_db(conn)
+        return snapshot
+    except Exception as e:
+        print(f"[Activity Log] Failed to get series snapshot: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return None
+
+def cleanup_old_logs():
+    """Delete logs older than 14 days."""
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+        cutoff_str = cutoff.isoformat().replace('+00:00', 'Z')
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM activity_log WHERE timestamp < ?", (cutoff_str,))
+        deleted = cursor.rowcount
+        release_db(conn)
+        
+        if deleted > 0:
+            print(f"[Activity Log] Cleaned up {deleted} old log entries")
+    except Exception as e:
+        print(f"[Activity Log] Cleanup error: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+
+def mark_log_undone(log_id=None, bulk_id=None):
+    """Mark a log entry (or bulk group) as undone (can_undo = 0)."""
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        if bulk_id:
+            cursor.execute("UPDATE activity_log SET can_undo = 0 WHERE bulk_id = ?", (bulk_id,))
+        elif log_id:
+            cursor.execute("UPDATE activity_log SET can_undo = 0 WHERE id = ?", (log_id,))
+        
+        release_db(conn)
+    except Exception as e:
+        print(f"[Activity Log] Failed to mark as undone: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+
+def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
+    """
+    Get activity logs with filters.
+    
+    Returns list of dicts with formatted display data.
+    Groups bulk operations into single entries.
+    """
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        where_parts = []
+        params = []
+        
+        # Type filter
+        if type_filter != 'all':
+            where_parts.append("action_type = ?")
+            params.append(type_filter)
+        
+        # Time filter
+        if time_filter != 'all':
+            now = datetime.now(timezone.utc)
+            if time_filter == 'today':
+                cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            elif time_filter == 'week':
+                cutoff = now - timedelta(days=7)
+            elif time_filter == 'month':
+                cutoff = now - timedelta(days=30)
+            else:
+                cutoff = None
+            
+            if cutoff:
+                cutoff_str = cutoff.isoformat().replace('+00:00', 'Z')
+                where_parts.append("timestamp >= ?")
+                params.append(cutoff_str)
+        
+        # Search filter
+        if search_query:
+            where_parts.append("series_title LIKE ?")
+            params.append(f"%{search_query}%")
+        
+        where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
+        
+        query = f"""
+            SELECT * FROM activity_log
+            {where_clause}
+            ORDER BY timestamp DESC
+            LIMIT ?
+        """
+        params.append(limit * 2)  # Get more to account for bulk grouping
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        # Format results - GROUP BULK OPERATIONS
+        results = []
+        processed_bulk_ids = set()
+        now = datetime.now(timezone.utc)
+        undo_cutoff = now - timedelta(days=7)
+        
+        for row in rows:
+            log_id, timestamp_str, action_type, series_id, series_title, old_value, new_value, is_bulk, bulk_id, can_undo = row
+            
+            # Skip if we already processed this bulk_id
+            if is_bulk and bulk_id and bulk_id in processed_bulk_ids:
+                continue
+            
+            # Parse timestamp
+            try:
+                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            except:
+                timestamp = now
+            
+            # Check if still within undo window
+            can_undo_time = timestamp >= undo_cutoff
+            
+            # Format display time
+            diff = now - timestamp
+            if diff.total_seconds() < 60:
+                display_time = "Just now"
+            elif diff.total_seconds() < 3600:
+                mins = int(diff.total_seconds() / 60)
+                display_time = f"{mins}m ago"
+            elif diff.total_seconds() < 86400:
+                hours = int(diff.total_seconds() / 3600)
+                display_time = f"{hours}h ago"
+            else:
+                days = diff.days
+                display_time = f"{days}d ago"
+            
+            # Get series list for bulk operations
+            series_list = None
+            affected_count = 1
+            if is_bulk and bulk_id:
+                # Mark this bulk_id as processed
+                processed_bulk_ids.add(bulk_id)
+                
+                # Get all series in this bulk operation
+                cursor.execute("""
+                    SELECT series_title FROM activity_log 
+                    WHERE bulk_id = ? 
+                    ORDER BY timestamp
+                """, (bulk_id,))
+                bulk_series = cursor.fetchall()
+                affected_count = len(bulk_series)
+                
+                if affected_count <= 5:
+                    series_list = "<br>".join([f"• {s[0]}" for s in bulk_series])
+                else:
+                    series_list = "<br>".join([f"• {s[0]}" for s in bulk_series[:3]])
+                    series_list += f"<br>• ... and {affected_count - 3} more"
+            
+            results.append({
+                'id': log_id,
+                'timestamp': timestamp_str,
+                'display_time': display_time,
+                'action_type': action_type,
+                'series_title': series_title,
+                'old_value': old_value,
+                'new_value': new_value,
+                'is_bulk': bool(is_bulk),
+                'bulk_id': bulk_id,
+                'can_undo': bool(can_undo),
+                'can_undo_time': can_undo_time,
+                'series_list': series_list,
+                'affected_count': affected_count
+            })
+            
+            # Stop if we've hit the limit
+            if len(results) >= limit:
+                break
+        
+        release_db(conn)
+        return results
+    except Exception as e:
+        print(f"[Activity Log] Failed to get logs: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return []
