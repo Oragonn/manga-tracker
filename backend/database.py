@@ -53,6 +53,16 @@ def init_db():
     cursor = conn.cursor()
     cursor.execute("PRAGMA foreign_keys = ON;")
 
+    try:
+        from .activity_logger import init_activity_log_table
+        release_db(conn)
+        init_activity_log_table()
+        conn = get_db()
+        cursor = conn.cursor()
+    except Exception as e:
+        print(f"[Init DB] Activity log init failed: {e}")
+
+
     # --- 1. Create tables if not exist ---
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS series (

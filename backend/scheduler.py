@@ -10,6 +10,19 @@ class MangaScheduler:
     def __init__(self):
         self.active = True
         self.thread = threading.Thread(target=self._run, daemon=True)
+        self.cleanup_thread = threading.Thread(target=self._cleanup_logs, daemon=True)
+
+    def _cleanup_logs(self):
+        """Background thread to cleanup old activity logs every 24 hours."""
+        while self.active:
+            try:
+                from .activity_logger import cleanup_old_logs
+                cleanup_old_logs()
+                # Sleep for 24 hours
+                time.sleep(86400)
+            except Exception as e:
+                print(f"[Cleanup] Error: {e}")
+                time.sleep(3600)  # Retry in 1 hour on error
 
     def get_check_interval(self, status):
         intervals = {
@@ -156,6 +169,7 @@ class MangaScheduler:
 
     def start_scanning(self):
         self.thread.start()
+        self.cleanup_thread.start()  # Start cleanup thread
 
     def stop(self):
         self.active = False

@@ -1197,23 +1197,34 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('bulk-read-modal').classList.add('hidden');
   });
   document.getElementById('btn-bulk-read-confirm')?.addEventListener('click', async () => {
-    const ids = Array.from(bulkState.selectedIds);
-    document.getElementById('bulk-read-modal').classList.add('hidden');
-    for (const id of ids) {
-      try {
-        const res = await fetch(`/api/series/${id}/chapters`);
-        const chapters = await res.json();
-        if (chapters.length > 0) {
-          const latestChapter = Math.max(...chapters.map(ch => ch.chapter_number));
-          await saveChapter(id, latestChapter);
+      const ids = Array.from(bulkState.selectedIds);
+      document.getElementById('bulk-read-modal').classList.add('hidden');
+      
+      const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
+      
+      for (const id of ids) {
+        try {
+          const res = await fetch(`/api/series/${id}/chapters`);
+          const chapters = await res.json();
+          if (chapters.length > 0) {
+            const latestChapter = Math.max(...chapters.map(ch => ch.chapter_number));
+            await fetch(`/api/series/${id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                current_chapter: latestChapter,
+                _bulk_id: bulkId,
+                _is_bulk: true
+              })
+            });
+          }
+        } catch (e) {
+          console.error(`Failed to update series ${id}:`, e);
         }
-      } catch (e) {
-        console.error(`Failed to update series ${id}:`, e);
       }
-    }
-    exitBulkMode();
-    loadPage();
-  });
+      exitBulkMode();
+      loadPage();
+    });
 
   // ─── Bulk Edit — REPLACED WITH MODAL FLOW —────────────────────
   document.getElementById('btn-bulk-edit')?.addEventListener('click', () => {
@@ -1230,27 +1241,33 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.querySelectorAll('.status-option').forEach(option => {
-    option.addEventListener('click', async () => {
-      const newStatus = option.dataset.value;
-      const ids = Array.from(bulkState.selectedIds);
-      document.getElementById('bulk-status-modal').classList.add('hidden');
+      option.addEventListener('click', async () => {
+        const newStatus = option.dataset.value;
+        const ids = Array.from(bulkState.selectedIds);
+        document.getElementById('bulk-status-modal').classList.add('hidden');
 
-      for (const id of ids) {
-        try {
-          await fetch(`/api/series/${id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: newStatus })
-          });
-        } catch (e) {
-          console.error(`Failed to update series ${id}:`, e);
+        const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
+
+        for (const id of ids) {
+          try {
+            await fetch(`/api/series/${id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                status: newStatus,
+                _bulk_id: bulkId,
+                _is_bulk: true
+              })
+            });
+          } catch (e) {
+            console.error(`Failed to update series ${id}:`, e);
+          }
         }
-      }
 
-      exitBulkMode();
-      loadPage();
+        exitBulkMode();
+        loadPage();
+      });
     });
-  });
 
   document.getElementById('btn-status-back')?.addEventListener('click', () => {
     document.getElementById('bulk-status-modal').classList.add('hidden');
@@ -1293,19 +1310,24 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('bulk-delete-modal').classList.add('hidden');
   });
   document.getElementById('btn-bulk-delete-confirm')?.addEventListener('click', async () => {
-    const ids = Array.from(bulkState.selectedIds);
-    document.getElementById('bulk-delete-modal').classList.add('hidden');
-    for (const id of ids) {
-      try {
-        await fetch(`/api/series/${id}`, { method: 'DELETE' });
-      } catch (e) {
-        console.error(`Failed to delete series ${id}:`, e);
+      const ids = Array.from(bulkState.selectedIds);
+      document.getElementById('bulk-delete-modal').classList.add('hidden');
+      
+      const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
+      
+      for (const id of ids) {
+        try {
+          await fetch(`/api/series/${id}?bulk_id=${encodeURIComponent(bulkId)}`, { 
+            method: 'DELETE' 
+          });
+        } catch (e) {
+          console.error(`Failed to delete series ${id}:`, e);
+        }
       }
-    }
-    exitBulkMode();
-    loadPage();
-    loadGenres();
-  });
+      exitBulkMode();
+      loadPage();
+      loadGenres();
+    });
 
   // Initial load
   loadPage();

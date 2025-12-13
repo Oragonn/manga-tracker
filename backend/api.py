@@ -6,6 +6,8 @@ import threading
 import time
 import uuid
 from queue import Queue, Empty
+from .activity_logger import log_activity, get_series_snapshot, detect_source_type
+
 
 from .database import (
     init_db,
@@ -91,6 +93,25 @@ def _add_worker():
                                 genres=[], content_rating='unknown', source_type='other'
                             )
                             result = {'id': series_id, 'success': True}
+                            try:
+                                log_activity(
+                                    action_type='added',
+                                    series_id=series_id,
+                                    series_title=title,
+                                    new_value={
+                                        'title': title,
+                                        'sources': [{
+                                            'url': url,
+                                            'type': 'MangaDex',
+                                            'is_primary': True
+                                        }],
+                                        'status': user_status,
+                                        'cover_url': cover_url,
+                                        'source_type': info.get('source_type', 'other')
+                                    }
+                                )
+                            except Exception as log_err:
+                                print(f"[Add Queue] Logging failed: {log_err}")
                             task_processed = True
                         except sqlite3.IntegrityError as e:
                             if "source_url" in str(e):
@@ -182,6 +203,26 @@ def _add_worker():
                                 """, (latest_ch, latest_release, len(chapters_to_save), series_id))
                             release_db(conn)
                             result = {'id': series_id, 'success': True}
+                            try:
+                                log_activity(
+                                    action_type='added',
+                                    series_id=series_id,
+                                    series_title=title,
+                                    new_value={
+                                        'title': title,
+                                        'sources': [{
+                                            'url': url,
+                                            'type': 'Kagane',
+                                            'is_primary': True
+                                        }],
+                                        'status': user_status,
+                                        'cover_url': cover_url,
+                                        'source_type': kagane_info.get('source_type', 'other')
+                                    }
+                                )
+                            except Exception as log_err:
+                                print(f"[Add Queue] Logging failed: {log_err}")
+
                             task_processed = True
                         except sqlite3.IntegrityError as e:
                             if "source_url" in str(e):
@@ -501,6 +542,11 @@ def api_unread_count():
 @app.route('/api/series/<int:series_id>', methods=['PATCH'])
 def api_update_series(series_id):
     data = request.get_json()
+    
+    # Strip internal bulk tracking fields
+    _bulk_id = data.pop('_bulk_id', None)
+    _is_bulk = data.pop('_is_bulk', False)
+    
     allowed_fields = {'current_chapter', 'current_volume', 'status', 'cover_url', 'source_url', 'title'}
     updates = {k: v for k, v in data.items() if k in allowed_fields}
     
@@ -514,8 +560,69 @@ def api_update_series(series_id):
     
     if not updates:
         return jsonify({'error': 'No valid fields to update'}), 400
+    
+    # Get old values BEFORE updating
+    try:
+        conn_old = get_db()
+        cursor_old = conn_old.cursor()
+        cursor_old.execute("SELECT title, current_chapter, status FROM series WHERE id = ?", (series_id,))
+        old_row = cursor_old.fetchone()
+        release_db(conn_old)
+        
+        if old_row:
+            old_title, old_chapter, old_status = old_row
+            
+            # Determine action type and log values
+            if 'current_chapter' in updates and old_chapter != updates['current_chapter']:
+                log_activity(
+                    action_type='progress',
+                    series_id=series_id,
+                    series_title=old_title,
+                    old_value={'chapter': old_chapter},
+                    new_value={'chapter': updates['current_chapter']},
+                    is_bulk=_is_bulk,
+                    bulk_id=_bulk_id
+                )
+            elif 'status' in updates and old_status != updates['status']:
+                log_activity(
+                    action_type='status',
+                    series_id=series_id,
+                    series_title=old_title,
+                    old_value={'status': old_status},
+                    new_value={'status': updates['status']},
+                    is_bulk=_is_bulk,
+                    bulk_id=_bulk_id
+                )
+            elif 'title' in updates or 'cover_url' in updates:
+                old_vals = {}
+                new_vals = {}
+                if 'title' in updates:
+                    old_vals['title'] = old_title
+                    new_vals['title'] = updates['title']
+                if 'cover_url' in updates:
+                    cursor_old = conn_old.cursor()
+                    cursor_old.execute("SELECT cover_url FROM series WHERE id = ?", (series_id,))
+                    old_cover = cursor_old.fetchone()
+                    if old_cover:
+                        old_vals['cover_url'] = old_cover[0]
+                        new_vals['cover_url'] = updates['cover_url']
+                
+                log_activity(
+                    action_type='edited',
+                    series_id=series_id,
+                    series_title=old_title,
+                    old_value=old_vals,
+                    new_value=new_vals,
+                    is_bulk=_is_bulk,
+                    bulk_id=_bulk_id
+                )
+    except Exception as log_err:
+        print(f"[Update] Logging failed: {log_err}")
+    
+    # Perform update
     update_series(series_id, updates)
     return jsonify({'success': True})
+
 
 @app.route('/api/series/<int:series_id>/check-now', methods=['POST'])
 def api_check_now(series_id):
@@ -528,11 +635,33 @@ def api_check_now(series_id):
 
 @app.route('/api/series/<int:series_id>', methods=['DELETE'])
 def api_delete_series(series_id):
+    # Get snapshot BEFORE deleting
+    snapshot = get_series_snapshot(series_id)
+    
+    # Check for bulk operation
+    bulk_id = request.args.get('bulk_id')
+    is_bulk = bulk_id is not None
+    
     try:
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM series WHERE id = ?", (series_id,))
         release_db(conn)
+        
+        # Log after successful delete
+        if snapshot:
+            try:
+                log_activity(
+                    action_type='deleted',
+                    series_id=None,  # No longer exists
+                    series_title=snapshot['title'],
+                    old_value=snapshot,
+                    is_bulk=is_bulk,
+                    bulk_id=bulk_id
+                )
+            except Exception as log_err:
+                print(f"[Delete] Logging failed: {log_err}")
+        
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
