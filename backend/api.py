@@ -93,6 +93,8 @@ def _add_worker():
                                 genres=[], content_rating='unknown', source_type='other'
                             )
                             result = {'id': series_id, 'success': True}
+
+                            # ✅ Add logging with correct variable access
                             try:
                                 log_activity(
                                     action_type='added',
@@ -107,7 +109,7 @@ def _add_worker():
                                         }],
                                         'status': user_status,
                                         'cover_url': cover_url,
-                                        'source_type': info.get('source_type', 'other')
+                                        'source_type': info.get('source_type', 'other') if info else 'other'
                                     }
                                 )
                             except Exception as log_err:
@@ -123,30 +125,29 @@ def _add_worker():
                             result = {'error': str(e)}
                             task_processed = True
                     else:
+                        # Valid manga_id path
                         info = get_manga_info_with_anilist(manga_id)
                         if info:
                             title = info['title']
                             cover_url = info['cover_url']
                             mangadex_status = info['status']
                             alt_titles = info['alt_titles']
+                            # Extract AniList-enriched fields:
+                            title_en = info.get('title_en')
+                            title_romaji = info.get('title_romaji')
+                            title_native = info.get('title_native')
+                            banner_url = info.get('banner_url')
+                            anilist_id = None
                         else:
                             title = "Unknown Manga"
                             cover_url = None
                             mangadex_status = None
                             alt_titles = None
-
-                        info = get_manga_info_with_anilist(manga_id)
-                        if info:
-                            title = info['title']
-                            cover_url = info['cover_url']
-                            mangadex_status = info['status']
-                            alt_titles = info['alt_titles']
-                            # ✅ Extract AniList-enriched fields directly:
-                            title_en = info.get('title_en')
-                            title_romaji = info.get('title_romaji')
-                            title_native = info.get('title_native')
-                            banner_url = info.get('banner_url')  # ← this is from AniList!
-                            anilist_id = None  # you don't store it, so leave as None
+                            title_en = None
+                            title_romaji = None
+                            title_native = None
+                            banner_url = None
+                            anilist_id = None
 
                         # Fetch chapters directly
                         chapters_to_save = get_latest_chapters(manga_id, limit=100)
@@ -166,9 +167,9 @@ def _add_worker():
                                 title_native=title_native,
                                 source_status=mangadex_status,
                                 alt_titles=alt_titles,
-                                genres=info.get('genres', []),
-                                content_rating=info.get('content_rating', 'unknown'),
-                                source_type=info.get('source_type', 'other')
+                                genres=info.get('genres', []) if info else [],
+                                content_rating=info.get('content_rating', 'unknown') if info else 'unknown',
+                                source_type=info.get('source_type', 'other') if info else 'other'
                             )
 
                             # Inject chapters
@@ -203,6 +204,8 @@ def _add_worker():
                                 """, (latest_ch, latest_release, len(chapters_to_save), series_id))
                             release_db(conn)
                             result = {'id': series_id, 'success': True}
+                            
+                            # *** FIX: Correct logging for MangaDex with proper source_type ***
                             try:
                                 log_activity(
                                     action_type='added',
@@ -212,12 +215,12 @@ def _add_worker():
                                         'title': title,
                                         'sources': [{
                                             'url': url,
-                                            'type': 'Kagane',
+                                            'type': 'MangaDex',
                                             'is_primary': True
                                         }],
                                         'status': user_status,
                                         'cover_url': cover_url,
-                                        'source_type': kagane_info.get('source_type', 'other')
+                                        'source_type': info.get('source_type', 'other') if info else 'other'
                                     }
                                 )
                             except Exception as log_err:
@@ -233,7 +236,7 @@ def _add_worker():
                         except Exception as e:
                             result = {'error': str(e)}
                             task_processed = True
-                #
+                
                 elif is_kagane:
                     from .trackers.kagane import extract_series_id, get_series_info
                     kagane_id = extract_series_id(url)
@@ -300,6 +303,28 @@ def _add_worker():
                                     """, (latest_ch, latest_release, len(chapters_to_save), series_id))
                                 release_db(conn)
                                 result = {'id': series_id, 'success': True}
+
+                                # ✅ Add logging for Kagane (this was completely missing!)
+                                try:
+                                    log_activity(
+                                        action_type='added',
+                                        series_id=series_id,
+                                        series_title=title,
+                                        new_value={
+                                            'title': title,
+                                            'sources': [{
+                                                'url': url,
+                                                'type': 'Kagane',
+                                                'is_primary': True
+                                            }],
+                                            'status': user_status,
+                                            'cover_url': cover_url,
+                                            'source_type': kagane_info.get('source_type', 'other')
+                                        }
+                                    )
+                                except Exception as log_err:
+                                    print(f"[Add Queue] Logging failed: {log_err}")
+                                
                                 task_processed = True
                             except sqlite3.IntegrityError as e:
                                 if "source_url" in str(e):
@@ -336,6 +361,9 @@ def _add_worker():
             # CRITICAL: Worker must never die
             print(f"[Add Worker] Recovered from outer crash: {e}")
             time.sleep(1)
+
+
+
 
 # Start background worker
 _worker_thread = threading.Thread(target=_add_worker, daemon=True)
@@ -635,25 +663,27 @@ def api_check_now(series_id):
 
 @app.route('/api/series/<int:series_id>', methods=['DELETE'])
 def api_delete_series(series_id):
-    # Get snapshot BEFORE deleting
+    from .activity_logger import get_series_snapshot
     snapshot = get_series_snapshot(series_id)
     
-    # Check for bulk operation
     bulk_id = request.args.get('bulk_id')
     is_bulk = bulk_id is not None
     
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM series WHERE id = ?", (series_id,))
-        release_db(conn)
+        # *** Use new delete_series function ***
+        from .database import delete_series
+        success = delete_series(series_id)
+        
+        if not success:
+            return jsonify({'error': 'Series not found or delete failed'}), 404
         
         # Log after successful delete
         if snapshot:
             try:
+                from .activity_logger import log_activity
                 log_activity(
                     action_type='deleted',
-                    series_id=None,  # No longer exists
+                    series_id=None,
                     series_title=snapshot['title'],
                     old_value=snapshot,
                     is_bulk=is_bulk,

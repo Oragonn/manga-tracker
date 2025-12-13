@@ -15,7 +15,7 @@ def normalize_for_search(text):
     # Lowercase
     text = text.lower()
     # Remove common punctuation that doesn't affect meaning
-    for char in "'’.-_":
+    for char in "''.-_":
         text = text.replace(char, "")
     # Remove diacritics (é → e, ñ → n, etc.)
     text = unicodedata.normalize('NFD', text)
@@ -23,6 +23,7 @@ def normalize_for_search(text):
     # Collapse whitespace (though less needed now)
     text = ''.join(text.split())
     return text
+
 DB_PATH = "data/tracker.db"
 _db_lock = Lock()
 
@@ -34,6 +35,8 @@ def get_db():
     conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES, timeout=20.0)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA busy_timeout=10000;")  # 10s wait for lock
+    # *** FIX 1: Ensure foreign keys are enabled to trigger CASCADE deletes ***
+    conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
 def release_db(conn):
@@ -91,6 +94,7 @@ def init_db():
         )
     """)
 
+    # *** FIX 1: Ensure chapters table has proper CASCADE delete ***
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS chapters (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,16 +130,16 @@ def init_db():
     if "content_rating" not in columns:
         cursor.execute("ALTER TABLE series ADD COLUMN content_rating TEXT DEFAULT 'unknown'")
 
-    # ADD THIS LINE:
     if "source_type" not in columns:
         cursor.execute("ALTER TABLE series ADD COLUMN source_type TEXT DEFAULT 'other'")
-        # --- 3. Set default meta values ---
-        cursor.execute("""
-            INSERT OR IGNORE INTO meta (key, value)
-            VALUES 
-                ('last_dashboard_visit', '1970-01-01T00:00:00Z'),
-                ('schema_version', '2')
-        """)
+        
+    # --- 3. Set default meta values ---
+    cursor.execute("""
+        INSERT OR IGNORE INTO meta (key, value)
+        VALUES 
+            ('last_dashboard_visit', '1970-01-01T00:00:00Z'),
+            ('schema_version', '2')
+    """)
 
     # --- 4. Create indexes ---
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_status ON series(status)")
@@ -252,6 +256,35 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
     series_id = cursor.lastrowid
     release_db(conn)
     return series_id
+
+def delete_series(series_id):
+    """
+    Delete a series and all its chapters (CASCADE).
+    Returns True if successful, False otherwise.
+    """
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Verify series exists
+        cursor.execute("SELECT id FROM series WHERE id = ?", (series_id,))
+        if not cursor.fetchone():
+            release_db(conn)
+            return False
+        
+        # Delete series (chapters will be auto-deleted via CASCADE)
+        cursor.execute("DELETE FROM series WHERE id = ?", (series_id,))
+        deleted = cursor.rowcount > 0
+        
+        release_db(conn)
+        return deleted
+    except Exception as e:
+        print(f"[Database] Delete series {series_id} failed: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False
 
 def backfill_searchable_text():
     """Populate searchable_text for existing series (run once)."""

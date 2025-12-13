@@ -220,29 +220,37 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
         
         where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
         
+        # *** FIX: Get distinct bulk_ids first, then fetch one representative entry per bulk_id ***
         query = f"""
-            SELECT * FROM activity_log
+            SELECT 
+                MIN(id) as id,
+                timestamp,
+                action_type,
+                series_id,
+                series_title,
+                old_value,
+                new_value,
+                is_bulk,
+                bulk_id,
+                can_undo
+            FROM activity_log
             {where_clause}
+            GROUP BY COALESCE(bulk_id, 'single_' || id)
             ORDER BY timestamp DESC
             LIMIT ?
         """
-        params.append(limit * 2)  # Get more to account for bulk grouping
+        params.append(limit)
         
         cursor.execute(query, params)
         rows = cursor.fetchall()
         
-        # Format results - GROUP BULK OPERATIONS
+        # Format results
         results = []
-        processed_bulk_ids = set()
         now = datetime.now(timezone.utc)
         undo_cutoff = now - timedelta(days=7)
         
         for row in rows:
             log_id, timestamp_str, action_type, series_id, series_title, old_value, new_value, is_bulk, bulk_id, can_undo = row
-            
-            # Skip if we already processed this bulk_id
-            if is_bulk and bulk_id and bulk_id in processed_bulk_ids:
-                continue
             
             # Parse timestamp
             try:
@@ -271,9 +279,6 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
             series_list = None
             affected_count = 1
             if is_bulk and bulk_id:
-                # Mark this bulk_id as processed
-                processed_bulk_ids.add(bulk_id)
-                
                 # Get all series in this bulk operation
                 cursor.execute("""
                     SELECT series_title FROM activity_log 
@@ -304,10 +309,6 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
                 'series_list': series_list,
                 'affected_count': affected_count
             })
-            
-            # Stop if we've hit the limit
-            if len(results) >= limit:
-                break
         
         release_db(conn)
         return results

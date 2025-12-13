@@ -195,6 +195,10 @@ def api_undo_log(log_id):
         old_value = json.loads(old_value_str) if old_value_str else None
         new_value = json.loads(new_value_str) if new_value_str else None
         
+        # Track if we need to check now
+        need_check_now = False
+        restored_series_id = None
+        
         # Perform undo based on action type
         if action_type == 'deleted':
             # Re-add the series
@@ -221,6 +225,10 @@ def api_undo_log(log_id):
                 # Restore chapter progress if available
                 if 'current_chapter' in source and source['current_chapter'] is not None:
                     update_series(series_id, {'current_chapter': source['current_chapter']})
+                
+                # *** FIX 2: Mark for check-now after restore ***
+                need_check_now = True
+                restored_series_id = series_id
         
         elif action_type == 'progress' and series_id:
             # Revert chapter progress
@@ -245,6 +253,18 @@ def api_undo_log(log_id):
         
         # Mark as undone
         mark_log_undone(log_id=log_id)
+        
+        # *** FIX 2: Trigger check-now for restored series ***
+        if need_check_now and restored_series_id:
+            try:
+                from .scheduler import MangaScheduler
+                # Import the global scheduler instance from api.py
+                from . import api
+                if hasattr(api, 'manga_scheduler'):
+                    api.manga_scheduler.scan_series(restored_series_id)
+                    print(f"[Undo] Triggered check-now for restored series {restored_series_id}")
+            except Exception as e:
+                print(f"[Undo] Failed to trigger check-now: {e}")
         
         return jsonify({'success': True})
     
@@ -298,6 +318,9 @@ def api_undo_bulk(bulk_id):
         
         release_db(conn)
         
+        # *** FIX 2: Track restored series for check-now ***
+        restored_series_ids = []
+        
         # Undo each entry
         for log in logs:
             log_id, action_type, series_id, series_title, old_value_str, new_value_str = log[:6]
@@ -328,6 +351,9 @@ def api_undo_bulk(bulk_id):
                     
                     if 'current_chapter' in source and source['current_chapter'] is not None:
                         update_series(new_series_id, {'current_chapter': source['current_chapter']})
+                    
+                    # *** FIX 2: Track for check-now ***
+                    restored_series_ids.append(new_series_id)
             
             elif action_type == 'progress' and series_id:
                 if old_value and 'chapter' in old_value:
@@ -350,6 +376,18 @@ def api_undo_bulk(bulk_id):
         # Mark entire bulk as undone
         mark_log_undone(bulk_id=bulk_id)
         
+        # *** FIX 2: Trigger check-now for all restored series ***
+        if restored_series_ids:
+            try:
+                from .scheduler import MangaScheduler
+                from . import api
+                if hasattr(api, 'manga_scheduler'):
+                    for sid in restored_series_ids:
+                        api.manga_scheduler.scan_series(sid)
+                    print(f"[Undo Bulk] Triggered check-now for {len(restored_series_ids)} restored series")
+            except Exception as e:
+                print(f"[Undo Bulk] Failed to trigger check-now: {e}")
+        
         return jsonify({'success': True})
     
     except Exception as e:
@@ -357,4 +395,4 @@ def api_undo_bulk(bulk_id):
         return jsonify({'error': str(e)}), 500
     
 if __name__ == '__main__':
-    run_server() 
+    run_server()

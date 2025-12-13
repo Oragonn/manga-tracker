@@ -269,7 +269,11 @@ function getLogDetails(log) {
     
     switch(log.action_type) {
       case 'added':
-        return `Added from ${newVal?.source || 'Unknown source'}`;
+        let sourceType = 'Unknown source';
+        if (newVal?.sources && Array.isArray(newVal.sources) && newVal.sources.length > 0) {
+          sourceType = newVal.sources[0].type || 'Unknown source';
+        }
+        return `Added from ${sourceType}`;
       case 'deleted':
         return 'Series removed from tracker';
       case 'progress':
