@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Activity Log - Manga Tracker</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .logs-container {
+      max-width: 1000px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+
+    .logs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .logs-header h1 {
+      font-size: 28px;
+      color: white;
+    }
+
+    .logs-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+
+    .log-entry {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .log-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .log-icon.added { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    .log-icon.deleted { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .log-icon.progress { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+    .log-icon.status { background: rgba(234, 179, 8, 0.15); color: #eab308; }
+    .log-icon.edited { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+    .log-icon.bulk { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+
+    .log-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .log-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+      margin-bottom: 4px;
+    }
+
+    .log-details {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-bottom: 4px;
+    }
+
+    .log-series-list {
+      font-size: 13px;
+      color: #64748b;
+      margin-top: 8px;
+      padding-left: 16px;
+    }
+
+    .log-timestamp {
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .log-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .btn-undo {
+      padding: 6px 12px;
+      background: #1e2c40;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      color: #678ec9;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-undo:hover {
+      background: #2d3f5f;
+    }
+
+    .btn-undo:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .no-logs {
+      text-align: center;
+      padding: 60px 20px;
+      color: #64748b;
+    }
+
+    .undo-window-warning {
+      background: rgba(234, 179, 8, 0.1);
+      border: 1px solid #eab308;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      color: #eab308;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<header class="header-full">
+  <nav class="nav-container">
+    <div class="nav-links">
+      <a href="/errors" class="nav-link">Errors</a>
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/logs" class="nav-link">Activity Log</a>
+      <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
+    </div>
+  </nav>
+</header>
+
+<div class="logs-container">
+  <div class="logs-header">
+    <h1>Activity Log</h1>
+  </div>
+
+  <div class="undo-window-warning">
+    ⚠️ Actions can be undone within 7 days. Logs older than 14 days are automatically removed.
+  </div>
+
+  <div class="logs-controls">
+    <select id="filter-type" class="control-input" style="width: auto;">
+      <option value="all">All Types</option>
+      <option value="added">Added</option>
+      <option value="deleted">Deleted</option>
+      <option value="progress">Progress</option>
+      <option value="status">Status Changed</option>
+      <option value="edited">Edited</option>
+    </select>
+
+    <select id="filter-time" class="control-input" style="width: auto;">
+      <option value="all">All Time</option>
+      <option value="today">Today</option>
+      <option value="week">Last 7 Days</option>
+      <option value="month">Last 30 Days</option>
+    </select>
+
+    <div class="control-search" style="flex: 1; max-width: 300px;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="11" cy="11" r="8"></circle>
+        <path d="m21 21-4.35-4.35"></path>
+      </svg>
+      <input type="text" id="search-logs" placeholder="Search series..." />
+    </div>
+  </div>
+
+  <div id="logs-list">
+    <p style="text-align: center; color: #64748b;">Loading...</p>
+  </div>
+</div>
+
+<script>
+let currentFilters = {
+  type: 'all',
+  time: 'all',
+  search: ''
+};
+
+async function loadLogs() {
+  try {
+    const params = new URLSearchParams();
+    if (currentFilters.type !== 'all') params.append('type', currentFilters.type);
+    if (currentFilters.time !== 'all') params.append('time', currentFilters.time);
+    if (currentFilters.search) params.append('search', currentFilters.search);
+
+    const res = await fetch(`/api/logs?${params.toString()}`);
+    const logs = await res.json();
+
+    const container = document.getElementById('logs-list');
+    
+    if (logs.length === 0) {
+      container.innerHTML = '<div class="no-logs">No activity logs found.</div>';
+      return;
+    }
+
+    container.innerHTML = logs.map(log => {
+      const canUndo = log.can_undo && log.can_undo_time;
+      const icon = getLogIcon(log.action_type);
+      const title = getLogTitle(log);
+      const details = getLogDetails(log);
+      
+      return `
+        <div class="log-entry">
+          <div class="log-icon ${log.action_type}">
+            ${icon}
+          </div>
+          <div class="log-content">
+            <div class="log-title">${title}</div>
+            <div class="log-details">${details}</div>
+            ${log.series_list ? `<div class="log-series-list">${log.series_list}</div>` : ''}
+            <div class="log-timestamp">${log.display_time}</div>
+          </div>
+          <div class="log-actions">
+            ${canUndo ? `<button class="btn-undo" onclick="undoAction(${log.id}, '${log.bulk_id || ''}')">Undo</button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load logs:', err);
+    document.getElementById('logs-list').innerHTML = '<div class="no-logs">Error loading logs.</div>';
+  }
+}
+
+function getLogIcon(type) {
+  const icons = {
+    added: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
+    deleted: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+    progress: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg>',
+    status: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.375 2.625a1 1 0 013 3l-9.013 9.014a2 2 0 01-.853.505l-2.873.84a.5.5 0 01-.62-.62l.84-2.873a2 2 0 01.506-.852z"/></svg>',
+    edited: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'
+  };
+  return icons[type] || icons.edited;
+}
+
+function getLogTitle(log) {
+  if (log.is_bulk) {
+    const typeLabels = {
+      deleted: 'Deleted',
+      status: 'Changed status for',
+      progress: 'Updated progress for'
+    };
+    return `${typeLabels[log.action_type] || 'Modified'} ${log.affected_count || 'multiple'} series`;
+  }
+  
+  return log.series_title || 'Unknown Series';
+}
+
+function getLogDetails(log) {
+  try {
+    const oldVal = log.old_value ? JSON.parse(log.old_value) : null;
+    const newVal = log.new_value ? JSON.parse(log.new_value) : null;
+    
+    switch(log.action_type) {
+      case 'added':
+        return `Added from ${newVal?.source || 'Unknown source'}`;
+      case 'deleted':
+        return 'Series removed from tracker';
+      case 'progress':
+        if (oldVal?.chapter && newVal?.chapter) {
+          return `Ch.${oldVal.chapter} → Ch.${newVal.chapter}`;
+        }
+        return 'Chapter progress updated';
+      case 'status':
+        if (oldVal?.status && newVal?.status) {
+          const statusMap = {
+            reading: 'Reading',
+            plan_to_read: 'Plan to Read',
+            on_hold: 'On Hold',
+            dropped: 'Dropped',
+            completed: 'Completed'
+          };
+          return `${statusMap[oldVal.status] || oldVal.status} → ${statusMap[newVal.status] || newVal.status}`;
+        }
+        return 'Status changed';
+      case 'edited':
+        return 'Metadata updated';
+      default:
+        return '';
+    }
+  } catch {
+    return '';
+  }
+}
+
+async function undoAction(logId, bulkId) {
+  if (!confirm('Undo this action?')) return;
+  
+  try {
+    const url = bulkId ? `/api/logs/undo-bulk/${bulkId}` : `/api/logs/undo/${logId}`;
+    const res = await fetch(url, { method: 'POST' });
+    
+    if (res.ok) {
+      loadLogs();
+    } else {
+      alert('Failed to undo action');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadLogs();
+  
+  document.getElementById('filter-type').addEventListener('change', (e) => {
+    currentFilters.type = e.target.value;
+    loadLogs();
+  });
+  
+  document.getElementById('filter-time').addEventListener('change', (e) => {
+    currentFilters.time = e.target.value;
+    loadLogs();
+  });
+  
+  let searchTimeout;
+  document.getElementById('search-logs').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      currentFilters.search = e.target.value.trim();
+      loadLogs();
+    }, 300);
+  });
+});
+</script>
+
+</body>
+</html>

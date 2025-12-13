@@ -1,0 +1,5 @@
+/logs
+/data
+/backend/__pycache__
+/backend/tracker/__pycache__
+/venv

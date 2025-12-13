@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Error Log</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+    // Handle date link clicks
+    document.querySelectorAll('.sidebar a[href^="/logs/"]').forEach(link => {
+        link.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const dateStr = link.href.split('/').pop();
+        
+        // Update active link
+        document.querySelectorAll('.sidebar a').forEach(el => {
+            el.style.fontWeight = 'normal';
+            el.style.color = '#94a3b8';
+        });
+        link.style.fontWeight = '600';
+        link.style.color = '#678ec9';
+
+        // Fetch errors
+        try {
+            const res = await fetch(`/api/errors/${dateStr}`);
+            const data = await res.json();
+            if (res.ok && data.errors) {
+            // Render errors
+            const container = document.querySelector('.main-content');
+            if (container) {
+                let html = `<h2>Errors — ${dateStr.split('-').reverse().join('/')}</h2>`;
+                if (data.errors.length > 0) {
+                html += data.errors.map(err => `
+                    <div class="error-entry">
+                    <div class="error-time">
+                        ${err.display_time}
+                        ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
+                    </div>
+                    <div class="error-title">${err.series_title}</div>
+                    <div class="error-url">${err.source_url}</div>
+                    <div class="error-message">${err.error}</div>
+                    </div>
+                `).join('');
+                } else {
+                html += '<p>No errors found for this date.</p>';
+                }
+                container.innerHTML = html;
+            }
+            }
+        } catch (e) {
+            console.error('Failed to load log:', e);
+        }
+        });
+    });
+    });
+    </script>
+  <style>
+    .errors-layout {
+      display: flex;
+      max-width: 1185px;
+      margin: 20px auto;
+      padding: 0 16px;
+      gap: 24px;
+    }
+    .sidebar {
+      width: 180px;
+      flex-shrink: 0;
+    }
+    .sidebar a {
+      display: block;
+      padding: 8px 12px;
+      color: #94a3b8;
+      text-decoration: none;
+      border-radius: 6px;
+      margin-bottom: 4px;
+    }
+    .sidebar a:hover {
+      background: #1a2436;
+      color: #cbd5e1;
+    }
+    .sidebar .back-link {
+      font-weight: 600;
+      color: #678ec9;
+      margin-bottom: 16px;
+      padding-top: 4px;
+    }
+    .main-content {
+      flex: 1;
+    }
+    .error-entry {
+      background: #1a2436;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+    .error-time { color: #878F9C; font-size: 13px; }
+    .error-title { font-weight: bold; color: #e53e3e; }
+    .error-url { color: #678ec9; word-break: break-all; }
+    .error-message { color: #f56565; margin-top: 6px; white-space: pre-wrap; }
+    h2 {
+      color: white;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+
+<header class="header-full">
+  <nav class="nav-container">
+    <div class="nav-links">
+      <a href="/errors" class="nav-link">Errors</a>
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/logs" class="nav-link">Activity Log</a>
+      <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
+    </div>
+  </nav>
+</header>
+
+  <div class="errors-layout">
+    <div class="sidebar">
+      <h3 style="color: white; font-size: 16px; margin: 12px 0 8px;">Log Files</h3>
+      {% for date_str, label in log_dates %}
+        <a href="/logs/{{ date_str }}" style="font-size:14px;"
+           {% if date_str == current_date %}style="font-weight:600;color:#678ec9;"{% endif %}>
+          {{ label }}
+        </a>
+      {% endfor %}
+    </div>
+
+    <div class="main-content">
+      <h2>Recent Errors</h2>
+      {% if errors %}
+        {% for err in errors %}
+          <div class="error-entry">
+            <div class="error-time">
+              {{ err.display_time }}
+              {% if err.is_new %}
+                <span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>
+              {% endif %}
+            </div>
+            <div class="error-title">{{ err.series_title }}</div>
+            <div class="error-url">{{ err.source_url }}</div>
+            <div class="error-message">{{ err.error }}</div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p>No errors found for this date.</p>
+      {% endif %}
+    </div>
+  </div>
+</body>
+</html>
