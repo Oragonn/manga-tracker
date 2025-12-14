@@ -205,60 +205,88 @@ def api_undo_log(log_id):
             if old_value and old_value.get('sources'):
                 source = old_value['sources'][0]  # Primary source
                 
-                series_id = db_add_series(
-                    title=old_value.get('title', 'Restored Series'),
-                    source_url=source['url'],
-                    status=old_value.get('status', 'reading'),
-                    cover_url=old_value.get('cover_url'),
-                    banner_url=old_value.get('banner_url'),
-                    anilist_id=old_value.get('anilist_id'),
-                    title_en=old_value.get('title_en'),
-                    title_romaji=old_value.get('title_romaji'),
-                    title_native=old_value.get('title_native'),
-                    source_status=old_value.get('source_status'),
-                    alt_titles=old_value.get('alt_titles'),
-                    genres=old_value.get('genres'),
-                    content_rating=old_value.get('content_rating', 'unknown'),
-                    source_type=old_value.get('source_type', 'other')
-                )
+                # *** FIX: Check if series already exists before trying to restore ***
+                conn_check = get_db()
+                cursor_check = conn_check.cursor()
+                cursor_check.execute("SELECT id FROM series WHERE source_url = ?", (source['url'],))
+                existing = cursor_check.fetchone()
+                release_db(conn_check)
                 
-                # Restore chapter progress if available
-                if 'current_chapter' in source and source['current_chapter'] is not None:
-                    update_series(series_id, {'current_chapter': source['current_chapter']})
-                
-                # *** FIX 2: Mark for check-now after restore ***
-                need_check_now = True
-                restored_series_id = series_id
+                if existing:
+                    # Series already exists, skip restoration but mark for check-now
+                    print(f"[Undo] Skipping '{old_value.get('title')}' - already exists")
+                    restored_series_id = existing[0]
+                    need_check_now = True
+                else:
+                    # Series doesn't exist, safe to restore
+                    try:
+                        series_id = db_add_series(
+                            title=old_value.get('title', 'Restored Series'),
+                            source_url=source['url'],
+                            status=old_value.get('status', 'reading'),
+                            cover_url=old_value.get('cover_url'),
+                            banner_url=old_value.get('banner_url'),
+                            anilist_id=old_value.get('anilist_id'),
+                            title_en=old_value.get('title_en'),
+                            title_romaji=old_value.get('title_romaji'),
+                            title_native=old_value.get('title_native'),
+                            source_status=old_value.get('source_status'),
+                            alt_titles=old_value.get('alt_titles'),
+                            genres=old_value.get('genres'),
+                            content_rating=old_value.get('content_rating', 'unknown'),
+                            source_type=old_value.get('source_type', 'other')
+                        )
+                        
+                        # Restore chapter progress if available
+                        if 'current_chapter' in source and source['current_chapter'] is not None:
+                            update_series(series_id, {'current_chapter': source['current_chapter']})
+                        
+                        need_check_now = True
+                        restored_series_id = series_id
+                    except Exception as e:
+                        print(f"[Undo] Failed to restore series: {e}")
+                        return jsonify({'error': f'Failed to restore series: {str(e)}'}), 500
         
         elif action_type == 'progress' and series_id:
             # Revert chapter progress
             if old_value and 'chapter' in old_value:
-                update_series(series_id, {'current_chapter': old_value['chapter']})
+                try:
+                    update_series(series_id, {'current_chapter': old_value['chapter']})
+                except Exception as e:
+                    print(f"[Undo] Failed to revert progress: {e}")
+                    return jsonify({'error': f'Failed to revert progress: {str(e)}'}), 500
         
         elif action_type == 'status' and series_id:
             # Revert status
             if old_value and 'status' in old_value:
-                update_series(series_id, {'status': old_value['status']})
+                try:
+                    update_series(series_id, {'status': old_value['status']})
+                except Exception as e:
+                    print(f"[Undo] Failed to revert status: {e}")
+                    return jsonify({'error': f'Failed to revert status: {str(e)}'}), 500
         
         elif action_type == 'edited' and series_id:
             # Revert edits
             if old_value:
-                updates = {}
-                if 'title' in old_value:
-                    updates['title'] = old_value['title']
-                if 'cover_url' in old_value:
-                    updates['cover_url'] = old_value['cover_url']
-                if updates:
-                    update_series(series_id, updates)
+                try:
+                    updates = {}
+                    if 'title' in old_value:
+                        updates['title'] = old_value['title']
+                    if 'cover_url' in old_value:
+                        updates['cover_url'] = old_value['cover_url']
+                    if updates:
+                        update_series(series_id, updates)
+                except Exception as e:
+                    print(f"[Undo] Failed to revert edits: {e}")
+                    return jsonify({'error': f'Failed to revert edits: {str(e)}'}), 500
         
         # Mark as undone
         mark_log_undone(log_id=log_id)
         
-        # *** FIX 2: Trigger check-now for restored series ***
+        # Trigger check-now for restored series
         if need_check_now and restored_series_id:
             try:
                 from .scheduler import MangaScheduler
-                # Import the global scheduler instance from api.py
                 from . import api
                 if hasattr(api, 'manga_scheduler'):
                     api.manga_scheduler.scan_series(restored_series_id)
@@ -270,7 +298,10 @@ def api_undo_log(log_id):
     
     except Exception as e:
         print(f"[Undo] Error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/logs/undo-bulk/<bulk_id>', methods=['POST'])
 def api_undo_bulk(bulk_id):
@@ -318,7 +349,7 @@ def api_undo_bulk(bulk_id):
         
         release_db(conn)
         
-        # *** FIX 2: Track restored series for check-now ***
+        # Track restored series for check-now
         restored_series_ids = []
         
         # Undo each entry
@@ -332,51 +363,77 @@ def api_undo_bulk(bulk_id):
                 if old_value and old_value.get('sources'):
                     source = old_value['sources'][0]
                     
-                    new_series_id = db_add_series(
-                        title=old_value.get('title', 'Restored Series'),
-                        source_url=source['url'],
-                        status=old_value.get('status', 'reading'),
-                        cover_url=old_value.get('cover_url'),
-                        banner_url=old_value.get('banner_url'),
-                        anilist_id=old_value.get('anilist_id'),
-                        title_en=old_value.get('title_en'),
-                        title_romaji=old_value.get('title_romaji'),
-                        title_native=old_value.get('title_native'),
-                        source_status=old_value.get('source_status'),
-                        alt_titles=old_value.get('alt_titles'),
-                        genres=old_value.get('genres'),
-                        content_rating=old_value.get('content_rating', 'unknown'),
-                        source_type=old_value.get('source_type', 'other')
-                    )
+                    # *** FIX: Check if series already exists before trying to restore ***
+                    conn_check = get_db()
+                    cursor_check = conn_check.cursor()
+                    cursor_check.execute("SELECT id FROM series WHERE source_url = ?", (source['url'],))
+                    existing = cursor_check.fetchone()
+                    release_db(conn_check)
                     
-                    if 'current_chapter' in source and source['current_chapter'] is not None:
-                        update_series(new_series_id, {'current_chapter': source['current_chapter']})
+                    if existing:
+                        # Series already exists, skip restoration but track for check-now
+                        print(f"[Undo Bulk] Skipping '{old_value.get('title')}' - already exists")
+                        restored_series_ids.append(existing[0])
+                        continue
                     
-                    # *** FIX 2: Track for check-now ***
-                    restored_series_ids.append(new_series_id)
+                    # Series doesn't exist, safe to restore
+                    try:
+                        new_series_id = db_add_series(
+                            title=old_value.get('title', 'Restored Series'),
+                            source_url=source['url'],
+                            status=old_value.get('status', 'reading'),
+                            cover_url=old_value.get('cover_url'),
+                            banner_url=old_value.get('banner_url'),
+                            anilist_id=old_value.get('anilist_id'),
+                            title_en=old_value.get('title_en'),
+                            title_romaji=old_value.get('title_romaji'),
+                            title_native=old_value.get('title_native'),
+                            source_status=old_value.get('source_status'),
+                            alt_titles=old_value.get('alt_titles'),
+                            genres=old_value.get('genres'),
+                            content_rating=old_value.get('content_rating', 'unknown'),
+                            source_type=old_value.get('source_type', 'other')
+                        )
+                        
+                        if 'current_chapter' in source and source['current_chapter'] is not None:
+                            update_series(new_series_id, {'current_chapter': source['current_chapter']})
+                        
+                        restored_series_ids.append(new_series_id)
+                    except Exception as e:
+                        print(f"[Undo Bulk] Failed to restore '{old_value.get('title')}': {e}")
+                        continue
             
             elif action_type == 'progress' and series_id:
                 if old_value and 'chapter' in old_value:
-                    update_series(series_id, {'current_chapter': old_value['chapter']})
+                    try:
+                        update_series(series_id, {'current_chapter': old_value['chapter']})
+                    except Exception as e:
+                        print(f"[Undo Bulk] Failed to revert progress for series {series_id}: {e}")
             
             elif action_type == 'status' and series_id:
                 if old_value and 'status' in old_value:
-                    update_series(series_id, {'status': old_value['status']})
+                    try:
+                        update_series(series_id, {'status': old_value['status']})
+                    except Exception as e:
+                        print(f"[Undo Bulk] Failed to revert status for series {series_id}: {e}")
             
             elif action_type == 'edited' and series_id:
                 if old_value:
-                    updates = {}
-                    if 'title' in old_value:
-                        updates['title'] = old_value['title']
-                    if 'cover_url' in old_value:
-                        updates['cover_url'] = old_value['cover_url']
-                    if updates:
-                        update_series(series_id, updates)
+                    try:
+                        updates = {}
+                        if 'title' in old_value:
+                            updates['title'] = old_value['title']
+                        if 'cover_url' in old_value:
+                            updates['cover_url'] = old_value['cover_url']
+                        if updates:
+                            update_series(series_id, updates)
+                    except Exception as e:
+                        print(f"[Undo Bulk] Failed to revert edits for series {series_id}: {e}")
         
         # Mark entire bulk as undone
         mark_log_undone(bulk_id=bulk_id)
         
-        # *** FIX 2: Trigger check-now for all restored series ***
+        # Trigger check-now for all restored series
         if restored_series_ids:
             try:
                 from .scheduler import MangaScheduler
@@ -388,11 +445,16 @@ def api_undo_bulk(bulk_id):
             except Exception as e:
                 print(f"[Undo Bulk] Failed to trigger check-now: {e}")
         
-        return jsonify({'success': True})
+        return jsonify({'success': True, 'restored_count': len(restored_series_ids)})
     
     except Exception as e:
         print(f"[Undo Bulk] Error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+
+
+
+  
 if __name__ == '__main__':
     run_server()
