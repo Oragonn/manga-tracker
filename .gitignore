@@ -2,6 +2,7 @@
 logs/
 data/
 venv/
+backups/
 
 # Python
 __pycache__/

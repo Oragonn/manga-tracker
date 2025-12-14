@@ -5,12 +5,21 @@ from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
 from .trackers.mangadex import extract_manga_id, get_latest_chapters
 from .trackers.kagane import extract_series_id, get_series_info
+from .backup_manager import BackupManager
 
 class MangaScheduler:
     def __init__(self):
         self.active = True
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.cleanup_thread = threading.Thread(target=self._cleanup_logs, daemon=True)
+        
+        # ✨ ADD THIS:
+        self.backup_manager = BackupManager(
+            db_path="data/tracker.db",
+            backup_dir="backups",
+            backup_interval_hours=1,  # Backup every hour
+            retention_days=7          # Keep for 7 days
+        )
 
     def _cleanup_logs(self):
         """Background thread to cleanup old activity logs every 24 hours."""
@@ -169,7 +178,8 @@ class MangaScheduler:
 
     def start_scanning(self):
         self.thread.start()
-        self.cleanup_thread.start()  # Start cleanup thread
+        self.cleanup_thread.start() 
+        self.backup_manager.start()
 
     def stop(self):
         self.active = False

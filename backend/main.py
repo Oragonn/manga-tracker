@@ -1,10 +1,10 @@
 # backend/main.py
 from .api import app, run_server
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, send_file
 import re
 from .activity_logger import get_logs, mark_log_undone
 from .database import add_series as db_add_series
-
+import os
 
 @app.route('/errors')
 def errors_page():
@@ -453,8 +453,65 @@ def api_undo_bulk(bulk_id):
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+# List all backups
+@app.route('/api/backups')
+def api_list_backups():
+    try:
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            stats = api.manga_scheduler.backup_manager.get_backup_stats()
+            return jsonify(stats)
+        return jsonify({'error': 'Backup manager not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
+# Create manual backup
+@app.route('/api/backups/create', methods=['POST'])
+def api_create_backup():
+    try:
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            success = api.manga_scheduler.backup_manager.create_backup()
+            if success:
+                return jsonify({'success': True})
+            return jsonify({'error': 'Backup failed'}), 500
+        return jsonify({'error': 'Backup manager not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
+# Download backup
+@app.route('/api/backups/download/<filename>')
+def api_download_backup(filename):
+    try:
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            backup_path = os.path.join(
+                api.manga_scheduler.backup_manager.backup_dir, 
+                filename
+            )
+            if os.path.exists(backup_path):
+                return send_file(backup_path, as_attachment=True)
+            return jsonify({'error': 'Backup not found'}), 404
+        return jsonify({'error': 'Backup manager not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Restore from backup (DANGEROUS - use with caution)
+@app.route('/api/backups/restore/<filename>', methods=['POST'])
+def api_restore_backup(filename):
+    try:
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            success = api.manga_scheduler.backup_manager.restore_backup(filename)
+            if success:
+                return jsonify({
+                    'success': True, 
+                    'message': 'Restored. Please restart the app.'
+                })
+            return jsonify({'error': 'Restore failed'}), 500
+        return jsonify({'error': 'Backup manager not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
   
 if __name__ == '__main__':
     run_server()
