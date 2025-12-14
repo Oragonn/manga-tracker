@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Database Backups - Manga Tracker</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .backups-container {
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+    
+    .backup-status-card {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    
+    .stat-label {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    
+    .stat-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: white;
+    }
+    
+    .usage-bar {
+      width: 100%;
+      height: 8px;
+      background: #1a2436;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    
+    .usage-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #22c55e, #eab308, #ef4444);
+      transition: width 0.3s ease;
+    }
+    
+    .backup-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+    
+    .backup-list-card {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 24px;
+    }
+    
+    .backup-entry {
+      background: #1a2436;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background 0.2s;
+    }
+    
+    .backup-entry:hover {
+      background: #1e2c40;
+    }
+    
+    .backup-info {
+      flex: 1;
+    }
+    
+    .backup-filename {
+      font-family: monospace;
+      font-size: 14px;
+      color: #678ec9;
+      margin-bottom: 4px;
+    }
+    
+    .backup-meta {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+    
+    .backup-entry-actions {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .btn-backup {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1a2436;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    
+    .btn-backup:hover {
+      background: #2d3f5f;
+    }
+    
+    .btn-backup.primary {
+      background: #1665f4;
+      border-color: #1665f4;
+    }
+    
+    .btn-backup.primary:hover {
+      background: #1256d0;
+    }
+    
+    .btn-backup.danger {
+      background: #e53e3e;
+      border-color: #e53e3e;
+    }
+    
+    .btn-backup.danger:hover {
+      background: #c53030;
+    }
+    
+    .date-group {
+      margin-bottom: 24px;
+    }
+    
+    .date-group-header {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<header class="header-full">
+  <nav class="nav-container">
+    <div class="nav-links">
+      <a href="/errors" class="nav-link">Errors</a>
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/logs" class="nav-link">Activity Log</a>
+      <a href="/backups" class="nav-link">Backups</a>
+      <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
+    </div>
+  </nav>
+</header>
+
+<div class="backups-container">
+  <h1 style="color: white; margin-bottom: 24px;">📦 Database Backups</h1>
+  
+  <!-- Status Card -->
+  <div class="backup-status-card">
+    <div class="status-grid">
+      <div class="stat-item">
+        <div class="stat-label">Next Backup</div>
+        <div class="stat-value" id="next-backup">Loading...</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Last Backup</div>
+        <div class="stat-value" id="last-backup">Loading...</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Total Backups</div>
+        <div class="stat-value" id="total-backups">0</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Disk Usage</div>
+        <div class="stat-value" id="disk-usage">0 MB</div>
+      </div>
+    </div>
+    
+    <div class="usage-bar">
+      <div class="usage-fill" id="usage-fill" style="width: 0%"></div>
+    </div>
+    
+    <div class="backup-actions">
+      <button class="btn-backup" onclick="refreshStatus()">
+        ↻ Refresh Status
+      </button>
+      <button class="btn-backup primary" onclick="createBackupNow()">
+        ➕ Create Backup Now
+      </button>
+    </div>
+  </div>
+  
+  <!-- Backup List -->
+  <div class="backup-list-card">
+    <h2 style="color: white; margin-bottom: 16px;">🗂️ Available Backups</h2>
+    <div id="backup-list">
+      <p style="color: #94a3b8;">Loading backups...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Restore Confirmation Modal -->
+<div id="restore-modal" class="modal confirm-modal hidden">
+  <div class="modal-content">
+    <div class="warning-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+        <polygon style="fill:#FFFFFF;" points="13.728,473.992 256,46.24 498.272,473.992 "/>
+        <path style="fill:#e53e3e;" d="M256,62.472l228.552,403.52H27.448L256,62.472 M256,30.008L0,481.992h512L256,30.008L256,30.008z"/>
+        <path style="fill:#2D2D2D;" d="M226.112,396.344c0-17.216,12.024-29.56,29.232-29.56c17.216,0,28.584,12.344,28.912,29.56 c0,16.888-11.368,29.552-28.912,29.552C237.808,425.896,226.112,413.232,226.112,396.344z M236.84,350.536l-7.48-147.144h51.648 l-7.152,147.152L236.84,350.536L236.84,350.536z"/>
+      </svg>
+    </div>
+    <h3>Restore Database?</h3>
+    <div id="restore-details" style="margin: 16px 0; color: #94a3b8;"></div>
+    <p style="color: #ef4444; font-weight: 600; margin-bottom: 20px;">
+      ⚠️ All changes after this backup will be LOST!
+    </p>
+    <div class="modal-buttons">
+      <button onclick="closeRestoreModal()">Cancel</button>
+      <button id="confirm-restore-btn" class="btn-confirm-danger">Yes, Restore Database</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/backups.js"></script>
+
+</body>
+</html>

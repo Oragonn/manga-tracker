@@ -512,6 +512,11 @@ def api_restore_backup(filename):
         return jsonify({'error': 'Backup manager not available'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/backups')
+def backups_page():
+    """Render backups management page."""
+    return render_template('backups.html')
   
 if __name__ == '__main__':
     run_server()
