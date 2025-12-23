@@ -104,6 +104,43 @@
       color: #94a3b8;
     }
     
+    /* Tooltip styling */
+    .backup-time {
+      position: relative;
+      display: inline-block;
+      cursor: help;
+      border-bottom: 1px dotted #94a3b8;
+    }
+    
+    .backup-time:hover::after {
+      content: attr(data-full-date);
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0f172a;
+      color: white;
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      white-space: nowrap;
+      z-index: 1000;
+      margin-bottom: 5px;
+      border: 1px solid #334155;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    
+    .backup-time:hover::before {
+      content: '';
+      position: absolute;
+      bottom: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: #0f172a;
+      z-index: 1001;
+    }
+    
     .backup-entry-actions {
       display: flex;
       gap: 8px;

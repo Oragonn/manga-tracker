@@ -99,9 +99,12 @@ class BackupManager:
             deleted_count = 0
             freed_space = 0
             
-            # List all backup files
+            # List all backup files (including safety backups)
             for filename in os.listdir(self.backup_dir):
-                if not filename.startswith("tracker_backup_") or not filename.endswith(".db.gz"):
+                # Match both regular backups AND safety backups
+                if not (filename.startswith("tracker_backup_") or filename.startswith("safety_before_restore_")):
+                    continue
+                if not filename.endswith(".db.gz"):
                     continue
                 
                 filepath = os.path.join(self.backup_dir, filename)
@@ -171,11 +174,24 @@ class BackupManager:
                 print(f"[Backup] Backup file not found: {backup_filename}")
                 return False
             
-            # Create safety backup of current database
-            safety_backup = f"{self.db_path}.before_restore_{int(time.time())}"
+            # Create safety backup of current database IN THE BACKUPS DIRECTORY
+            timestamp = int(time.time())
+            safety_filename = f"safety_before_restore_{timestamp}.db.gz"
+            safety_backup_path = os.path.join(self.backup_dir, safety_filename)
+            
             if os.path.exists(self.db_path):
-                shutil.copy2(self.db_path, safety_backup)
-                print(f"[Backup] Created safety backup: {safety_backup}")
+                # Compress current DB and save to backups/
+                temp_db_copy = f"{self.db_path}.temp_{timestamp}"
+                shutil.copy2(self.db_path, temp_db_copy)
+                
+                with open(temp_db_copy, 'rb') as f_in:
+                    with gzip.open(safety_backup_path, 'wb', compresslevel=6) as f_out:
+                        shutil.copyfileobj(f_in, f_out)
+                
+                # Remove temp uncompressed copy
+                os.remove(temp_db_copy)
+                
+                print(f"[Backup] Created safety backup: {safety_filename}")
             
             # Decompress and restore
             temp_restore = f"{self.db_path}.restoring"
@@ -189,7 +205,7 @@ class BackupManager:
             shutil.move(temp_restore, self.db_path)
             
             print(f"[Backup] Successfully restored from: {backup_filename}")
-            print(f"[Backup] Safety backup available at: {safety_backup}")
+            print(f"[Backup] Safety backup available at: backups/{safety_filename}")
             return True
             
         except Exception as e:
@@ -201,7 +217,7 @@ class BackupManager:
             except:
                 pass
             return False
-    
+        
     def _backup_loop(self):
         """Background thread that creates backups periodically."""
         print(f"[Backup] Backup thread started")

@@ -1,5 +1,15 @@
 let currentBackupFilename = null;
 
+// Format date to DD/MM/YYYY HH:MM
+function formatFullDate(dateObj) {
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const year = dateObj.getFullYear();
+  const hours = String(dateObj.getHours()).padStart(2, '0');
+  const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+  return `${day}/${month}/${year} ${hours}:${minutes}`;
+}
+
 async function loadBackups() {
   try {
     const res = await fetch('/api/backups');
@@ -58,12 +68,17 @@ async function loadBackups() {
             ? `${Math.floor(backup.age_hours)} hours ago`
             : `${Math.floor(backup.age_hours / 24)} days ago`;
         
+        // Format full date for tooltip
+        const backupDate = new Date(backup.created);
+        const fullDate = formatFullDate(backupDate);
+        
         html += `
           <div class="backup-entry">
             <div class="backup-info">
               <div class="backup-filename">${backup.filename}</div>
               <div class="backup-meta">
-                Size: ${backup.size_mb.toFixed(2)} MB  •  ${ageText}
+                Size: ${backup.size_mb.toFixed(2)} MB  •  
+                <span class="backup-time" data-full-date="${fullDate}">${ageText}</span>
               </div>
             </div>
             <div class="backup-entry-actions">

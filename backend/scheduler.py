@@ -1,6 +1,7 @@
 import threading
 import time
 import sqlite3
+import os
 from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
 from .trackers.mangadex import extract_manga_id, get_latest_chapters
@@ -13,10 +14,14 @@ class MangaScheduler:
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.cleanup_thread = threading.Thread(target=self._cleanup_logs, daemon=True)
         
-        # ✨ ADD THIS:
+        # ✅ FIX: Use absolute paths
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        db_path = os.path.join(project_root, "data", "tracker.db")
+        backup_dir = os.path.join(project_root, "backups")
+        
         self.backup_manager = BackupManager(
-            db_path="data/tracker.db",
-            backup_dir="backups",
+            db_path=db_path,
+            backup_dir=backup_dir,
             backup_interval_hours=1,  # Backup every hour
             retention_days=7          # Keep for 7 days
         )
