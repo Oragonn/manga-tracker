@@ -50,6 +50,219 @@ def release_db(conn):
         conn.close()
         _db_lock.release()
 
+def add_source_to_series(series_id, source_url, source_type, is_primary=False):
+    """
+    Add a new source to an existing series.
+    If is_primary=True, demotes the current primary source.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # If setting as primary, demote current primary
+        if is_primary:
+            cursor.execute("""
+                UPDATE series_sources 
+                SET is_primary = 0 
+                WHERE series_id = ?
+            """, (series_id,))
+        
+        # Add new source
+        cursor.execute("""
+            INSERT INTO series_sources (series_id, source_url, source_type, is_primary)
+            VALUES (?, ?, ?, ?)
+        """, (series_id, source_url, source_type, int(is_primary)))
+        
+        source_id = cursor.lastrowid
+        release_db(conn)
+        return source_id
+        
+    except Exception as e:
+        print(f"[Database] Failed to add source: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return None
+
+
+def migrate_to_multi_source():
+    """
+    Migrate from single source_url to multi-source architecture.
+    Creates series_sources table and migrates existing data.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Check if migration already done
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='series_sources'")
+        if cursor.fetchone():
+            print("[Migration] Multi-source tables already exist, skipping migration")
+            release_db(conn)
+            return
+        
+        print("[Migration] Starting multi-source migration...")
+        
+        # 1. Create new series_sources table
+        cursor.execute("""
+            CREATE TABLE series_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_id INTEGER NOT NULL,
+                source_url TEXT NOT NULL UNIQUE,
+                source_type TEXT NOT NULL,
+                is_primary BOOLEAN DEFAULT 0,
+                last_check DATETIME,
+                added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # 2. Create indexes for performance
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_series ON series_sources(series_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sources_primary ON series_sources(series_id, is_primary)")
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_url ON series_sources(source_url)")
+        
+        # 3. Migrate existing series.source_url to series_sources
+        cursor.execute("SELECT id, source_url, last_check FROM series WHERE source_url IS NOT NULL")
+        existing_series = cursor.fetchall()
+        
+        migrated_count = 0
+        for series_id, source_url, last_check in existing_series:
+            # Detect source type
+            if 'mangadex.org' in source_url:
+                source_type = 'mangadex'
+            elif 'kagane.org' in source_url:
+                source_type = 'kagane'
+            else:
+                source_type = 'unknown'
+            
+            cursor.execute("""
+                INSERT INTO series_sources (series_id, source_url, source_type, is_primary, last_check)
+                VALUES (?, ?, ?, 1, ?)
+            """, (series_id, source_url, source_type, last_check))
+            migrated_count += 1
+        
+        print(f"[Migration] Migrated {migrated_count} series to multi-source format")
+        
+        # 4. Keep source_url column for backward compatibility (will be deprecated later)
+        # Don't drop it yet to avoid breaking existing code during transition
+        
+        release_db(conn)
+        print("[Migration] Multi-source migration completed successfully!")
+        
+    except Exception as e:
+        print(f"[Migration] Failed: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        raise
+
+def get_series_sources(series_id):
+    """Get all sources for a series, ordered by primary first."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, source_url, source_type, is_primary, last_check
+        FROM series_sources
+        WHERE series_id = ?
+        ORDER BY is_primary DESC, added_at ASC
+    """, (series_id,))
+    
+    rows = cursor.fetchall()
+    release_db(conn)
+    
+    sources = []
+    for row in rows:
+        sources.append({
+            'id': row[0],
+            'source_url': row[1],
+            'source_type': row[2],
+            'is_primary': bool(row[3]),
+            'last_check': row[4]
+        })
+    
+    return sources
+
+
+def set_primary_source(series_id, source_id):
+    """Set a source as primary for a series."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Demote all sources for this series
+        cursor.execute("""
+            UPDATE series_sources 
+            SET is_primary = 0 
+            WHERE series_id = ?
+        """, (series_id,))
+        
+        # Promote the selected source
+        cursor.execute("""
+            UPDATE series_sources 
+            SET is_primary = 1 
+            WHERE id = ? AND series_id = ?
+        """, (source_id, series_id))
+        
+        release_db(conn)
+        return True
+        
+    except Exception as e:
+        print(f"[Database] Failed to set primary source: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False
+
+
+def remove_source(source_id):
+    """Remove a source (only if not primary or not last source)."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Check if primary
+        cursor.execute("SELECT series_id, is_primary FROM series_sources WHERE id = ?", (source_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            release_db(conn)
+            return False
+        
+        series_id, is_primary = row
+        
+        # Count total sources for this series
+        cursor.execute("SELECT COUNT(*) FROM series_sources WHERE series_id = ?", (series_id,))
+        count = cursor.fetchone()[0]
+        
+        # Don't allow removing the last source
+        if count <= 1:
+            release_db(conn)
+            return False
+        
+        # Don't allow removing primary source (must change primary first)
+        if is_primary:
+            release_db(conn)
+            return False
+        
+        # Delete the source
+        cursor.execute("DELETE FROM series_sources WHERE id = ?", (source_id,))
+        
+        release_db(conn)
+        return True
+        
+    except Exception as e:
+        print(f"[Database] Failed to remove source: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False
+
 def init_db():
     os.makedirs("data", exist_ok=True)
     conn = get_db()
@@ -147,6 +360,9 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_chapters_series ON chapters(series_id)")
 
     release_db(conn)
+
+    # ✅ RUN MULTI-SOURCE MIGRATION
+    migrate_to_multi_source()
 
     # Run backfill AFTER releasing DB lock
     backfill_searchable_text()

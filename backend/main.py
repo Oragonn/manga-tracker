@@ -517,6 +517,126 @@ def api_restore_backup(filename):
 def backups_page():
     """Render backups management page."""
     return render_template('backups.html')
+
+@app.route('/api/series/<int:series_id>/sources')
+def api_get_sources(series_id):
+    """Get all sources for a series."""
+    try:
+        from .database import get_series_sources
+        sources = get_series_sources(series_id)
+        return jsonify({'sources': sources})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/series/<int:series_id>/sources', methods=['POST'])
+def api_add_source(series_id):
+    """Add a new source to a series."""
+    try:
+        data = request.get_json()
+        source_url = data.get('source_url')
+        
+        if not source_url:
+            return jsonify({'error': 'source_url required'}), 400
+        
+        # Detect source type
+        if 'mangadex.org' in source_url:
+            source_type = 'mangadex'
+        elif 'kagane.org' in source_url:
+            source_type = 'kagane'
+        else:
+            source_type = 'unknown'
+        
+        from .database import add_source_to_series
+        source_id = add_source_to_series(
+            series_id, 
+            source_url, 
+            source_type, 
+            is_primary=False
+        )
+        
+        if source_id:
+            # Trigger chapter fetch for new source
+            try:
+                from . import api
+                if hasattr(api, 'manga_scheduler'):
+                    api.manga_scheduler.scan_series(series_id)
+            except Exception as e:
+                print(f"[Add Source] Failed to trigger scan: {e}")
+            
+            return jsonify({'success': True, 'source_id': source_id})
+        else:
+            return jsonify({'error': 'Failed to add source'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/series/<int:series_id>/sources/<int:source_id>/primary', methods=['POST'])
+def api_set_primary_source(series_id, source_id):
+    """Set a source as primary."""
+    try:
+        from .database import set_primary_source
+        success = set_primary_source(series_id, source_id)
+        
+        if success:
+            # Log the change
+            try:
+                from .activity_logger import log_activity
+                from .database import get_db, release_db
+                
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+                title = cursor.fetchone()
+                cursor.execute("SELECT source_url, source_type FROM series_sources WHERE id = ?", (source_id,))
+                source_info = cursor.fetchone()
+                release_db(conn)
+                
+                if title and source_info:
+                    log_activity(
+                        action_type='edited',
+                        series_id=series_id,
+                        series_title=title[0],
+                        old_value={'primary_source': 'changed'},
+                        new_value={
+                            'primary_source': source_info[0],
+                            'source_type': source_info[1]
+                        }
+                    )
+            except Exception as log_err:
+                print(f"[Set Primary] Logging failed: {log_err}")
+            
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': 'Failed to set primary source'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/series/<int:series_id>/sources/<int:source_id>', methods=['DELETE'])
+def api_remove_source(series_id, source_id):
+    """Remove a source from a series."""
+    try:
+        from .database import remove_source
+        success = remove_source(source_id)
+        
+        if success:
+            # Rescan chapters from remaining sources
+            try:
+                from . import api
+                if hasattr(api, 'manga_scheduler'):
+                    api.manga_scheduler.scan_series(series_id)
+            except Exception as e:
+                print(f"[Remove Source] Failed to trigger rescan: {e}")
+            
+            return jsonify({'success': True})
+        else:
+            return jsonify({'error': 'Cannot remove primary or last source'}), 400
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
   
 if __name__ == '__main__':
     run_server()

@@ -111,10 +111,13 @@ function openEditModal(series) {
   currentSeriesIdForEdit = series.id;
   document.getElementById('edit-series-id').value = series.id;
   document.getElementById('edit-title').value = series.title || '';
-  document.getElementById('edit-source-url').value = series.source_url || '';
   document.getElementById('edit-cover-url').value = series.cover_url || '';
   document.getElementById('edit-status').value = series.status || 'plan_to_read';
 
+  // Load sources
+  loadSeriesSources(series.id);
+
+  // Load chapters (existing code)
   fetch(`/api/series/${series.id}/chapters`)
     .then(r => r.json())
     .then(chapters => {
@@ -172,6 +175,151 @@ function openEditModal(series) {
     .catch(err => console.error('Chapter load error:', err));
 
   document.getElementById('edit-series-modal').classList.remove('hidden');
+}
+
+// ─── Source Management Functions ─────────────────────────────
+async function loadSeriesSources(seriesId) {
+  try {
+    const res = await fetch(`/api/series/${seriesId}/sources`);
+    if (!res.ok) throw new Error('Failed to load sources');
+    
+    const data = await res.json();
+    const container = document.getElementById('sources-list');
+    
+    if (data.sources.length === 0) {
+      container.innerHTML = '<p class="loading-text">No sources found.</p>';
+      return;
+    }
+    
+    container.innerHTML = data.sources.map(source => {
+      const sourceTypeLabel = {
+        'mangadex': 'MangaDex',
+        'kagane': 'Kagane',
+        'unknown': 'Unknown'
+      }[source.source_type] || source.source_type;
+      
+      return `
+        <div class="source-item ${source.is_primary ? 'primary' : ''}" data-source-id="${source.id}">
+          <input 
+            type="radio" 
+            name="primary-source" 
+            class="source-radio"
+            ${source.is_primary ? 'checked' : ''}
+            onchange="setPrimarySource(${seriesId}, ${source.id})"
+          />
+          <div class="source-info">
+            <div class="source-type">
+              ${sourceTypeLabel} ${source.is_primary ? '(Primary)' : ''}
+            </div>
+            <div class="source-url">${source.source_url}</div>
+          </div>
+          <div class="source-actions">
+            <button class="btn-icon" onclick="window.open('${source.source_url}', '_blank')" title="Open Source">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+              </svg>
+            </button>
+            ${!source.is_primary && data.sources.length > 1 ? `
+              <button class="btn-icon danger" onclick="removeSource(${seriesId}, ${source.id})" title="Remove Source">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                </svg>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+  } catch (err) {
+    console.error('Failed to load sources:', err);
+    document.getElementById('sources-list').innerHTML = 
+      '<p class="loading-text">Error loading sources.</p>';
+  }
+}
+
+async function setPrimarySource(seriesId, sourceId) {
+  try {
+    const res = await fetch(`/api/series/${seriesId}/sources/${sourceId}/primary`, {
+      method: 'POST'
+    });
+    
+    if (res.ok) {
+      await loadSeriesSources(seriesId);
+    } else {
+      alert('Failed to set primary source');
+    }
+  } catch (err) {
+    console.error('Failed to set primary:', err);
+    alert('Error: ' + err.message);
+  }
+}
+
+async function removeSource(seriesId, sourceId) {
+  if (!confirm('Remove this source? Chapters from this source will remain but won\'t be updated.')) {
+    return;
+  }
+  
+  try {
+    const res = await fetch(`/api/series/${seriesId}/sources/${sourceId}`, {
+      method: 'DELETE'
+    });
+    
+    if (res.ok) {
+      await loadSeriesSources(seriesId);
+    } else {
+      const data = await res.json();
+      alert('Failed to remove source: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    console.error('Failed to remove source:', err);
+    alert('Error: ' + err.message);
+  }
+}
+
+function showAddSourceForm() {
+  document.getElementById('add-source-form').classList.remove('hidden');
+  document.getElementById('new-source-url').focus();
+}
+
+function hideAddSourceForm() {
+  document.getElementById('add-source-form').classList.add('hidden');
+  document.getElementById('new-source-url').value = '';
+}
+
+async function addNewSource() {
+  const url = document.getElementById('new-source-url').value.trim();
+  
+  if (!url) {
+    alert('Please enter a source URL');
+    return;
+  }
+  
+  // Validate URL — note: fixed extra spaces in your example
+  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.org/')) {
+    alert('Only MangaDex and Kagane sources are supported');
+    return;
+  }
+  
+  try {
+    const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_url: url })
+    });
+    
+    if (res.ok) {
+      hideAddSourceForm();
+      await loadSeriesSources(currentSeriesIdForEdit);
+      alert('✅ Source added! Fetching chapters...');
+    } else {
+      const data = await res.json();
+      alert('Failed to add source: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    console.error('Failed to add source:', err);
+    alert('Error: ' + err.message);
+  }
 }
 
 // ─── Card Rendering ──────────────────────────────────────────

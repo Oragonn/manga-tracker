@@ -122,36 +122,64 @@ class MangaScheduler:
 
     def scan_series(self, series_id):
         try:
-            # Step 1: Get source_url without holding DB lock long
-            conn_temp = get_db()
-            cursor_temp = conn_temp.cursor()
-            cursor_temp.execute("SELECT source_url FROM series WHERE id = ?", (series_id,))
-            row = cursor_temp.fetchone()
-            release_db(conn_temp)
-            if not row:
+            from .database import get_series_sources
+            
+            # Get all sources for this series
+            sources = get_series_sources(series_id)
+            
+            if not sources:
+                print(f"[Scheduler] No sources found for series {series_id}")
                 return
-            source_url = row[0]
-
-            is_mangadex = 'mangadex.org/title/' in source_url
-            is_kagane = 'kagane.org/series/' in source_url
-
-            chapters = None
-            if is_mangadex:
-                manga_id = extract_manga_id(source_url)
-                if manga_id:
-                    chapters = get_latest_chapters(manga_id, limit=100)
-            elif is_kagane:
-                kagane_id = extract_series_id(source_url)
-                if kagane_id:
-                    kagane_info = get_series_info(kagane_id)
-                    if kagane_info:
-                        chapters = kagane_info['chapters']
-                        
-            # Step 2: Save to DB
-            if chapters is not None:
+            
+            all_chapters = []
+            
+            # Fetch chapters from each source
+            for source in sources:
+                source_url = source['source_url']
+                source_type = source['source_type']
+                
+                chapters = None
+                
+                if source_type == 'mangadex':
+                    manga_id = extract_manga_id(source_url)
+                    if manga_id:
+                        chapters = get_latest_chapters(manga_id, limit=100)
+                elif source_type == 'kagane':
+                    kagane_id = extract_series_id(source_url)
+                    if kagane_id:
+                        kagane_info = get_series_info(kagane_id)
+                        if kagane_info:
+                            chapters = kagane_info['chapters']
+                
+                if chapters:
+                    # Tag chapters with source info
+                    for ch in chapters:
+                        ch['source_id'] = source['id']
+                        ch['source_type'] = source_type
+                        ch['source_url'] = source_url
+                    all_chapters.extend(chapters)
+            
+            # Merge chapters (deduplicate by chapter_number, keep most recent)
+            merged_chapters = {}
+            for ch in all_chapters:
+                ch_num = ch['chapter_number']
+                if ch_num not in merged_chapters:
+                    merged_chapters[ch_num] = ch
+                else:
+                    # Keep the one with the most recent release date
+                    existing = merged_chapters[ch_num]
+                    if ch.get('release_date', '') > existing.get('release_date', ''):
+                        merged_chapters[ch_num] = ch
+            
+            # Convert back to list and sort
+            final_chapters = list(merged_chapters.values())
+            final_chapters.sort(key=lambda x: x['chapter_number'])
+            
+            # Save to database
+            if final_chapters:
                 conn = get_db()
                 try:
-                    self._process_chapters(series_id, chapters, conn)
+                    self._process_chapters(series_id, final_chapters, conn)
                 finally:
                     release_db(conn)
             else:
@@ -160,11 +188,9 @@ class MangaScheduler:
                     self._update_last_check(series_id, conn)
                 finally:
                     release_db(conn)
-
+                    
         except Exception as e:
-            # === LOG SCHEDULER ERROR ===
             from .error_logger import log_error
-            # Fetch title for context
             try:
                 conn_err = get_db()
                 cursor_err = conn_err.cursor()
@@ -180,6 +206,7 @@ class MangaScheduler:
                 series_title=title
             )
             print(f"[Scheduler] Scan error for {series_id}: {e}")
+
 
     def start_scanning(self):
         self.thread.start()
