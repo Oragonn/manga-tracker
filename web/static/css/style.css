@@ -1010,12 +1010,13 @@ html {
 }
 
 .source-radio {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
   cursor: pointer;
   margin: 0;
   accent-color: #678ec9;
+  flex-shrink: 0;
 }
 
 .source-info {
@@ -1192,4 +1193,131 @@ html {
   color: #64748b;
   font-size: 14px;
   padding: 12px;
+}
+
+/* Sources List */
+.sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.source-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  transition: all 0.2s;
+  cursor: grab;
+}
+
+.source-item:active {
+  cursor: grabbing;
+}
+
+.source-item.primary {
+  border-color: #678ec9;
+  background: rgba(103, 142, 201, 0.1);
+}
+
+.source-item:hover {
+  background: #1e2c40;
+}
+
+.source-item.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+/* Drag Handle */
+.source-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: #64748b;
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.source-drag-handle:active {
+  cursor: grabbing;
+}
+
+.source-drag-handle svg {
+  width: 16px;
+  height: 16px;
+}
+
+.source-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.source-type {
+  font-size: 12px;
+  font-weight: 600;
+  color: #678ec9;
+  margin-bottom: 2px;
+}
+
+.source-type .primary-badge {
+  background: #678ec9;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-left: 6px;
+}
+
+.source-url {
+  font-size: 12px;
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.btn-icon {
+  padding: 6px;
+  background: none;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #94a3b8;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.btn-icon:hover {
+  background: #1a2436;
+  border-color: #678ec9;
+  color: white;
+}
+
+.btn-icon.danger:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.sources-help-text {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 12px;
+  padding: 8px;
+  background: rgba(103, 142, 201, 0.05);
+  border-radius: 6px;
+  border-left: 3px solid #678ec9;
 }
