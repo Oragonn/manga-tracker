@@ -1372,6 +1372,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 
+	// Cancel button handler
+	document.getElementById('btn-add-cancel')?.addEventListener('click', () => {
+	document.getElementById('add-series-modal').classList.add('hidden');
+	});
+
+	// Click-outside-to-close handler for Add Series modal
+	document.getElementById('add-series-modal')?.addEventListener('click', (e) => {
+	if (e.target.id === 'add-series-modal') {
+		document.getElementById('add-series-modal').classList.add('hidden');
+	}
+	});
+
 	// Delete
 	document.getElementById('btn-delete-series')?.addEventListener('click', async () => {
 		if (!confirm('Delete this series?')) return;
