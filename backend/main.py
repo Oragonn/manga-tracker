@@ -5,6 +5,7 @@ import re
 from .activity_logger import get_logs, mark_log_undone
 from .database import add_series as db_add_series
 import os
+import json
 
 @app.route('/errors')
 def errors_page():
@@ -531,7 +532,10 @@ def api_get_sources(series_id):
 
 @app.route('/api/series/<int:series_id>/sources', methods=['POST'])
 def api_add_source(series_id):
-    """Add a new source to a series."""
+    """
+    Add a new source to a series AND merge metadata (alt_titles, genres, searchable_text).
+    Fix for Bug #3: Properly merges lists instead of concatenating JSON strings.
+    """
     try:
         data = request.get_json()
         source_url = data.get('source_url')
@@ -547,7 +551,22 @@ def api_add_source(series_id):
         else:
             source_type = 'unknown'
         
-        from .database import add_source_to_series
+        # *** FIX: Fetch metadata from new source ***
+        new_metadata = None
+        
+        if source_type == 'mangadex':
+            from .trackers.mangadex import extract_manga_id, get_manga_info_with_anilist
+            manga_id = extract_manga_id(source_url)
+            if manga_id:
+                new_metadata = get_manga_info_with_anilist(manga_id)
+        elif source_type == 'kagane':
+            from .trackers.kagane import extract_series_id, get_series_info
+            kagane_id = extract_series_id(source_url)
+            if kagane_id:
+                new_metadata = get_series_info(kagane_id)
+        
+        # Add source to database
+        from .database import add_source_to_series, get_db, release_db
         source_id = add_source_to_series(
             series_id, 
             source_url, 
@@ -555,20 +574,105 @@ def api_add_source(series_id):
             is_primary=False
         )
         
-        if source_id:
-            # Trigger chapter fetch for new source
-            try:
-                from . import api
-                if hasattr(api, 'manga_scheduler'):
-                    api.manga_scheduler.scan_series(series_id)
-            except Exception as e:
-                print(f"[Add Source] Failed to trigger scan: {e}")
-            
-            return jsonify({'success': True, 'source_id': source_id})
-        else:
+        if not source_id:
             return jsonify({'error': 'Failed to add source'}), 500
+        
+        # *** FIX: Merge metadata with existing series ***
+        if new_metadata:
+            conn = get_db()
+            cursor = conn.cursor()
+            
+            # Get existing series data
+            cursor.execute("""
+                SELECT alt_titles, genres, searchable_text 
+                FROM series WHERE id = ?
+            """, (series_id,))
+            row = cursor.fetchone()
+            
+            if row:
+                existing_alt_titles_json, existing_genres_json, existing_searchable_text = row
+                
+                # Parse existing data
+                try:
+                    existing_alt_titles = json.loads(existing_alt_titles_json) if existing_alt_titles_json else []
+                except:
+                    existing_alt_titles = []
+                
+                try:
+                    existing_genres = json.loads(existing_genres_json) if existing_genres_json else []
+                except:
+                    existing_genres = []
+                
+                # Get new data
+                new_alt_titles = new_metadata.get('alt_titles', [])
+                new_genres = new_metadata.get('genres', [])
+                
+                # *** CRITICAL FIX: Merge lists properly ***
+                # Convert to sets to remove duplicates, then back to sorted lists
+                if isinstance(new_alt_titles, dict):
+                    new_alt_titles = list(new_alt_titles.values())
+                elif not isinstance(new_alt_titles, list):
+                    new_alt_titles = [str(new_alt_titles)] if new_alt_titles else []
+                
+                merged_alt_titles = list(set(existing_alt_titles + new_alt_titles))
+                merged_genres = list(set(existing_genres + new_genres))
+                
+                # Rebuild searchable text from ALL titles
+                cursor.execute("""
+                    SELECT title, title_en, title_romaji, title_native 
+                    FROM series WHERE id = ?
+                """, (series_id,))
+                title_row = cursor.fetchone()
+                
+                if title_row:
+                    all_titles = [
+                        title_row[0],  # title
+                        title_row[1],  # title_en
+                        title_row[2],  # title_romaji
+                        title_row[3],  # title_native
+                    ] + merged_alt_titles
+                    
+                    # Remove None/empty values
+                    all_titles = [t for t in all_titles if t and isinstance(t, str)]
+                    
+                    # Normalize and deduplicate
+                    from .database import normalize_for_search
+                    searchable_text = normalize_for_search(" ".join(all_titles))
+                    
+                    # Update database with merged data
+                    cursor.execute("""
+                        UPDATE series 
+                        SET alt_titles = ?, 
+                            genres = ?, 
+                            searchable_text = ?
+                        WHERE id = ?
+                    """, (
+                        json.dumps(merged_alt_titles, ensure_ascii=False),
+                        json.dumps(merged_genres, ensure_ascii=False),
+                        searchable_text,
+                        series_id
+                    ))
+                    
+                    print(f"[Add Source] Merged metadata for series {series_id}")
+                    print(f"  - Alt titles: {len(existing_alt_titles)} + {len(new_alt_titles)} = {len(merged_alt_titles)}")
+                    print(f"  - Genres: {len(existing_genres)} + {len(new_genres)} = {len(merged_genres)}")
+            
+            release_db(conn)
+        
+        # Trigger chapter fetch for new source
+        try:
+            from . import api
+            if hasattr(api, 'manga_scheduler'):
+                api.manga_scheduler.scan_series(series_id)
+        except Exception as e:
+            print(f"[Add Source] Failed to trigger scan: {e}")
+        
+        return jsonify({'success': True, 'source_id': source_id})
             
     except Exception as e:
+        print(f"[Add Source] Error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
 

@@ -121,74 +121,127 @@ class MangaScheduler:
         conn.commit()
 
     def scan_series(self, series_id):
+        """
+        Scan all sources for a series and merge chapters.
+        Fix for Bug #2: Now properly merges chapters from multiple sources.
+        """
         try:
-            from .database import get_series_sources
+            from .database import get_series_sources, get_db, release_db
             
             # Get all sources for this series
             sources = get_series_sources(series_id)
             
             if not sources:
                 print(f"[Scheduler] No sources found for series {series_id}")
-                return
+                # *** FIX: Try to fetch from legacy source_url column ***
+                conn_legacy = get_db()
+                cursor_legacy = conn_legacy.cursor()
+                cursor_legacy.execute("SELECT source_url FROM series WHERE id = ?", (series_id,))
+                row = cursor_legacy.fetchone()
+                release_db(conn_legacy)
+                
+                if row and row[0]:
+                    print(f"[Scheduler] Found legacy source_url, creating source entry...")
+                    # Create missing source entry
+                    from .database import add_source_to_series
+                    source_url = row[0]
+                    source_type = 'mangadex' if 'mangadex.org' in source_url else 'kagane' if 'kagane.org' in source_url else 'unknown'
+                    add_source_to_series(series_id, source_url, source_type, is_primary=True)
+                    # Retry getting sources
+                    sources = get_series_sources(series_id)
+                
+                if not sources:
+                    return
             
             all_chapters = []
+            successful_sources = 0
             
             # Fetch chapters from each source
             for source in sources:
                 source_url = source['source_url']
                 source_type = source['source_type']
                 
+                print(f"[Scheduler] Fetching from {source_type}: {source_url}")
+                
                 chapters = None
                 
-                if source_type == 'mangadex':
-                    manga_id = extract_manga_id(source_url)
-                    if manga_id:
-                        chapters = get_latest_chapters(manga_id, limit=100)
-                elif source_type == 'kagane':
-                    kagane_id = extract_series_id(source_url)
-                    if kagane_id:
-                        kagane_info = get_series_info(kagane_id)
-                        if kagane_info:
-                            chapters = kagane_info['chapters']
-                
-                if chapters:
-                    # Tag chapters with source info
-                    for ch in chapters:
-                        ch['source_id'] = source['id']
-                        ch['source_type'] = source_type
-                        ch['source_url'] = source_url
-                    all_chapters.extend(chapters)
-            
-            # Merge chapters (deduplicate by chapter_number, keep most recent)
-            merged_chapters = {}
-            for ch in all_chapters:
-                ch_num = ch['chapter_number']
-                if ch_num not in merged_chapters:
-                    merged_chapters[ch_num] = ch
-                else:
-                    # Keep the one with the most recent release date
-                    existing = merged_chapters[ch_num]
-                    if ch.get('release_date', '') > existing.get('release_date', ''):
-                        merged_chapters[ch_num] = ch
-            
-            # Convert back to list and sort
-            final_chapters = list(merged_chapters.values())
-            final_chapters.sort(key=lambda x: x['chapter_number'])
-            
-            # Save to database
-            if final_chapters:
-                conn = get_db()
                 try:
-                    self._process_chapters(series_id, final_chapters, conn)
-                finally:
-                    release_db(conn)
-            else:
+                    if source_type == 'mangadex':
+                        manga_id = extract_manga_id(source_url)
+                        if manga_id:
+                            chapters = get_latest_chapters(manga_id, limit=100)
+                    elif source_type == 'kagane':
+                        kagane_id = extract_series_id(source_url)
+                        if kagane_id:
+                            kagane_info = get_series_info(kagane_id)
+                            if kagane_info:
+                                chapters = kagane_info['chapters']
+                    
+                    if chapters:
+                        # Tag chapters with source info
+                        for ch in chapters:
+                            ch['source_id'] = source['id']
+                            ch['source_type'] = source_type
+                            ch['source_url'] = source_url
+                        all_chapters.extend(chapters)
+                        successful_sources += 1
+                        print(f"[Scheduler] Got {len(chapters)} chapters from {source_type}")
+                    else:
+                        print(f"[Scheduler] No chapters from {source_type}")
+                        
+                except Exception as source_error:
+                    print(f"[Scheduler] Error fetching from {source_type}: {source_error}")
+                    continue
+            
+            print(f"[Scheduler] Total raw chapters: {len(all_chapters)} from {successful_sources} sources")
+            
+            # *** FIX: Improved chapter merging logic ***
+            if not all_chapters:
+                # No chapters found, just update last_check
                 conn = get_db()
                 try:
                     self._update_last_check(series_id, conn)
                 finally:
                     release_db(conn)
+                return
+            
+            # Merge chapters (deduplicate by chapter_number, keep most recent)
+            merged_chapters = {}
+            for ch in all_chapters:
+                ch_num = ch['chapter_number']
+                
+                if ch_num not in merged_chapters:
+                    merged_chapters[ch_num] = ch
+                else:
+                    # Keep the one with the most recent release date
+                    existing = merged_chapters[ch_num]
+                    ch_date = ch.get('release_date') or ''
+                    existing_date = existing.get('release_date') or ''
                     
+                    # Safe comparison: treat None/empty as oldest
+                    if ch_date and existing_date:
+                        if ch_date > existing_date:
+                            print(f"[Scheduler] Ch.{ch_num}: Using {ch['source_type']} (newer: {ch_date} vs {existing_date})")
+                            merged_chapters[ch_num] = ch
+                    elif ch_date and not existing_date:
+                        # New chapter has date, existing doesn't -> prefer new
+                        merged_chapters[ch_num] = ch
+                    # else: keep existing (either both have no date, or existing has date and new doesn't)
+            
+            # Convert back to list and sort
+            final_chapters = list(merged_chapters.values())
+            final_chapters.sort(key=lambda x: x['chapter_number'])
+            
+            print(f"[Scheduler] Final merged chapters: {len(final_chapters)}")
+            
+            # Save to database
+            conn = get_db()
+            try:
+                self._process_chapters(series_id, final_chapters, conn)
+                print(f"[Scheduler] Successfully saved {len(final_chapters)} chapters for series {series_id}")
+            finally:
+                release_db(conn)
+                        
         except Exception as e:
             from .error_logger import log_error
             try:

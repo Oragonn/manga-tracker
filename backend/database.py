@@ -412,6 +412,10 @@ def update_series(series_id, updates):
 def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_url=None, anilist_id=None,
                title_en=None, title_romaji=None, title_native=None, source_status=None, alt_titles=None,
                genres=None, content_rating=None, source_type=None):
+    """
+    Add a new series AND create its primary source entry.
+    This is the critical fix for Bug #1.
+    """
     conn = get_db()
     cursor = conn.cursor()
     
@@ -470,6 +474,21 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
     """, vals)
     
     series_id = cursor.lastrowid
+    
+    # *** FIX: Create primary source entry ***
+    # Detect source type from URL
+    if 'mangadex.org' in source_url:
+        detected_source_type = 'mangadex'
+    elif 'kagane.org' in source_url:
+        detected_source_type = 'kagane'
+    else:
+        detected_source_type = 'unknown'
+    
+    cursor.execute("""
+        INSERT INTO series_sources (series_id, source_url, source_type, is_primary)
+        VALUES (?, ?, ?, 1)
+    """, (series_id, source_url, detected_source_type))
+    
     release_db(conn)
     return series_id
 

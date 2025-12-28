@@ -1,4 +1,4 @@
-# backend/trackers/kagane.py
+# backend/trackers/kagane.py - FIXED season handling
 
 import re
 from ..selenium_kagane import kagane_selenium
@@ -19,10 +19,21 @@ def _is_expected_special(title):
     ])
 
 def _extract_chapter_number(title):
-    """Extract chapter number from title like 'Episode 15', 'Ep.5', 'Ch 3', etc."""
+    """
+    Extract chapter number from title like 'Episode 15', 'Ep.5', 'Ch 3', etc.
+    NOW HANDLES: '(S2) Episode 3', 'Episode 65 (Season 1 Finale)', etc.
+    """
+    # *** FIX: Remove season prefixes and suffixes first ***
+    # Remove patterns like "(S2)" at start
+    title_clean = re.sub(r'^\(S\d+\)\s*', '', title, flags=re.IGNORECASE)
+    
+    # Remove patterns like "(Season 1 Finale)" at end
+    title_clean = re.sub(r'\s*\(Season\s+\d+.*?\)\s*$', '', title_clean, flags=re.IGNORECASE)
+    
+    # Try to extract number from common patterns
     match = re.search(
         r'(?:episode|ep\.?|chapter|ch\.?|chap\.?)\s*(\d+\.?\d*)',
-        title,
+        title_clean,
         re.IGNORECASE
     )
     if match:
@@ -31,13 +42,15 @@ def _extract_chapter_number(title):
         except (ValueError, TypeError):
             pass
 
-    title_clean = title.strip()
+    # If just a number after cleaning
+    title_clean = title_clean.strip()
     if re.fullmatch(r'\d+\.?\d*', title_clean):
         try:
             return float(title_clean)
         except (ValueError, TypeError):
             pass
 
+    # Not a standard chapter format
     if not _is_expected_special(title):
         try:
             from error_logger import log_error
@@ -68,13 +81,13 @@ def get_series_info(series_id):
         if chapter_num is not None:
             last_real_chapter = chapter_num
         else:
+            # Assign incremental decimal for special chapters
             base = last_real_chapter
             proposed_num = base + 0.01
             if chapters and chapters[-1]['chapter_number'] >= proposed_num:
                 proposed_num = chapters[-1]['chapter_number'] + 0.01
             chapter_num = round(proposed_num, 2)
 
-        # ✅ FIX: Also remove space in reader URL
         chapter_url = f"https://kagane.org/series/{series_id}/reader/{book['id']}"
 
         chapters.append({
