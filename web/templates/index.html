@@ -12,7 +12,19 @@
 <header class="header-full">
   <nav class="nav-container">
     <div class="nav-links">
-      <a href="/errors" class="nav-link">Errors</a>
+      <a href="/errors" class="nav-link">
+        Errors
+        <span id="unread-error-count" style="
+          display: none;
+          background: #e53e3e;
+          color: white;
+          font-size: 11px;
+          font-weight: bold;
+          padding: 2px 6px;
+          border-radius: 10px;
+          margin-left: 6px;
+        "></span>
+      </a> 
       <a href="/dashboard" class="nav-link">Dashboard</a>
       <a href="/logs" class="nav-link">Activity Log</a>
       <a href="/backups" class="nav-link">Backups</a>

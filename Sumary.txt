@@ -2,7 +2,7 @@
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application that monitors 1,300+ series across multiple sources (MangaDex, Kagane) with manual chapter control, automated checking, bulk operations, activity logging, and automated backups.
+A self-hosted manga/manhwa tracking application that monitors 1,300+ series across multiple sources (MangaDex, Kagane) with manual chapter control, automated checking, bulk operations, activity logging, automated backups, and multi-source support per series.
 
 ---
 
@@ -23,29 +23,29 @@ manga-tracker/
 │   ├── scheduler.py              # Background chapter checking
 │   ├── main.py                   # Additional routes (errors, logs, backups)
 │   ├── error_logger.py           # 7-day rotating error logs
-│   ├── activity_logger.py        # 14-day activity log with undo (NEW!)
-│   ├── backup_manager.py         # Hourly database backups (NEW!)
+│   ├── activity_logger.py        # 14-day activity log with undo
+│   ├── backup_manager.py         # Hourly database backups
 │   ├── selenium_kagane.py        # Singleton Selenium client
 │   └── trackers/
 │       ├── mangadex.py           # MangaDex API integration
-│       ├── kagane.py             # Kagane scraper (Selenium-based)
+│       ├── kagane.py             # Kagane scraper (Selenium-based, season-aware)
 │       └── anilist.py            # AniList enrichment (covers, titles)
 ├── data/
 │   ├── tracker.db                # Main SQLite database
 │   └── last_errors_visit.txt    # Error badge tracking
 ├── logs/                         # Error logs (7-day rotation)
-├── backups/                      # Database backups (7-day retention) (NEW!)
+├── backups/                      # Database backups (7-day retention)
 ├── web/
 │   ├── static/
-│   │   ├── css/style.css         # Clean, organized CSS (~550 lines)
+│   │   ├── css/style.css         # Clean, organized CSS (~600 lines)
 │   │   └── js/
 │   │       ├── dashboard.js      # Main dashboard logic
-│   │       └── backups.js        # Backup management UI (NEW!)
+│   │       └── backups.js        # Backup management UI
 │   └── templates/
 │       ├── index.html            # Main dashboard
 │       ├── errors.html           # Error log viewer
-│       ├── logs.html             # Activity log viewer (NEW!)
-│       └── backups.html          # Backup management (NEW!)
+│       ├── logs.html             # Activity log viewer
+│       └── backups.html          # Backup management
 └── requirements.txt
 ```
 
@@ -63,7 +63,7 @@ CREATE TABLE series (
     title_en TEXT,
     title_romaji TEXT,
     title_native TEXT,
-    source_url TEXT NOT NULL UNIQUE,              -- ⚠️ Will be PRIMARY source in multi-source update
+    source_url TEXT NOT NULL UNIQUE,              -- Legacy: kept for backward compatibility
     cover_url TEXT,
     banner_url TEXT,
     status TEXT NOT NULL CHECK(status IN ('reading', 'plan_to_read', 'on_hold', 'dropped', 'completed')),
@@ -84,6 +84,23 @@ CREATE TABLE series (
 );
 ```
 
+#### `series_sources` - Multi-source support (NEW!)
+```sql
+CREATE TABLE series_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    series_id INTEGER NOT NULL,
+    source_url TEXT NOT NULL UNIQUE,
+    source_type TEXT NOT NULL,                     -- 'mangadex', 'kagane', etc
+    is_primary BOOLEAN DEFAULT 0,                  -- Which source is "main"
+    last_check DATETIME,
+    added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_sources_series ON series_sources(series_id);
+CREATE INDEX idx_sources_primary ON series_sources(series_id, is_primary);
+CREATE UNIQUE INDEX idx_sources_url ON series_sources(source_url);
+```
+
 #### `chapters` - Chapter history per series
 ```sql
 CREATE TABLE chapters (
@@ -100,7 +117,7 @@ CREATE TABLE chapters (
 );
 ```
 
-#### `activity_log` - User action history with undo (NEW!)
+#### `activity_log` - User action history with undo
 ```sql
 CREATE TABLE activity_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -137,8 +154,8 @@ CREATE TABLE meta (
 ```
 [Errors] [Dashboard] [Activity Log] [Backups] [Discovery]
      ↑          ↑            ↑           ↑          ↑
-  Badge if   Main UI    Undo logs   NEW!    External link
-  new errors            within 7d
+  Badge if   Main UI    Undo logs    Manage    External link
+  new errors            within 7d    backups
 ```
 
 ### **Dashboard (`/`) - Main Interface**
@@ -153,7 +170,7 @@ CREATE TABLE meta (
 - Sort options (unread first/title/release/added/chapters)
 - Sort direction toggle
 - Reset filters
-- Source alerts (placeholder for Priority 2)
+- Source alerts (placeholder for future)
 - Search series
 
 **Row 2:**
@@ -180,7 +197,32 @@ CREATE TABLE meta (
 - Buttons switch: `[Refresh] [+Add]` → `[Read] [Edit] [Delete]`
 - All operations exit bulk mode after completion
 
-### **Activity Log (`/logs`) - NEW!**
+#### **Series Settings Modal** (NEW!)
+Accessible via gear icon on each card. Contains sections:
+
+**1. Sources Management**
+- View all sources for a series
+- Drag-and-drop to reorder (top = primary)
+- Add new sources (MangaDex, Kagane)
+- Remove secondary sources
+- Primary source used for "Go to Source" button
+- Metadata merging: Alt titles and genres from all sources combined
+
+**2. Basic Info**
+- Edit title
+- Edit cover URL
+
+**3. Reading Progress**
+- Change status (reading/plan/hold/dropped/completed)
+- Set current chapter (dropdown with all chapters)
+- Reset to "Not started"
+- Manual "Check Now" button
+
+**4. Actions**
+- Delete series (red button, left side)
+- Cancel/Save (right side)
+
+### **Activity Log (`/logs`)**
 ```
 [Type Filter ▾] [Time Filter ▾] [Search...]
 
@@ -201,7 +243,7 @@ CREATE TABLE meta (
 - **Bulk operations**: Grouped with single undo button
 - **Auto-cleanup**: Logs deleted after 14 days
 
-### **Backups (`/backups`) - NEW!**
+### **Backups (`/backups`)**
 ```
 📦 Backup Status
 • Next backup in: 23 minutes
@@ -239,8 +281,12 @@ Size: 2.32 MB  •  1 hour ago
 
 ### ✅ **Implemented**
 
-1. **Multi-Source Tracking** (MangaDex, Kagane)
-   - Automated chapter detection
+1. **Multi-Source Tracking**
+   - Multiple sources per series (MangaDex + Kagane simultaneously)
+   - User-controlled source management (add/remove/reorder)
+   - Primary source designation
+   - Automated chapter merging from all sources
+   - Metadata merging (alt titles, genres combined)
    - AniList enrichment (covers, titles, genres)
    - Content rating and type classification
 
@@ -248,10 +294,14 @@ Size: 2.32 MB  •  1 hour ago
    - Increment (+), decrement (−), confirm (✓) buttons
    - Volume-aware sorting for manga with volumes
    - Oneshot handling
+   - Season-aware parsing for Kagane (handles S2 resets)
 
 3. **Background Scheduler**
    - Adaptive checking intervals based on status
    - Reading: 30 min, Plan to read: 3h, On hold: 24h, etc.
+   - Multi-source chapter scanning
+   - Intelligent chapter merging (deduplication by number, keeps most recent)
+   - Season offset calculation for multi-season series
    - Graceful error handling and retry logic
 
 4. **Bulk Operations**
@@ -261,13 +311,14 @@ Size: 2.32 MB  •  1 hour ago
    - Delete multiple series
    - Activity logging for all bulk actions
 
-5. **Activity Log with Undo** (NEW!)
+5. **Activity Log with Undo**
    - Logs: add, delete, progress, status, edits
    - Undo within 7 days
    - Bulk operation undo (single button)
    - Auto-cleanup after 14 days
+   - Source change tracking
 
-6. **Database Backups** (NEW!)
+6. **Database Backups**
    - Automated hourly backups
    - 7-day retention (~35 MB storage)
    - gzip compression (~70% space savings)
@@ -276,7 +327,7 @@ Size: 2.32 MB  •  1 hour ago
 
 7. **Advanced Filtering**
    - Multi-select: Content type, genres, rating, pub status
-   - Text search across all titles
+   - Text search across all titles (including alt titles)
    - Sorting with direction control
    - Persistent filters (no URL params)
 
@@ -292,182 +343,58 @@ Size: 2.32 MB  •  1 hour ago
    - Custom scrollbars
    - Responsive design
    - Confirmation modals for destructive actions
+   - Drag-and-drop source reordering
 
 ---
 
-## 🚀 **Priority 2: Multi-Source Support (PLANNED)**
+## 🔧 **Multi-Source Architecture**
 
 ### **Overview**
-Allow a single series to track chapters from multiple sources simultaneously. This is **not automated** - users manually link additional sources to existing series.
+A single series can track chapters from multiple sources simultaneously (e.g., MangaDex + Kagane). This is **user-controlled** - the system never auto-links sources.
 
-### **Why Not Automated?**
-- Series with same name ≠ same series
+### **Why User-Controlled?**
+- Series with same name ≠ always same series
 - Example: "Solo Leveling" could be:
   - Solo Leveling (manhwa)
   - Solo Leveling (light novel)
   - Solo Leveling (different translations)
 - User must confirm which sources belong together
 
----
-
-### **Implementation Ideas**
-
-#### **Option 1: Sources Table (Recommended)**
-
-**Database Schema:**
+### **Database Design**
+Uses a separate `series_sources` table:
 ```sql
--- New table
-CREATE TABLE series_sources (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    series_id INTEGER NOT NULL,
-    source_url TEXT NOT NULL UNIQUE,
-    source_type TEXT NOT NULL,              -- 'mangadex', 'kagane', etc
-    is_primary BOOLEAN DEFAULT 0,           -- Which source is "main"
-    last_check DATETIME,
-    FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
-);
-
--- Modify series table
--- Remove: source_url (no longer needed)
--- Keep: Everything else
+series (1) → (N) series_sources
+- Each series can have unlimited sources
+- One source is marked as "primary"
+- Legacy source_url column kept for backward compatibility
 ```
-
-**Pros:**
-- ✅ Clean separation of concerns
-- ✅ Unlimited sources per series
-- ✅ Easy to query all sources for a series
-- ✅ Can track per-source metadata (last check, etc)
-
-**Cons:**
-- ⚠️ Requires schema migration
-- ⚠️ Changes to existing codebase
-
-**UI Flow:**
-```
-Series Card → Settings → "Manage Sources"
-┌─────────────────────────────────────────┐
-│ Sources for: Solo Leveling              │
-│                                          │
-│ ✓ MangaDex (Primary)                    │
-│   https://mangadex.org/title/...        │
-│   Last chapter: 150                     │
-│   [Make Primary] [Remove]               │
-│                                          │
-│ ○ Kagane                                │
-│   https://kagane.org/series/...         │
-│   Last chapter: 149                     │
-│   [Make Primary] [Remove]               │
-│                                          │
-│ [+ Add Another Source]                  │
-└─────────────────────────────────────────┘
-```
-
----
-
-#### **Option 2: JSON Array in series.source_url**
-
-**Database Schema:**
-```sql
--- Keep existing schema, but change source_url to JSON array
-ALTER TABLE series ADD COLUMN source_urls TEXT;  -- JSON: [{"url": "...", "type": "...", "is_primary": true}]
--- Migrate existing source_url to source_urls
-```
-
-**Pros:**
-- ✅ Minimal schema changes
-- ✅ Backward compatible (easier migration)
-- ✅ All data stays in series table
-
-**Cons:**
-- ⚠️ JSON parsing overhead
-- ⚠️ Harder to query/index
-- ⚠️ Limited to SQLite JSON functions
-
-**UI Flow:**
-Similar to Option 1, but data stored as JSON in single column.
-
----
-
-#### **Option 3: Hybrid (Current + sources table for extras)**
-
-**Database Schema:**
-```sql
--- Keep series.source_url as primary source (backward compatible)
--- Add new table for additional sources only
-CREATE TABLE additional_sources (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    series_id INTEGER NOT NULL,
-    source_url TEXT NOT NULL UNIQUE,
-    source_type TEXT NOT NULL,
-    last_check DATETIME,
-    FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
-);
-```
-
-**Pros:**
-- ✅ Fully backward compatible
-- ✅ No migration required
-- ✅ Existing code works unchanged
-- ✅ Can add sources incrementally
-
-**Cons:**
-- ⚠️ Two places to check for sources (series.source_url + additional_sources table)
-- ⚠️ Need to define which is "primary"
-
----
-
-### **Recommended Approach: Option 1 (Sources Table)**
-
-**Why:**
-- Most scalable long-term
-- Cleanest data model
-- Easiest to extend with per-source metadata
-- Better query performance
-
-**Migration Strategy:**
-1. Create `series_sources` table
-2. Migrate existing `source_url` → `series_sources` with `is_primary = true`
-3. Update queries to use `series_sources` table
-4. Drop `source_url` column after testing
-
----
 
 ### **User Workflows**
 
 #### **Adding a Second Source**
-```
-1. User on series card → Click Settings
-2. Modal opens, shows "Manage Sources" button
-3. Click "Manage Sources" → New modal/page
-4. Shows current source(s)
-5. Click "+ Add Another Source"
-6. Paste URL → System detects type (MangaDex/Kagane)
-7. Click "Add" → System fetches chapters
-8. Merges chapters from both sources
-9. Latest chapter = max(all sources)
-```
+1. Open series settings (gear icon)
+2. Click "Add Another Source" button
+3. Paste URL (MangaDex or Kagane)
+4. System validates URL type
+5. Click "Add" → fetches chapters
+6. Chapters merged with existing sources
+7. Alt titles and genres merged automatically
 
-#### **Switching Primary Source**
-```
-1. User in "Manage Sources"
-2. Sees list of sources with radio buttons
-3. Click radio next to desired primary
-4. Click "Save"
-5. UI updates to use new primary for "Go to Source" button
-```
+#### **Reordering Sources (Primary Selection)**
+1. Open series settings → Sources section
+2. Drag-and-drop sources to reorder
+3. Top source = primary source
+4. Used for "Go to Source" button on card
+5. Changes saved on modal close
 
 #### **Removing a Source**
-```
-1. User in "Manage Sources"
-2. Click "Remove" next to non-primary source
-3. Confirm dialog: "Remove this source? Chapters will be kept."
-4. Source removed, chapters from other sources remain
-```
-
----
+1. Open series settings → Sources section
+2. Click trash icon next to non-primary source
+3. Confirm deletion
+4. Source removed, chapters remain
+5. Cannot remove last source or primary (must reorder first)
 
 ### **Chapter Merging Logic**
-
 When a series has multiple sources:
 
 ```python
@@ -495,116 +422,78 @@ def merge_chapters_from_sources(series_id):
 
 **Example:**
 - MangaDex: Ch. 1-150 (primary)
-- Kagane: Ch. 145-149 (secondary)
-- Result: Ch. 1-150 (uses Kagane for 145-149 if newer)
+- Kagane: Ch. 145-149 (secondary, released earlier)
+- Result: Ch. 1-150 (uses Kagane for 145-149 if newer release date)
 
----
+### **Metadata Merging**
+When adding sources:
+- **Alt titles**: Combined from all sources (deduplicated)
+- **Genres**: Combined from all sources (deduplicated)
+- **Searchable text**: Rebuilt with all titles
+- **Cover/banner**: Uses primary source (user can manually override)
 
-Primary source can be changed
-
-### **UI Changes**
-
-#### **Series Card**
-```
-Current:
-[Source] button → Opens primary source URL
-
-New:
-[Source ▾] dropdown → Lists all sources
-├─ MangaDex (Primary)
-├─ Kagane
-└─ Manage Sources...
-```
-
-#### **Settings Modal**
-```
-Add new button:
-[Manage Sources] → Opens sources management modal
-```
-
-#### **Sources Management Modal**
-```
-┌─────────────────────────────────────────┐
-│ Manage Sources: Solo Leveling           │
-├─────────────────────────────────────────┤
-│                                          │
-│ ● MangaDex (Primary)                    │
-│   https://mangadex.org/title/...        │
-│   Last: Ch.150 • 2h ago                 │
-│   [Open] [Make Primary] [Remove]        │
-│                                          │
-│ ○ Kagane                                │
-│   https://kagane.org/series/...         │
-│   Last: Ch.149 • 4h ago                 │
-│   [Open] [Make Primary] [Remove]        │
-│                                          │
-│ [+ Add Another Source]                  │
-│                                          │
-│ [Close]                                 │
-└─────────────────────────────────────────┘
-```
-
----
-
-### **Activity Log Impact**
-
-When sources are added/removed:
-
-```javascript
-// Log structure
+### **Activity Logging**
+Source changes are logged:
+```json
 {
   "action_type": "edited",
   "series_id": 123,
-  "series_title": "Solo Leveling",
   "old_value": {
-    "sources": [
-      {"url": "https://mangadex.org/...", "type": "MangaDex", "is_primary": true}
-    ]
+    "sources": [{"url": "...", "type": "MangaDex", "is_primary": true}]
   },
   "new_value": {
     "sources": [
-      {"url": "https://mangadex.org/...", "type": "MangaDex", "is_primary": true},
-      {"url": "https://kagane.org/...", "type": "Kagane", "is_primary": false}
+      {"url": "...", "type": "MangaDex", "is_primary": true},
+      {"url": "...", "type": "Kagane", "is_primary": false}
     ]
   }
 }
 ```
 
-Undo will restore the previous source configuration.
-
 ---
 
-### **Implementation Phases**
+## 🌟 **Special Features**
 
-#### **Phase 1: Database (1-2 hours)**
-- Create `series_sources` table
-- Write migration script
-- Update `add_series()` to create source entry
-- Update queries to use `series_sources`
+### **Season-Aware Parsing (Kagane)**
+Handles series where seasons reset chapter numbering:
 
-#### **Phase 2: Backend Logic (2-3 hours)**
-- Chapter merging function
-- Source management API endpoints:
-  - `GET /api/series/<id>/sources` - List sources
-  - `POST /api/series/<id>/sources` - Add source
-  - `PATCH /api/series/<id>/sources/<sid>` - Update (make primary)
-  - `DELETE /api/series/<id>/sources/<sid>` - Remove source
-- Update scheduler to check all sources
+**Problem:**
+- Season 1: Episode 1-65
+- Season 2: (S2) Episode 1-23
 
-#### **Phase 3: Frontend UI (3-4 hours)**
-- Sources management modal
-- Source dropdown in card
-- Add source form
-- Activity log updates
+**Solution:**
+- Detects season markers: `(S2)`, `[Season 2]`, `{S3}`, etc.
+- Calculates offset: Season 2 offset = 65 (last of Season 1)
+- Applies offset: `(S2) Episode 1` → Chapter 66
+- Result: Continuous numbering (1-88), no data loss
 
-#### **Phase 4: Testing (1-2 hours)**
-- Test with single source (backward compat)
-- Test adding second source
-- Test chapter merging
-- Test source removal
-- Test undo functionality
+**Supported Formats:**
+- Prefixes: `(S2) Episode 3`, `[Season 2] Episode 3`, `S3 Episode 3`
+- Suffixes: `Episode 65 (Season 1 Finale)`, `Episode 1 (S2 Premiere)`
+- Combined: `(S2) Episode 1 (Season 2 Premiere)`
 
-**Total Estimate: 8-12 hours**
+### **Smart Search**
+- Searches across: main title, English title, romaji, native, alt titles
+- Normalized matching: removes punctuation, diacritics
+- Multi-word support: all words must match (AND logic)
+
+### **Volume-Aware Sorting**
+For manga with volumes:
+- Chapters sorted by volume first, then chapter number
+- Dropdown shows: "Vol.3 Ch.25" instead of just "Ch.25"
+- Handles numeric volumes (1, 2, 3) and text volumes
+
+### **Adaptive Checking**
+Background scheduler checks series at different intervals:
+```python
+intervals = {
+    'reading': 1800,        # 30 minutes - actively reading
+    'plan_to_read': 10800,  # 3 hours - might start soon
+    'on_hold': 86400,       # 24 hours - paused
+    'dropped': 604800,      # 7 days - rarely check
+    'completed': 604800     # 7 days - might get extras
+}
+```
 
 ---
 
@@ -623,6 +512,7 @@ Undo will restore the previous source configuration.
 - **Background check**: 1-2 seconds per series
 - **Backup creation**: 1-2 seconds
 - **Database query**: <100ms average
+- **Multi-source merge**: <1 second (2-3 sources)
 
 ---
 
@@ -649,7 +539,7 @@ BackupManager(
 
 ### **Log Retention**
 - **Error logs**: 7 days
-- **Activity logs**: 14 days
+- **Activity logs**: 14 days (with 7-day undo window)
 - **Backups**: 7 days
 
 ---
@@ -658,6 +548,8 @@ BackupManager(
 
 ✅ All 1,300+ series tracked successfully
 ✅ Zero data loss with backup system
+✅ Multi-source support prevents missing chapters
+✅ Season-aware parsing handles complex numbering
 ✅ Bulk operations save hours of manual work
 ✅ Activity log provides confidence to experiment
 ✅ Error tracking catches issues proactively
@@ -666,6 +558,21 @@ BackupManager(
 ---
 
 ## 🔄 **Recent Updates (December 2024)**
+
+### **Multi-Source Support**
+- ✅ Multiple sources per series (MangaDex + Kagane)
+- ✅ User-controlled source management
+- ✅ Drag-and-drop source reordering
+- ✅ Automated chapter merging
+- ✅ Metadata merging (alt titles, genres)
+- ✅ Activity logging for source changes
+
+### **Season-Aware Parsing**
+- ✅ Detects season markers in chapter titles
+- ✅ Calculates offsets for continuous numbering
+- ✅ Handles multi-season series (S1, S2, S3...)
+- ✅ Preserves all chapters (no data loss)
+- ✅ Supports all season format variants
 
 ### **Activity Log System**
 - ✅ Logs all user actions (add/delete/edit/progress/status)
@@ -682,20 +589,28 @@ BackupManager(
 - ✅ Manual backup/restore via UI
 - ✅ Safety backups before restore
 
+### **UI Improvements**
+- ✅ Improved modal close handling
+- ✅ Drag-and-drop source management
+- ✅ Better source type indicators
+- ✅ Enhanced settings modal layout
+
 ---
 
-## 🚧 **Upcoming: Priority 2 (Multi-Source Support)**
+## 🚀 **Future Enhancements (Potential)**
 
-### **Goal**
-Allow tracking a single series from multiple sources (e.g., MangaDex + Kagane simultaneously).
+### **Priority 1: Completed**
+- ✅ Multi-source support
+- ✅ Season-aware parsing
+- ✅ Source management UI
 
-### **Approach**
-- **User-driven**: Manual linking of sources (not automated)
-- **Primary source**: User designates main source for "Go to Source" button
-- **Chapter merging**: Combines chapters from all sources, deduplicates by number
-- **Activity logging**: Tracks source additions/removals with undo support
-
-### **Estimated Time**: 8-12 hours
+### **Priority 2: Under Consideration**
+- 📋 Reading statistics dashboard
+- 📋 Export/import functionality
+- 📋 Custom lists/categories
+- 📋 Reading history timeline
+- 📋 Automatic source detection (fuzzy matching)
+- 📋 Mobile app companion
 
 ---
 
@@ -703,7 +618,7 @@ Allow tracking a single series from multiple sources (e.g., MangaDex + Kagane si
 
 When resuming work on this project, provide:
 1. This project summary document
-2. Current priorities (Multi-source support)
-3. Any specific issues or questions
+2. Any specific issues or feature requests
+3. Console/error logs if debugging
 
 The assistant will have full context to continue development! 🚀
