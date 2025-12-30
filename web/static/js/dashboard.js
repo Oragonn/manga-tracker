@@ -49,7 +49,8 @@ const state = {
 	type: [],
 	genre: [],
 	rating: [],
-	pubStatus: []
+	pubStatus: [],
+	readableOn: []  // NEW: Filter for source types (mangadex, kagane)
 };
 
 // ─── Bulk Selection State ────────────────────────────────────────
@@ -857,7 +858,7 @@ async function updateUnreadErrorCount() {
 
 // ─── Load Page (Main Logic) ───────────────────────────────────
 async function loadPage() {
-	const { page, status, sort, dir, type, genre, rating, pubStatus } = state;
+	const { page, status, sort, dir, type, genre, rating, pubStatus, readableOn } = state;
 	const searchInput = document.getElementById('search-input');
 	const searchQuery = searchInput ? searchInput.value.trim() : '';
 	const iconEl = document.getElementById('sort-direction-icon');
@@ -886,6 +887,10 @@ async function loadPage() {
 	}
 	if (Array.isArray(state.pubStatus) && state.pubStatus.length > 0) {
 		url += `&pub_status=${encodeURIComponent(state.pubStatus.join(','))}`;
+	}
+	// NEW: Add readableOn filter
+	if (Array.isArray(state.readableOn) && state.readableOn.length > 0) {
+		url += `&readable_on=${encodeURIComponent(state.readableOn.join(','))}`;
 	}
 	try {
 		const res = await fetch(url);
@@ -1059,16 +1064,31 @@ document.addEventListener('DOMContentLoaded', () => {
 		'other': 'Other'
 	}, 'Content Type');
 
-	// Genre (Tags)
+	// NEW: Readable On filter
+	const readableOnTrigger = document.getElementById('filter-readable-on-trigger');
+	const readableOnMenu = document.querySelector('#filter-readable-on-container .multi-select-menu');
+	const readableOnCheckboxes = readableOnMenu.querySelectorAll('input[type="checkbox"]');
+	setupStaticMultiSelect(readableOnTrigger, readableOnMenu, readableOnCheckboxes, 'readableOn', {
+		'mangadex': 'MangaDex',
+		'kagane': 'Kagane'
+	}, 'Readable On');
+
+	// Genre (Tags) - NOW WITH CONTENT RATING INSIDE THE SAME DROPDOWN
 	const genreTrigger = document.getElementById('filter-genre-trigger');
 	const genreMenu = document.getElementById('filter-genre-menu');
 	const genreList = genreMenu.querySelector('.genre-list');
 	const genreClearBtn = genreMenu.querySelector('.btn-select-none');
+	const ratingCheckboxes = genreMenu.querySelectorAll('.rating-checkbox');
+	const ratingClearBtn = document.getElementById('btn-clear-ratings');
+	
+	// Close menu when clicking outside
 	document.addEventListener('click', (e) => {
 		if (!genreMenu.contains(e.target) && e.target !== genreTrigger) {
 			genreMenu.classList.add('hidden');
 		}
 	});
+	
+	// Toggle menu on trigger click
 	genreTrigger.addEventListener('click', (e) => {
 		e.stopPropagation();
 		genreMenu.classList.toggle('hidden');
@@ -1080,20 +1100,71 @@ document.addEventListener('DOMContentLoaded', () => {
 			genreMenu.style.top = (rect.bottom + 4) + 'px';
 			genreMenu.style.width = rect.width + 'px';
 			genreMenu.style.zIndex = '100';
-			const genreList = genreMenu.querySelector('.genre-list');
 			if (genreList) {
 				genreList.scrollTop = 0;
 			}
 		}
 	});
+	
+	// Update trigger text based on both genres and ratings
+	function updateTagsTriggerText() {
+		const genreCount = state.genre.length;
+		const ratingCount = state.rating.length;
+		const totalCount = genreCount + ratingCount;
+		
+		if (totalCount === 0) {
+			genreTrigger.textContent = 'Tags';
+		} else if (totalCount === 1) {
+			if (genreCount === 1) {
+				genreTrigger.textContent = state.genre[0];
+			} else {
+				const ratingMap = {
+					'safe': 'Safe',
+					'mild': 'Suggestive',
+					'mature': 'Mature',
+					'explicit': 'Explicit'
+				};
+				genreTrigger.textContent = ratingMap[state.rating[0]] || state.rating[0];
+			}
+		} else {
+			genreTrigger.textContent = `${totalCount} Selected`;
+		}
+	}
+	
+	// Clear Tags button
 	genreClearBtn.addEventListener('click', () => {
 		state.genre = [];
 		state.page = 1;
 		loadPage();
-		genreMenu.classList.add('hidden');
 		genreList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-		genreTrigger.textContent = 'Tags';
+		updateTagsTriggerText();
 	});
+	
+	// Clear Ratings button
+	ratingClearBtn.addEventListener('click', () => {
+		state.rating = [];
+		state.page = 1;
+		loadPage();
+		ratingCheckboxes.forEach(cb => cb.checked = false);
+		updateTagsTriggerText();
+	});
+	
+	// Setup rating checkboxes (OR logic)
+	ratingCheckboxes.forEach(cb => {
+		cb.checked = state.rating.includes(cb.value);
+		cb.addEventListener('change', () => {
+			if (cb.checked) {
+				if (!state.rating.includes(cb.value)) state.rating.push(cb.value);
+			} else {
+				state.rating = state.rating.filter(r => r !== cb.value);
+			}
+			state.page = 1;
+			loadPage();
+			updateTagsTriggerText();
+		});
+	});
+	
+	// Load genres dynamically
 	loadGenres = async function() {
 		try {
 			const res = await fetch('/api/genres');
@@ -1114,14 +1185,7 @@ document.addEventListener('DOMContentLoaded', () => {
 						}
 						state.page = 1;
 						loadPage();
-						const selected = state.genre;
-						if (selected.length === 0) {
-							genreTrigger.textContent = 'Tags';
-						} else if (selected.length === 1) {
-							genreTrigger.textContent = selected[0];
-						} else {
-							genreTrigger.textContent = `${selected.length} Tags`;
-						}
+						updateTagsTriggerText();
 					});
 					label.appendChild(cb);
 					label.appendChild(document.createTextNode(genre));
@@ -1132,17 +1196,6 @@ document.addEventListener('DOMContentLoaded', () => {
 			console.error('Failed to load genres:', e);
 		}
 	};
-
-	// Rating
-	const ratingTrigger = document.getElementById('filter-rating-trigger');
-	const ratingMenu = document.querySelector('#filter-rating-container .multi-select-menu');
-	const ratingCheckboxes = ratingMenu.querySelectorAll('input[type="checkbox"]');
-	setupStaticMultiSelect(ratingTrigger, ratingMenu, ratingCheckboxes, 'rating', {
-		'safe': 'Safe',
-		'mild': 'Suggestive',
-		'mature': 'Mature',
-		'explicit': 'Explicit'
-	}, 'Content Rating');
 
 	// Publication Status
 	const pubStatusTrigger = document.getElementById('filter-pub-status-trigger');
@@ -1252,7 +1305,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 
-	// Reset
+	// UPDATED: Reset with new readableOn field
 	document.getElementById('btn-reset-filters')?.addEventListener('click', () => {
 		state.status = 'reading';
 		state.sort = 'unread_first';
@@ -1261,6 +1314,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		state.genre = [];
 		state.rating = [];
 		state.pubStatus = [];
+		state.readableOn = [];  // NEW
 		state.page = 1;
 		if (searchInput) searchInput.value = '';
 		document.getElementById('filter-status-trigger').textContent = 'Reading';
@@ -1272,16 +1326,18 @@ document.addEventListener('DOMContentLoaded', () => {
 				opt.classList.add('selected');
 			}
 		});
+		// Clear all checkboxes
 		document.querySelectorAll(`
 #filter-type-container input[type="checkbox"],
 #filter-genre-container input[type="checkbox"],
-#filter-rating-container input[type="checkbox"],
-#filter-pub-status-container input[type="checkbox"]
+#filter-genre-container .rating-checkbox,
+#filter-pub-status-container input[type="checkbox"],
+#filter-readable-on-container input[type="checkbox"]
 `).forEach(cb => cb.checked = false);
 		document.getElementById('filter-type-trigger').textContent = 'Content Type';
 		document.getElementById('filter-genre-trigger').textContent = 'Tags';
-		document.getElementById('filter-rating-trigger').textContent = 'Content Rating';
 		document.getElementById('filter-pub-status-trigger').textContent = 'Publication Status';
+		document.getElementById('filter-readable-on-trigger').textContent = 'Readable On';  // NEW
 		document.querySelectorAll('.multi-select-menu, .single-select-menu').forEach(menu => {
 			menu.classList.add('hidden');
 		});
@@ -1424,17 +1480,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (res.ok) {
 				btn.textContent = '✓ Done';
 				setTimeout(() => {
-					btn.textContent = 'CallCheck Now';
+					btn.textContent = 'Check Now';
 					btn.disabled = false;
 					loadPage();
 				}, 1500);
 			} else {
 				btn.textContent = 'Error';
-				setTimeout(() => { btn.disabled = false; btn.textContent = 'CallCheck Now'; }, 1500);
+				setTimeout(() => { btn.disabled = false; btn.textContent = 'Check Now'; }, 1500);
 			}
 		} catch (e) {
 			btn.textContent = 'Fail';
-			setTimeout(() => { btn.disabled = false; btn.textContent = 'CallCheck Now'; }, 1500);
+			setTimeout(() => { btn.disabled = false; btn.textContent = 'Check Now'; }, 1500);
 		}
 	});
 

@@ -454,7 +454,7 @@ def api_series():
                 where_parts.append("genres LIKE ?")
                 params.append(f'%"{g}"%')
 
-    # Content Rating filter (multi-select)
+    # Content Rating filter (multi-select - OR logic)
     rating_filter = request.args.get('rating', '').strip()
     if rating_filter:
         rating_list = [r.strip() for r in rating_filter.split(',') if r.strip()]
@@ -472,6 +472,21 @@ def api_series():
             where_parts.append(f"source_status IN ({placeholders})")
             params.extend(pub_status_list)
 
+    # NEW: Readable On filter (multi-select - OR logic)
+    # This filters by which sources the series is available on
+    readable_on_filter = request.args.get('readable_on', '').strip()
+    if readable_on_filter:
+        readable_on_list = [s.strip() for s in readable_on_filter.split(',') if s.strip()]
+        if readable_on_list:
+            # Use a subquery to check if the series has any of the specified sources
+            # Join with series_sources table to check source availability
+            source_conditions = []
+            for source_type in readable_on_list:
+                source_conditions.append(f"EXISTS (SELECT 1 FROM series_sources WHERE series_sources.series_id = series.id AND series_sources.source_type = ?)")
+                params.append(source_type)
+            
+            where_parts.append(f"({' OR '.join(source_conditions)})")
+
     # Search filter
     if search_query:
         query_words = search_query.split()
@@ -484,9 +499,9 @@ def api_series():
             where_parts.append("searchable_text LIKE ?")
             params.append(f"%{word}%")
     
-
     where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
 
+    # ... rest of the sorting and pagination logic remains the same
     if sort_order == 'unread_first':
         inverted_dir = 'asc' if effective_dir == 'desc' else 'desc'
         order_by = f"""
