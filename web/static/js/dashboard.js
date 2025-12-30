@@ -556,7 +556,7 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 			card.useVolumeSorting = useVolumeSorting;
 			let pendingIndex = -1;
 			if (isNotStarted) {
-				pendingIndex = -1;
+			pendingIndex = -1;
 			} else {
 				const targetNum = initialCurrent;
 				const matches = sortedChapters
@@ -580,6 +580,7 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 				}
 			}
 			card.pendingIndex = pendingIndex;
+			card.originalIndex = pendingIndex;
 			const coverContainer = card.querySelector('.series-cover-container');
 			const existingBadge = coverContainer.querySelector('.unread-badge');
 			if (existingBadge) existingBadge.remove();
@@ -605,12 +606,14 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 				coverContainer.insertBefore(badge, coverContainer.firstChild);
 			}
 			updateChapterDisplay();
+			updateButtonState();
 		} catch (e) {
 			console.error('Chapter fetch failed:', e);
 			card.sortedChapters = [];
 			card.useVolumeSorting = false;
 			card.pendingIndex = -1;
 			updateChapterDisplay();
+			updateButtonState();
 		}
 	})();
 
@@ -664,6 +667,11 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 		}
 	}
 
+	function updateButtonState() {
+		const hasChanged = card.pendingIndex !== card.originalIndex;
+		btnAccept.disabled = !hasChanged;
+	}
+
 	btnInc.addEventListener('click', () => {
 		const sorted = card.sortedChapters || [];
 		if (sorted.length === 0) return;
@@ -673,6 +681,7 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 			card.pendingIndex++;
 		}
 		updateChapterDisplay();
+		updateButtonState();
 	});
 	btnDec.addEventListener('click', () => {
 		if (card.pendingIndex === -1) {
@@ -682,6 +691,7 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 			card.pendingIndex--;
 		}
 		updateChapterDisplay();
+		updateButtonState();
 	});
 	btnAccept.addEventListener('click', () => {
 		if (card.pendingIndex === -1) {
@@ -741,8 +751,14 @@ function renderPagination(current, total, status, sort) {
 	if (total <= 1) {
 		paginationTop.innerHTML = '';
 		paginationBottom.innerHTML = '';
+		paginationTop.style.display = 'none';
+		paginationBottom.style.display = 'none';
 		return;
 	}
+
+	paginationTop.style.display = '';
+	paginationBottom.style.display = '';
+
 	function renderNav() {
 		const nav = document.createElement('nav');
 		nav.className = 'relative z-0 inline-flex shadow-sm rounded-md';
