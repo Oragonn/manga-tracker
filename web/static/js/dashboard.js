@@ -938,11 +938,11 @@ function setupStaticMultiSelect(trigger, menu, checkboxes, stateKey, labelMap = 
 		if (!menu.classList.contains('hidden')) {
 			closeAllMultiSelectMenus(menu);
 			const rect = trigger.getBoundingClientRect();
-			menu.style.position = 'absolute';
+			menu.style.position = 'fixed'; // Changed from absolute
 			menu.style.left = rect.left + 'px';
 			menu.style.top = (rect.bottom + 4) + 'px';
 			menu.style.width = rect.width + 'px';
-			menu.style.zIndex = '100';
+			menu.style.zIndex = '1001';
 		}
 	});
 	checkboxes.forEach(cb => {
@@ -996,6 +996,12 @@ function setupSingleSelect(trigger, menu, stateKey, labelMap, defaultValue) {
 		menu.classList.toggle('hidden');
 		if (!menu.classList.contains('hidden')) {
 			closeAllMultiSelectMenus(menu);
+			const rect = trigger.getBoundingClientRect();
+			menu.style.position = 'fixed'; // Changed from absolute
+			menu.style.left = rect.left + 'px';
+			menu.style.top = (rect.bottom + 4) + 'px';
+			menu.style.width = rect.width + 'px';
+			menu.style.zIndex = '1001';
 		}
 	});
 	options.forEach(option => {
@@ -1076,18 +1082,17 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Genre (Tags) - NOW WITH CONTENT RATING INSIDE THE SAME DROPDOWN
 	const genreTrigger = document.getElementById('filter-genre-trigger');
 	const genreMenu = document.getElementById('filter-genre-menu');
-	const genreList = genreMenu.querySelector('.genre-list');
-	const genreClearBtn = genreMenu.querySelector('.btn-select-none');
+	const genreListSection = genreMenu.querySelector('.genre-list-section');
 	const ratingCheckboxes = genreMenu.querySelectorAll('.rating-checkbox');
-	const ratingClearBtn = document.getElementById('btn-clear-ratings');
-	
+	const clearAllBtn = document.getElementById('btn-clear-all-tags');
+
 	// Close menu when clicking outside
 	document.addEventListener('click', (e) => {
 		if (!genreMenu.contains(e.target) && e.target !== genreTrigger) {
 			genreMenu.classList.add('hidden');
 		}
 	});
-	
+
 	// Toggle menu on trigger click
 	genreTrigger.addEventListener('click', (e) => {
 		e.stopPropagation();
@@ -1095,13 +1100,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!genreMenu.classList.contains('hidden')) {
 			closeAllMultiSelectMenus(genreMenu);
 			const rect = genreTrigger.getBoundingClientRect();
-			genreMenu.style.position = 'absolute';
+			genreMenu.style.position = 'fixed'; // Changed from absolute
 			genreMenu.style.left = rect.left + 'px';
 			genreMenu.style.top = (rect.bottom + 4) + 'px';
 			genreMenu.style.width = rect.width + 'px';
-			genreMenu.style.zIndex = '100';
-			if (genreList) {
-				genreList.scrollTop = 0;
+			genreMenu.style.zIndex = '1001';
+			// Scroll to top when opening
+			const scrollContainer = genreMenu.querySelector('.combined-tags-list');
+			if (scrollContainer) {
+				scrollContainer.scrollTop = 0;
 			}
 		}
 	});
@@ -1131,24 +1138,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	}
 	
-	// Clear Tags button
-	genreClearBtn.addEventListener('click', () => {
+	// Clear All button (clears both genres and ratings)
+	clearAllBtn.addEventListener('click', () => {
 		state.genre = [];
-		state.page = 1;
-		loadPage();
-		genreList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-		updateTagsTriggerText();
-	});
-	
-	// Clear Ratings button
-	ratingClearBtn.addEventListener('click', () => {
 		state.rating = [];
 		state.page = 1;
 		loadPage();
+		genreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
 		ratingCheckboxes.forEach(cb => cb.checked = false);
 		updateTagsTriggerText();
 	});
-	
+
 	// Setup rating checkboxes (OR logic)
 	ratingCheckboxes.forEach(cb => {
 		cb.checked = state.rating.includes(cb.value);
@@ -1170,7 +1170,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const res = await fetch('/api/genres');
 			if (res.ok) {
 				const genres = await res.json();
-				genreList.innerHTML = '';
+				genreListSection.innerHTML = '';
 				genres.forEach(genre => {
 					const label = document.createElement('label');
 					const cb = document.createElement('input');
@@ -1189,13 +1189,14 @@ document.addEventListener('DOMContentLoaded', () => {
 					});
 					label.appendChild(cb);
 					label.appendChild(document.createTextNode(genre));
-					genreList.appendChild(label);
+					genreListSection.appendChild(label);
 				});
 			}
 		} catch (e) {
 			console.error('Failed to load genres:', e);
 		}
 	};
+
 
 	// Publication Status
 	const pubStatusTrigger = document.getElementById('filter-pub-status-trigger');

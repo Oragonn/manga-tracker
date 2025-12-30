@@ -127,20 +127,25 @@
           Tags
         </button>
         <div class="multi-select-menu hidden" id="filter-genre-menu">
-          <div class="genre-list"></div>
-          <button class="btn-select-none">Clear Tags</button>
-          
-          <!-- SEPARATOR LINE -->
-          <div style="border-top: 1px solid #334155; margin: 12px 0;"></div>
-          
-          <!-- CONTENT RATING SECTION (INSIDE TAGS) -->
-          <div class="rating-section">
-            <label><input type="checkbox" value="safe" class="rating-checkbox"> Safe</label>
-            <label><input type="checkbox" value="mild" class="rating-checkbox"> Suggestive</label>
-            <label><input type="checkbox" value="mature" class="rating-checkbox"> Mature</label>
-            <label><input type="checkbox" value="explicit" class="rating-checkbox"> Explicit</label>
-            <button class="btn-select-none" id="btn-clear-ratings">Clear Ratings</button>
+          <!-- COMBINED SCROLLABLE LIST -->
+          <div class="combined-tags-list">
+            <!-- Genres section -->
+            <div class="genre-list-section"></div>
+            
+            <!-- SEPARATOR LINE -->
+            <div style="border-top: 1px solid #334155; margin: 8px 0;"></div>
+            
+            <!-- Content Rating section -->
+            <div class="rating-section">
+              <label><input type="checkbox" value="safe" class="rating-checkbox"> Safe</label>
+              <label><input type="checkbox" value="mild" class="rating-checkbox"> Suggestive</label>
+              <label><input type="checkbox" value="mature" class="rating-checkbox"> Mature</label>
+              <label><input type="checkbox" value="explicit" class="rating-checkbox"> Explicit</label>
+            </div>
           </div>
+          
+          <!-- SINGLE CLEAR BUTTON AT BOTTOM -->
+          <button class="btn-select-none" id="btn-clear-all-tags">Clear</button>
         </div>
       </div>
 
