@@ -590,7 +590,8 @@ def api_update_series(series_id):
     _bulk_id = data.pop('_bulk_id', None)
     _is_bulk = data.pop('_is_bulk', False)
     
-    allowed_fields = {'current_chapter', 'current_volume', 'status', 'cover_url', 'source_url', 'title'}
+    # REMOVE 'source_url' from allowed_fields
+    allowed_fields = {'current_chapter', 'current_volume', 'status', 'cover_url', 'title'}
     updates = {k: v for k, v in data.items() if k in allowed_fields}
     
     if 'current_chapter' in updates:

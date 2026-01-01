@@ -643,29 +643,34 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 		}
 		card.querySelector('.card-chapters').innerHTML = `${currentHtml}${latestHtml}`;
 		
-		// Remove old event listeners by cloning the button
-		const newBtnNext = btnNext.cloneNode(true);
-		btnNext.parentNode.replaceChild(newBtnNext, btnNext);
-		// Update reference
-		const currentBtnNext = card.querySelector('.btn-next');
+		// FIX: Get the button container and replace the entire button
+		const buttonContainer = card.querySelector('.card-buttons-bottom');
+		if (!buttonContainer) return; // Safety check
+		
+		const oldBtn = buttonContainer.querySelector('.btn-next');
+		if (!oldBtn) return; // Safety check
+		
+		// Create new button element
+		const newBtn = document.createElement('button');
+		newBtn.className = 'btn-next';
 		
 		if (sorted.length === 0) {
-			currentBtnNext.textContent = 'No chapters';
-			currentBtnNext.disabled = true;
+			newBtn.textContent = 'No chapters';
+			newBtn.disabled = true;
 		} else if (isNowNotStarted) {
 			const firstToRead = sorted[0];
 			const label = formatChapterLabel(firstToRead, useVolume);
-			currentBtnNext.textContent = `Continue to ${label}`;
-			currentBtnNext.disabled = false;
+			newBtn.textContent = `Continue to ${label}`;
+			newBtn.disabled = false;
 			
 			// Handle left-click
-			currentBtnNext.addEventListener('click', (e) => {
+			newBtn.addEventListener('click', (e) => {
 				e.preventDefault();
 				window.open(firstToRead.chapter_url, '_blank');
 			});
 			
 			// Handle middle-click
-			currentBtnNext.addEventListener('auxclick', (e) => {
+			newBtn.addEventListener('auxclick', (e) => {
 				if (e.button === 1) {
 					e.preventDefault();
 					window.open(firstToRead.chapter_url, '_blank');
@@ -675,27 +680,30 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 			if (card.pendingIndex < sorted.length - 1) {
 				const nextCh = sorted[card.pendingIndex + 1];
 				const label = formatChapterLabel(nextCh, useVolume);
-				currentBtnNext.textContent = `Continue to ${label}`;
-				currentBtnNext.disabled = false;
+				newBtn.textContent = `Continue to ${label}`;
+				newBtn.disabled = false;
 				
 				// Handle left-click
-				currentBtnNext.addEventListener('click', (e) => {
+				newBtn.addEventListener('click', (e) => {
 					e.preventDefault();
 					window.open(nextCh.chapter_url, '_blank');
 				});
 				
 				// Handle middle-click
-				currentBtnNext.addEventListener('auxclick', (e) => {
+				newBtn.addEventListener('auxclick', (e) => {
 					if (e.button === 1) {
 						e.preventDefault();
 						window.open(nextCh.chapter_url, '_blank');
 					}
 				});
 			} else {
-				currentBtnNext.textContent = 'No new chapter';
-				currentBtnNext.disabled = true;
+				newBtn.textContent = 'No new chapter';
+				newBtn.disabled = true;
 			}
 		}
+		
+		// Replace the button
+		buttonContainer.replaceChild(newBtn, oldBtn);
 	}
 
 	function updateButtonState() {
@@ -703,6 +711,19 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 		btnAccept.disabled = !hasChanged;
 	}
 
+	// Around line 714 (minus button)
+	btnDec.addEventListener('click', () => {
+		if (card.pendingIndex === -1) {
+		} else if (card.pendingIndex === 0) {
+			card.pendingIndex = -1;
+		} else {
+			card.pendingIndex--;
+		}
+		updateChapterDisplay();
+		updateButtonState(); // ADD THIS LINE
+	});
+
+	// Around line 724 (plus button)
 	btnInc.addEventListener('click', () => {
 		const sorted = card.sortedChapters || [];
 		if (sorted.length === 0) return;
@@ -712,17 +733,7 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 			card.pendingIndex++;
 		}
 		updateChapterDisplay();
-		updateButtonState();
-	});
-	btnDec.addEventListener('click', () => {
-		if (card.pendingIndex === -1) {
-		} else if (card.pendingIndex === 0) {
-			card.pendingIndex = -1;
-		} else {
-			card.pendingIndex--;
-		}
-		updateChapterDisplay();
-		updateButtonState();
+		updateButtonState(); // ADD THIS LINE
 	});
 	btnAccept.addEventListener('click', () => {
 		if (card.pendingIndex === -1) {
