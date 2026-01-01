@@ -202,6 +202,25 @@ html {
   background: #1256d0;
 }
 
+/* Refresh button rotation animation */
+@keyframes spin {
+  from {
+    transform: rotate(360deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.control-button.refreshing svg {
+  animation: spin 0.6s linear;
+}
+
+/* Optional: Add multiple spins for longer operations */
+.control-button.refreshing-long svg {
+  animation: spin 1s linear infinite;
+}
+
 /* Specific button widths */
 #btn-refresh,
 #btn-add-series {

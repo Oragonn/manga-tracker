@@ -1362,8 +1362,25 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 	// Refresh
-	document.getElementById('btn-refresh')?.addEventListener('click', () => {
-		loadPage();
+	document.getElementById('btn-refresh')?.addEventListener('click', async () => {
+	const btn = document.getElementById('btn-refresh');
+	
+	// Add refreshing class to trigger animation
+	btn.classList.add('refreshing');
+	
+	// Disable button during refresh
+	btn.disabled = true;
+	
+	try {
+		await loadPage();
+	} finally {
+		// Remove animation class after page loads
+		// Use timeout to ensure animation completes
+		setTimeout(() => {
+		btn.classList.remove('refreshing');
+		btn.disabled = false;
+		}, 600); // Match animation duration
+	}
 	});
 
 	// Add Series
