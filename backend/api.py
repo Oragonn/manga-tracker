@@ -754,6 +754,252 @@ def api_series_chapters(series_id):
         result.append(r)
     return jsonify(result)
 
+@app.route('/stats')
+def stats_page():
+    """Render stats page."""
+    return render_template('stats.html')
+
+@app.route('/api/stats')
+def api_get_stats():
+    """
+    Get comprehensive statistics about the tracker.
+    """
+    try:
+        from datetime import datetime, timezone, timedelta
+        from .database import get_db, release_db
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # === CORE STATS ===
+        
+        # Total series
+        cursor.execute("SELECT COUNT(*) FROM series")
+        total_series = cursor.fetchone()[0]
+        
+        # Total series with last chapter read (caught up)
+        cursor.execute("""
+            SELECT COUNT(*) FROM series 
+            WHERE current_chapter >= COALESCE(latest_chapter, 0) 
+            AND current_chapter != -1
+        """)
+        caught_up = cursor.fetchone()[0]
+        
+        # Total series started but not finished
+        cursor.execute("""
+            SELECT COUNT(*) FROM series 
+            WHERE current_chapter != -1 
+            AND current_chapter < COALESCE(latest_chapter, 0)
+        """)
+        started_not_finished = cursor.fetchone()[0]
+        
+        # Total chapters (sum of all latest_chapter across all series)
+        cursor.execute("SELECT COALESCE(SUM(latest_chapter), 0) FROM series WHERE latest_chapter IS NOT NULL")
+        total_chapters = int(cursor.fetchone()[0])
+        
+        # Total chapters read (sum of current_chapter where not -1)
+        cursor.execute("""
+            SELECT COALESCE(SUM(current_chapter), 0) FROM series 
+            WHERE current_chapter != -1
+        """)
+        total_chapters_read = int(cursor.fetchone()[0])
+        
+        # === CONTENT TYPE BREAKDOWN ===
+        cursor.execute("""
+            SELECT 
+                source_type,
+                COUNT(*) as count
+            FROM series
+            GROUP BY source_type
+        """)
+        content_type_breakdown = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # === READING STATUS BREAKDOWN ===
+        cursor.execute("""
+            SELECT 
+                status,
+                COUNT(*) as count
+            FROM series
+            GROUP BY status
+        """)
+        status_breakdown = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # === ADDITIONAL STATS ===
+        
+        # Average chapters per series (for started series)
+        cursor.execute("SELECT COUNT(*) FROM series WHERE current_chapter != -1")
+        series_started_count = cursor.fetchone()[0]
+        avg_chapters_per_series = round(total_chapters_read / series_started_count, 1) if series_started_count > 0 else 0
+        
+        # Completion rate
+        cursor.execute("SELECT COUNT(*) FROM series WHERE status = 'completed'")
+        completed_count = cursor.fetchone()[0]
+        completion_rate = round((completed_count / total_series * 100), 1) if total_series > 0 else 0
+        
+        # Most read content type
+        most_read_type = max(content_type_breakdown.items(), key=lambda x: x[1])[0] if content_type_breakdown else 'N/A'
+        
+        # Reading streak (days since last progress update)
+        cursor.execute("""
+            SELECT MAX(timestamp) FROM activity_log 
+            WHERE action_type = 'progress'
+        """)
+        last_progress = cursor.fetchone()[0]
+        if last_progress:
+            try:
+                last_progress_dt = datetime.fromisoformat(last_progress.replace('Z', '+00:00'))
+                days_since = (datetime.now(timezone.utc) - last_progress_dt).days
+                reading_streak = max(0, 7 - days_since)  # Streak breaks after 7 days
+            except:
+                reading_streak = 0
+        else:
+            reading_streak = 0
+        
+        # Series added this week/month/year
+        now = datetime.now(timezone.utc)
+        week_ago = now - timedelta(days=7)
+        month_ago = now - timedelta(days=30)
+        year_ago = now - timedelta(days=365)
+        
+        cursor.execute("""
+            SELECT 
+                COUNT(CASE WHEN created_at >= ? THEN 1 END) as week,
+                COUNT(CASE WHEN created_at >= ? THEN 1 END) as month,
+                COUNT(CASE WHEN created_at >= ? THEN 1 END) as year
+            FROM series
+        """, (week_ago.isoformat(), month_ago.isoformat(), year_ago.isoformat()))
+        series_added = cursor.fetchone()
+        series_added_week = series_added[0] or 0
+        series_added_month = series_added[1] or 0
+        series_added_year = series_added[2] or 0
+        
+        # Chapters read this week/month/year
+        cursor.execute("""
+            SELECT 
+                COUNT(CASE WHEN timestamp >= ? THEN 1 END) as week,
+                COUNT(CASE WHEN timestamp >= ? THEN 1 END) as month,
+                COUNT(CASE WHEN timestamp >= ? THEN 1 END) as year
+            FROM activity_log
+            WHERE action_type = 'progress'
+        """, (week_ago.isoformat(), month_ago.isoformat(), year_ago.isoformat()))
+        chapters_read = cursor.fetchone()
+        chapters_read_week = chapters_read[0] or 0
+        chapters_read_month = chapters_read[1] or 0
+        chapters_read_year = chapters_read[2] or 0
+        
+        # Series per source
+        cursor.execute("""
+            SELECT 
+                source_type,
+                COUNT(DISTINCT series_id) as count
+            FROM series_sources
+            GROUP BY source_type
+        """)
+        series_per_source = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # Most used source
+        most_used_source = max(series_per_source.items(), key=lambda x: x[1])[0] if series_per_source else 'N/A'
+        
+        # Series with multiple sources
+        cursor.execute("""
+            SELECT COUNT(*) FROM (
+                SELECT series_id FROM series_sources
+                GROUP BY series_id
+                HAVING COUNT(*) > 1
+            )
+        """)
+        multi_source_count = cursor.fetchone()[0]
+        
+        # Average unread chapters (across reading series)
+        cursor.execute("""
+            SELECT AVG(COALESCE(latest_chapter, 0) - current_chapter)
+            FROM series
+            WHERE status = 'reading' 
+            AND current_chapter != -1
+            AND latest_chapter > current_chapter
+        """)
+        avg_unread = cursor.fetchone()[0]
+        avg_unread_chapters = round(avg_unread, 1) if avg_unread else 0
+        
+        # Total unread chapters
+        cursor.execute("""
+            SELECT SUM(COALESCE(latest_chapter, 0) - current_chapter)
+            FROM series
+            WHERE current_chapter != -1
+            AND latest_chapter > current_chapter
+        """)
+        total_unread = cursor.fetchone()[0]
+        total_unread_chapters = int(total_unread) if total_unread else 0
+        
+        # Content rating breakdown
+        cursor.execute("""
+            SELECT 
+                content_rating,
+                COUNT(*) as count
+            FROM series
+            GROUP BY content_rating
+        """)
+        rating_breakdown = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # Most common genre
+        cursor.execute("SELECT genres FROM series WHERE genres IS NOT NULL AND genres != ''")
+        all_genres = []
+        for row in cursor.fetchall():
+            try:
+                genre_list = json.loads(row[0])
+                if isinstance(genre_list, list):
+                    all_genres.extend(genre_list)
+            except:
+                pass
+        
+        if all_genres:
+            genre_counts = {}
+            for genre in all_genres:
+                genre_counts[genre] = genre_counts.get(genre, 0) + 1
+            most_common_genre = max(genre_counts.items(), key=lambda x: x[1])[0]
+        else:
+            most_common_genre = 'N/A'
+        
+        release_db(conn)
+        
+        # === RETURN STATS ===
+        return jsonify({
+            'core': {
+                'total_series': total_series,
+                'caught_up': caught_up,
+                'started_not_finished': started_not_finished,
+                'total_chapters': total_chapters,
+                'total_chapters_read': total_chapters_read
+            },
+            'content_type': content_type_breakdown,
+            'status': status_breakdown,
+            'additional': {
+                'avg_chapters_per_series': avg_chapters_per_series,
+                'completion_rate': completion_rate,
+                'most_read_type': most_read_type,
+                'reading_streak': reading_streak,
+                'series_added_week': series_added_week,
+                'series_added_month': series_added_month,
+                'series_added_year': series_added_year,
+                'chapters_read_week': chapters_read_week,
+                'chapters_read_month': chapters_read_month,
+                'chapters_read_year': chapters_read_year,
+                'series_per_source': series_per_source,
+                'most_used_source': most_used_source,
+                'multi_source_count': multi_source_count,
+                'avg_unread_chapters': avg_unread_chapters,
+                'total_unread_chapters': total_unread_chapters,
+                'most_common_genre': most_common_genre
+            },
+            'rating_breakdown': rating_breakdown
+        })
+        
+    except Exception as e:
+        print(f"[Stats API] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/')
 def root():
     from flask import redirect

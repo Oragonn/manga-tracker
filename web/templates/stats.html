@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Statistics - Manga Tracker</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .stats-container {
+      max-width: 1200px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+
+    .stats-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 32px;
+    }
+
+    .stats-header h1 {
+      font-size: 32px;
+      color: white;
+      margin: 0;
+    }
+
+    .stats-section {
+      margin-bottom: 32px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #94a3b8;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .stats-grid.hero {
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .stat-card {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .stat-card.hero {
+      background: linear-gradient(135deg, #1e293b 0%, #141b2f 100%);
+      border-color: #475569;
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: 700;
+      color: white;
+      line-height: 1;
+    }
+
+    .stat-card.hero .stat-value {
+      font-size: 48px;
+      background: linear-gradient(135deg, #678ec9 0%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .stat-subtext {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+
+    .chart-container {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 24px;
+      min-height: 300px;
+    }
+
+    .chart-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+      gap: 16px;
+    }
+
+    .breakdown-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px;
+      background: #1a2436;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+
+    .breakdown-label {
+      font-size: 14px;
+      color: #cbd5e1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .breakdown-value {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
+    }
+
+    .breakdown-bar {
+      height: 6px;
+      background: #1a2436;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+
+    .breakdown-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #678ec9, #94a3b8);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    .color-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .loading-text {
+      text-align: center;
+      color: #64748b;
+      padding: 60px 20px;
+      font-size: 16px;
+    }
+
+    .refresh-btn {
+      padding: 10px 20px;
+      background: #1665f4;
+      border: 1px solid #1665f4;
+      border-radius: 6px;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+
+    .refresh-btn:hover {
+      background: #1256d0;
+    }
+
+    .refresh-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+
+<header class="header-full">
+  <nav class="nav-container">
+    <div class="nav-links">
+      <a href="/errors" class="nav-link">
+        Errors
+        <span id="unread-error-count" style="
+          display: none;
+          background: #e53e3e;
+          color: white;
+          font-size: 11px;
+          font-weight: bold;
+          padding: 2px 6px;
+          border-radius: 10px;
+          margin-left: 6px;
+        "></span>
+      </a>
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/logs" class="nav-link">Activity Log</a>
+      <a href="/backups" class="nav-link">Backups</a>
+      <a href="/stats" class="nav-link">Stats</a>
+      <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
+    </div>
+  </nav>
+</header>
+
+<div class="stats-container">
+  <div class="stats-header">
+    <h1>📊 Statistics</h1>
+    <button class="refresh-btn" id="btn-refresh-stats">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+      </svg>
+      Refresh
+    </button>
+  </div>
+
+  <div id="stats-content">
+    <div class="loading-text">Loading statistics...</div>
+  </div>
+</div>
+
+<script>
+const COLOR_MAP = {
+  manga: '#3b82f6',
+  manhwa: '#10b981',
+  manhua: '#f59e0b',
+  other: '#6366f1',
+  reading: '#22c55e',
+  plan_to_read: '#94a3b8',
+  completed: '#3b82f6',
+  dropped: '#ef4444',
+  on_hold: '#eab308',
+  safe: '#22c55e',
+  mild: '#eab308',
+  mature: '#f97316',
+  explicit: '#ef4444'
+};
+
+const LABEL_MAP = {
+  manga: 'Manga',
+  manhwa: 'Manhwa',
+  manhua: 'Manhua',
+  other: 'Other',
+  reading: 'Reading',
+  plan_to_read: 'Plan to Read',
+  completed: 'Completed',
+  dropped: 'Dropped',
+  on_hold: 'On Hold',
+  safe: 'Safe',
+  mild: 'Suggestive',
+  mature: 'Mature',
+  explicit: 'Explicit',
+  mangadex: 'MangaDex',
+  kagane: 'Kagane'
+};
+
+async function loadStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) throw new Error('Failed to load stats');
+    
+    const stats = await res.json();
+    renderStats(stats);
+  } catch (err) {
+    console.error('Failed to load stats:', err);
+    document.getElementById('stats-content').innerHTML = 
+      '<div class="loading-text">Error loading statistics. Please try again.</div>';
+  }
+}
+
+function renderStats(stats) {
+  const container = document.getElementById('stats-content');
+  
+  let html = '';
+  
+  // === ROW 1: BIG NUMBERS (HERO STATS) ===
+  html += `
+    <div class="stats-section">
+      <div class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3v18h18"/>
+          <path d="M18 17V9"/>
+          <path d="M13 17V5"/>
+          <path d="M8 17v-3"/>
+        </svg>
+        Overview
+      </div>
+      <div class="stats-grid hero">
+        <div class="stat-card hero">
+          <div class="stat-label">Total Series</div>
+          <div class="stat-value">${stats.core.total_series.toLocaleString()}</div>
+        </div>
+        <div class="stat-card hero">
+          <div class="stat-label">Total Chapters</div>
+          <div class="stat-value">${stats.core.total_chapters.toLocaleString()}</div>
+        </div>
+        <div class="stat-card hero">
+          <div class="stat-label">Chapters Read</div>
+          <div class="stat-value">${stats.core.total_chapters_read.toLocaleString()}</div>
+        </div>
+        <div class="stat-card hero">
+          <div class="stat-label">Completion Rate</div>
+          <div class="stat-value">${stats.additional.completion_rate}%</div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // === ROW 2: READING PROGRESS ===
+  html += `
+    <div class="stats-section">
+      <div class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        Reading Progress
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Series Caught Up</div>
+          <div class="stat-value">${stats.core.caught_up}</div>
+          <div class="stat-subtext">No new chapters to read</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">In Progress</div>
+          <div class="stat-value">${stats.core.started_not_finished}</div>
+          <div class="stat-subtext">Started but not caught up</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Unread</div>
+          <div class="stat-value">${stats.additional.total_unread_chapters.toLocaleString()}</div>
+          <div class="stat-subtext">Chapters waiting to be read</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Unread per Series</div>
+          <div class="stat-value">${stats.additional.avg_unread_chapters}</div>
+          <div class="stat-subtext">For reading series</div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // === ROW 3: CONTENT BREAKDOWN (PIE CHARTS) ===
+  html += `
+    <div class="stats-section">
+      <div class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21.21 15.89A10 10 0 1 1 8 2.83"/>
+          <path d="M22 12A10 10 0 0 0 12 2v10z"/>
+        </svg>
+        Distribution
+      </div>
+      <div class="chart-grid">
+        ${renderBreakdown('Content Type', stats.content_type, stats.core.total_series)}
+        ${renderBreakdown('Reading Status', stats.status, stats.core.total_series)}
+        ${renderBreakdown('Content Rating', stats.rating_breakdown, stats.core.total_series)}
+      </div>
+    </div>
+  `;
+  
+  // === ROW 4: TIME-BASED ACTIVITY ===
+  html += `
+    <div class="stats-section">
+      <div class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 6v6l4 2"/>
+        </svg>
+        Activity
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Series Added (Week)</div>
+          <div class="stat-value">${stats.additional.series_added_week}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Series Added (Month)</div>
+          <div class="stat-value">${stats.additional.series_added_month}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Series Added (Year)</div>
+          <div class="stat-value">${stats.additional.series_added_year}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Chapters Read (Week)</div>
+          <div class="stat-value">${stats.additional.chapters_read_week}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Chapters Read (Month)</div>
+          <div class="stat-value">${stats.additional.chapters_read_month}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Chapters Read (Year)</div>
+          <div class="stat-value">${stats.additional.chapters_read_year}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Reading Streak</div>
+          <div class="stat-value">${stats.additional.reading_streak}</div>
+          <div class="stat-subtext">Days active (max 7)</div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // === ROW 5: SOURCES & PREFERENCES ===
+  html += `
+    <div class="stats-section">
+      <div class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>
+        Preferences & Sources
+      </div>
+      <div class="stats-grid">
+        ${Object.entries(stats.additional.series_per_source).map(([source, count]) => `
+          <div class="stat-card">
+            <div class="stat-label">${LABEL_MAP[source] || source} Series</div>
+            <div class="stat-value">${count}</div>
+          </div>
+        `).join('')}
+        <div class="stat-card">
+          <div class="stat-label">Most Used Source</div>
+          <div class="stat-value" style="font-size: 24px;">${LABEL_MAP[stats.additional.most_used_source] || stats.additional.most_used_source}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Multi-Source Series</div>
+          <div class="stat-value">${stats.additional.multi_source_count}</div>
+          <div class="stat-subtext">Tracked on multiple sites</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Most Common Genre</div>
+          <div class="stat-value" style="font-size: 20px;">${stats.additional.most_common_genre}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Chapters per Series</div>
+          <div class="stat-value">${stats.additional.avg_chapters_per_series}</div>
+          <div class="stat-subtext">For started series</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Most Read Type</div>
+          <div class="stat-value" style="font-size: 24px;">${LABEL_MAP[stats.additional.most_read_type] || stats.additional.most_read_type}</div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  container.innerHTML = html;
+}
+
+function renderBreakdown(title, data, total) {
+  const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
+  
+  return `
+    <div class="chart-container">
+      <h3 style="color: white; font-size: 16px; margin-bottom: 16px;">${title}</h3>
+      ${entries.map(([key, value]) => {
+        const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+        const label = LABEL_MAP[key] || key;
+        const color = COLOR_MAP[key] || '#678ec9';
+        
+        return `
+          <div class="breakdown-item">
+            <div class="breakdown-label">
+              <span class="color-dot" style="background: ${color};"></span>
+              ${label}
+            </div>
+            <div class="breakdown-value">${value} (${percentage}%)</div>
+          </div>
+          <div class="breakdown-bar">
+            <div class="breakdown-fill" style="width: ${percentage}%; background: ${color};"></div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadStats();
+  
+  document.getElementById('btn-refresh-stats').addEventListener('click', async () => {
+    const btn = document.getElementById('btn-refresh-stats');
+    btn.disabled = true;
+    await loadStats();
+    setTimeout(() => {
+      btn.disabled = false;
+    }, 1000);
+  });
+});
+</script>
+
+</body>
+</html>

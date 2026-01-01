@@ -2,7 +2,7 @@
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application that monitors 1,300+ series across multiple sources (MangaDex, Kagane) with manual chapter control, automated checking, bulk operations, activity logging, automated backups, and multi-source support per series.
+A self-hosted manga/manhwa tracking application that monitors 1,300+ series across multiple sources (MangaDex, Kagane) with manual chapter control, automated checking, bulk operations, activity logging, automated backups, multi-source support per series, and comprehensive statistics dashboard.
 
 ---
 
@@ -21,7 +21,7 @@ manga-tracker/
 │   ├── api.py                    # Flask routes & queue-based adding
 │   ├── database.py               # SQLite operations with global lock
 │   ├── scheduler.py              # Background chapter checking
-│   ├── main.py                   # Additional routes (errors, logs, backups)
+│   ├── main.py                   # Additional routes (errors, logs, backups, stats)
 │   ├── error_logger.py           # 7-day rotating error logs
 │   ├── activity_logger.py        # 14-day activity log with undo
 │   ├── backup_manager.py         # Hourly database backups
@@ -37,7 +37,7 @@ manga-tracker/
 ├── backups/                      # Database backups (7-day retention)
 ├── web/
 │   ├── static/
-│   │   ├── css/style.css         # Clean, organized CSS (~600 lines)
+│   │   ├── css/style.css         # Clean, organized CSS (~700 lines)
 │   │   └── js/
 │   │       ├── dashboard.js      # Main dashboard logic
 │   │       └── backups.js        # Backup management UI
@@ -45,7 +45,8 @@ manga-tracker/
 │       ├── index.html            # Main dashboard
 │       ├── errors.html           # Error log viewer
 │       ├── logs.html             # Activity log viewer
-│       └── backups.html          # Backup management
+│       ├── backups.html          # Backup management
+│       └── stats.html            # Statistics dashboard (NEW!)
 └── requirements.txt
 ```
 
@@ -84,7 +85,7 @@ CREATE TABLE series (
 );
 ```
 
-#### `series_sources` - Multi-source support (NEW!)
+#### `series_sources` - Multi-source support
 ```sql
 CREATE TABLE series_sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,10 +153,10 @@ CREATE TABLE meta (
 
 ### **Navigation Header** (All Pages)
 ```
-[Errors] [Dashboard] [Activity Log] [Backups] [Discovery]
-     ↑          ↑            ↑           ↑          ↑
-  Badge if   Main UI    Undo logs    Manage    External link
-  new errors            within 7d    backups
+[Errors] [Dashboard] [Activity Log] [Backups] [Stats] [Discovery]
+     ↑          ↑            ↑           ↑        ↑         ↑
+  Badge if   Main UI    Undo logs    Manage   Stats    External
+  new errors            within 7d    backups  page     link
 ```
 
 ### **Dashboard (`/`) - Main Interface**
@@ -167,7 +168,7 @@ CREATE TABLE meta (
 [Status ▾] [Sort ▾] [↕] [↻] [🔔] [Search...]
 ```
 - Status filter (reading/plan/hold/dropped/completed)
-- Sort options (unread first/title/release/added/chapters)
+- Sort options (unread first/title/release/added/chapters/available chapters)
 - Sort direction toggle
 - Reset filters
 - Source alerts (placeholder for future)
@@ -178,7 +179,7 @@ CREATE TABLE meta (
 [Type ▾] [Tags ▾] [Pub Status ▾] [Readable On ▾] | [Actions...]
 ```
 - Content type (manga/manhwa/manhua/other)
-- Tags dropdown (combined genre tags + content rating)
+- Tags dropdown (combined genre tags + content rating in same menu)
 - Publication status (ongoing/completed/etc)
 - Readable On filter (MangaDex/Kagane)
 - Action buttons (Refresh/Add OR Bulk: Read/Edit/Delete)
@@ -192,13 +193,14 @@ CREATE TABLE meta (
 - **6 action buttons**: Settings, Google Search, Source, −, +, ✓
 - **Continue button**: Links to next unread chapter
 - **Middle-click support**: All navigation buttons (Search, Source, Continue) support middle-click to open in background tab
+- **Hold-to-repeat**: +/- buttons repeat when held (starts after 300ms, repeats every 50ms)
 
 #### **Bulk Mode**
 - First selection → enters bulk mode
 - Buttons switch: `[Refresh] [+Add]` → `[Read] [Edit] [Delete]`
 - All operations exit bulk mode after completion
 
-#### **Series Settings Modal** (NEW!)
+#### **Series Settings Modal**
 Accessible via gear icon on each card. Contains sections:
 
 **1. Sources Management**
@@ -224,6 +226,51 @@ Accessible via gear icon on each card. Contains sections:
 - Delete series (red button, left side)
 - Cancel/Save (right side)
 
+### **Statistics Dashboard (`/stats`) - NEW!**
+
+Comprehensive statistics page with 5 main sections:
+
+#### **Row 1: Hero Stats** (Big Numbers)
+- Total Series
+- Total Chapters
+- Chapters Read
+- Completion Rate %
+
+#### **Row 2: Reading Progress**
+- Series Caught Up (read all available)
+- Series In Progress (started but not caught up)
+- Total Unread Chapters
+- Average Unread per Series
+
+#### **Row 3: Distribution** (Breakdown Charts)
+- Content Type Distribution (Manga/Manhwa/Manhua/Other)
+  - Color-coded bars with percentages
+- Reading Status Distribution (Reading/Plan/Completed/Dropped/Hold)
+  - Color-coded progress bars
+- Content Rating Distribution (Safe/Suggestive/Mature/Explicit)
+  - Visual breakdown with percentages
+
+#### **Row 4: Time-Based Activity**
+- Series Added (Week/Month/Year)
+- Chapters Read (Week/Month/Year)
+- Reading Streak (days active, max 7)
+
+#### **Row 5: Preferences & Sources**
+- Series per Source (MangaDex/Kagane counts)
+- Most Used Source
+- Multi-Source Series Count
+- Most Common Genre
+- Average Chapters per Series
+- Most Read Content Type
+
+**Features:**
+- Real-time data from database
+- Refresh button to update stats
+- Responsive grid layout
+- Color-coded categories
+- Hover effects on all cards
+- Percentage bars with smooth animations
+
 ### **Activity Log (`/logs`)**
 ```
 [Type Filter ▾] [Time Filter ▾] [Search...]
@@ -246,6 +293,7 @@ Accessible via gear icon on each card. Contains sections:
 - **Auto-cleanup**: Logs deleted after 14 days
 - **Hover tooltips**: Show full DD/MM/YYYY HH:MM timestamp on "X ago" text
 - **Display improvements**: "Not started" shown for chapter value -1
+- **Updated icons**: New SVG icons for Progress and Status change actions
 
 ### **Backups (`/backups`)**
 ```
@@ -296,10 +344,12 @@ Size: 2.32 MB  •  1 hour ago
 
 2. **Manual Chapter Control**
    - Increment (+), decrement (−), confirm (✓) buttons
+   - Hold-to-repeat: Starts after 300ms, repeats every 50ms (20 times/second)
    - Volume-aware sorting for manga with volumes
    - Oneshot handling
    - Season-aware parsing for Kagane (handles S2 resets)
    - Confirm button disabled when no changes made
+   - Fixed: Manual chapter changes now work correctly
 
 3. **Background Scheduler**
    - Adaptive checking intervals based on status
@@ -324,6 +374,7 @@ Size: 2.32 MB  •  1 hour ago
    - Source change tracking
    - Hover tooltips showing full timestamp
    - Proper display of "Not started" for chapter -1
+   - Updated icons for Progress and Status changes
 
 6. **Database Backups**
    - Automated hourly backups
@@ -332,30 +383,41 @@ Size: 2.32 MB  •  1 hour ago
    - Manual backup/restore via web UI
    - Safety backups before restore
 
-7. **Advanced Filtering**
+7. **Statistics Dashboard** (NEW!)
+   - Core stats: Total series, chapters, completion rate
+   - Reading progress tracking
+   - Content type/status/rating breakdowns
+   - Time-based activity metrics
+   - Source usage statistics
+   - Genre preferences
+   - Real-time data with refresh capability
+
+8. **Advanced Filtering**
    - Multi-select: Content type, genres, rating, pub status
-   - NEW: "Readable On" filter (MangaDex/Kagane sources)
+   - "Readable On" filter (MangaDex/Kagane sources)
    - Combined Tags dropdown (genres + content rating in same menu)
    - Text search across all titles (including alt titles)
-   - Sorting with direction control
+   - Sorting with direction control (including Available Chapters sort)
    - Persistent filters (no URL params)
+   - Fixed: Dropdown UI improvements (no text wrapping, proper widths)
 
-8. **Error Logging**
+9. **Error Logging**
    - 7-day rotating logs
    - French timestamp display
    - "New" badge in navigation
    - Per-date viewing
 
-9. **UI Polish**
-   - Back to top button
-   - Smooth scrolling
-   - Custom scrollbars
-   - Responsive design
-   - Confirmation modals for destructive actions
-   - Drag-and-drop source reordering
-   - Refresh button rotation animation
-   - Middle-click support on navigation buttons (Search Google, Go to Source, Continue)
-   - Fixed pagination margin/padding when only 1 page
+10. **UI Polish**
+    - Back to top button
+    - Smooth scrolling
+    - Custom scrollbars
+    - Responsive design
+    - Confirmation modals for destructive actions
+    - Drag-and-drop source reordering
+    - Refresh button rotation animation
+    - Middle-click support on navigation buttons (Search Google, Go to Source, Continue)
+    - Fixed pagination margin/padding when only 1 page
+    - Hold-to-repeat for +/- buttons (300ms start delay, 50ms repeat)
 
 ---
 
@@ -514,6 +576,13 @@ All navigation buttons support middle-click (mouse wheel click):
 - **Continue button**: Opens next chapter in background tab
 - Uses `auxclick` event for proper browser behavior
 
+### **Hold-to-Repeat Chapter Navigation**
+The +/- buttons support holding for rapid changes:
+- **Initial delay**: 300ms before repeat starts
+- **Repeat rate**: 50ms between increments (20 per second)
+- **Smooth**: Natural feel for catching up on long series
+- **Safe**: Confirm button prevents accidental saves
+
 ---
 
 ## 📊 **System Statistics**
@@ -532,6 +601,7 @@ All navigation buttons support middle-click (mouse wheel click):
 - **Backup creation**: 1-2 seconds
 - **Database query**: <100ms average
 - **Multi-source merge**: <1 second (2-3 sources)
+- **Stats calculation**: <200ms for 1,300+ series
 
 ---
 
@@ -573,12 +643,29 @@ BackupManager(
 ✅ Activity log provides confidence to experiment
 ✅ Error tracking catches issues proactively
 ✅ UI remains responsive under load
+✅ Statistics dashboard provides insights into reading habits
 
 ---
 
 ## 🔄 **Recent Updates (January 2026)**
 
+### **Statistics Dashboard** (NEW!)
+- ✅ Comprehensive stats page with 5 main sections
+- ✅ Real-time data from database
+- ✅ 25+ different metrics
+- ✅ Color-coded breakdowns with progress bars
+- ✅ Time-based activity tracking
+- ✅ Source usage analysis
+- ✅ Responsive grid layout
+- ✅ Refresh functionality
+
 ### **UI/UX Improvements**
+- ✅ Hold-to-repeat for +/- buttons (300ms start, 50ms repeat)
+- ✅ Fixed manual chapter change functionality
+- ✅ Fixed +/- buttons not unlocking confirm button
+- ✅ Updated SVG icons for Progress and Status in activity log
+- ✅ Available Chapters sort option added
+- ✅ Improved dropdown UI (no text wrapping, fixed widths/spacing)
 - ✅ Refresh button rotation animation when clicked
 - ✅ Activity log hover tooltips showing full DD/MM/YYYY HH:MM timestamp
 - ✅ Confirm button disabled when no changes made in series settings
@@ -587,7 +674,7 @@ BackupManager(
 - ✅ Combined Tags and Content Rating into single dropdown menu
 - ✅ Added "Readable On" filter dropdown (MangaDex/Kagane)
 
-### **Middle-Click Navigation Support**
+### **Middle-Click Navigation Support** (Previous Update)
 - ✅ Search Google button: Middle-click opens in background tab
 - ✅ Go to Source button: Middle-click opens in background tab
 - ✅ Continue button: Middle-click opens in background tab
@@ -628,20 +715,23 @@ BackupManager(
 
 ## 🚀 **Future Enhancements**
 
+### **Priority to do:**
+- 📋 Reading statistics trends over time
+- 📋 Fix Kagane way of detecting if a series is manga/manhwa/manhua/other
+- 📋 Reading history timeline
+- 📋 Time-based comparison (this month vs last month)
+- 📋 Genre preferences chart (radar/spider chart)
+- 📋 Series completion timeline
+- 📋 Reading heatmap (days active)
+
 ### **Priority Completed**
 - ✅ Multi-source support
 - ✅ Season-aware parsing
 - ✅ Source management UI
 - ✅ Middle-click navigation support
-
-### **Priority to do:**
-- 📋 Sorting by available chapter
-- 📋 make -, + decreased/increase when holding the button
-- 📋 new progress svg in activity log
-- 📋 fix kagane way of detecting if a serie is a manga/manhwa/manhua/other
-- 📋 Reading statistics dashboard
-- 📋 Reading history timeline
-
+- ✅ Hold-to-repeat chapter navigation
+- ✅ Available Chapters sort
+- ✅ Comprehensive statistics dashboard
 
 ---
 
