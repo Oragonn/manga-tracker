@@ -642,27 +642,58 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 			latestHtml = `<a href="${latestCh.chapter_url}" target="_blank" class="chapter-link">${label}</a>`;
 		}
 		card.querySelector('.card-chapters').innerHTML = `${currentHtml}${latestHtml}`;
+		
+		// Remove old event listeners by cloning the button
+		const newBtnNext = btnNext.cloneNode(true);
+		btnNext.parentNode.replaceChild(newBtnNext, btnNext);
+		// Update reference
+		const currentBtnNext = card.querySelector('.btn-next');
+		
 		if (sorted.length === 0) {
-			btnNext.textContent = 'No chapters';
-			btnNext.disabled = true;
-			btnNext.onclick = null;
+			currentBtnNext.textContent = 'No chapters';
+			currentBtnNext.disabled = true;
 		} else if (isNowNotStarted) {
 			const firstToRead = sorted[0];
 			const label = formatChapterLabel(firstToRead, useVolume);
-			btnNext.textContent = `Continue to ${label}`;
-			btnNext.onclick = () => window.open(firstToRead.chapter_url, '_blank');
-			btnNext.disabled = false;
+			currentBtnNext.textContent = `Continue to ${label}`;
+			currentBtnNext.disabled = false;
+			
+			// Handle left-click
+			currentBtnNext.addEventListener('click', (e) => {
+				e.preventDefault();
+				window.open(firstToRead.chapter_url, '_blank');
+			});
+			
+			// Handle middle-click
+			currentBtnNext.addEventListener('auxclick', (e) => {
+				if (e.button === 1) {
+					e.preventDefault();
+					window.open(firstToRead.chapter_url, '_blank');
+				}
+			});
 		} else {
 			if (card.pendingIndex < sorted.length - 1) {
 				const nextCh = sorted[card.pendingIndex + 1];
 				const label = formatChapterLabel(nextCh, useVolume);
-				btnNext.textContent = `Continue to ${label}`;
-				btnNext.onclick = () => window.open(nextCh.chapter_url, '_blank');
-				btnNext.disabled = false;
+				currentBtnNext.textContent = `Continue to ${label}`;
+				currentBtnNext.disabled = false;
+				
+				// Handle left-click
+				currentBtnNext.addEventListener('click', (e) => {
+					e.preventDefault();
+					window.open(nextCh.chapter_url, '_blank');
+				});
+				
+				// Handle middle-click
+				currentBtnNext.addEventListener('auxclick', (e) => {
+					if (e.button === 1) {
+						e.preventDefault();
+						window.open(nextCh.chapter_url, '_blank');
+					}
+				});
 			} else {
-				btnNext.textContent = 'No new chapter';
-				btnNext.disabled = true;
-				btnNext.onclick = null;
+				currentBtnNext.textContent = 'No new chapter';
+				currentBtnNext.disabled = true;
 			}
 		}
 	}
@@ -702,7 +733,11 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 		}
 	});
 	btnSet.addEventListener('click', () => openEditModal(series));
-	btnSearchGoogle.addEventListener('click', () => {
+	
+	// *** UPDATED: Use auxclick for proper middle-click detection ***
+	// Search Google button - handle left-click
+	btnSearchGoogle.addEventListener('click', (e) => {
+		e.preventDefault();
 		const sorted = card.sortedChapters || [];
 		let nextChapterNum;
 		if (card.pendingIndex === -1) {
@@ -715,11 +750,30 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 		const query = encodeURIComponent(`${series.title} chapter ${nextChapterNum}`);
 		window.open(`https://www.google.com/search?q=${query}`, '_blank');
 	});
-	btnSource.addEventListener('click', () => {
-		// Use primary source URL if available, otherwise fallback
+	
+	// Search Google button - handle middle-click
+	btnSearchGoogle.addEventListener('auxclick', (e) => {
+		if (e.button === 1) { // Middle click
+			e.preventDefault();
+			const sorted = card.sortedChapters || [];
+			let nextChapterNum;
+			if (card.pendingIndex === -1) {
+				nextChapterNum = sorted.length > 0 ? sorted[0].chapter_number : 1;
+			} else if (card.pendingIndex < sorted.length - 1) {
+				nextChapterNum = sorted[card.pendingIndex + 1].chapter_number;
+			} else {
+				nextChapterNum = sorted[sorted.length - 1].chapter_number + 1;
+			}
+			const query = encodeURIComponent(`${series.title} chapter ${nextChapterNum}`);
+			window.open(`https://www.google.com/search?q=${query}`, '_blank');
+		}
+	});
+	
+	// Go to Source button - handle left-click
+	btnSource.addEventListener('click', (e) => {
+		e.preventDefault();
 		let sourceUrl = series.source_url;
 		if (pendingSourceChanges.primarySourceId && currentSeriesIdForEdit === series.id) {
-			// In current modal, get from pending sources
 			const container = document.getElementById('sources-list');
 			if (container) {
 				const primaryEl = container.querySelector('.source-item.primary');
@@ -730,6 +784,25 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 		}
 		window.open(sourceUrl, '_blank');
 	});
+	
+	// Go to Source button - handle middle-click
+	btnSource.addEventListener('auxclick', (e) => {
+		if (e.button === 1) { // Middle click
+			e.preventDefault();
+			let sourceUrl = series.source_url;
+			if (pendingSourceChanges.primarySourceId && currentSeriesIdForEdit === series.id) {
+				const container = document.getElementById('sources-list');
+				if (container) {
+					const primaryEl = container.querySelector('.source-item.primary');
+					if (primaryEl) {
+						sourceUrl = primaryEl.querySelector('.source-url').textContent;
+					}
+				}
+			}
+			window.open(sourceUrl, '_blank');
+		}
+	});
+	
 	const checkbox = card.querySelector('.series-checkbox');
 	checkbox.addEventListener('click', (e) => {
 		e.stopPropagation();
