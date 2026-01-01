@@ -628,13 +628,13 @@ BackupManager(
 
 ## 🚀 **Future Enhancements**
 
-### **Priority 1: Completed**
+### **Priority Completed**
 - ✅ Multi-source support
 - ✅ Season-aware parsing
 - ✅ Source management UI
 - ✅ Middle-click navigation support
 
-### **Priority 2: Under Consideration**
+### **Priority to do:**
 - 📋 Sorting by available chapter
 - 📋 make -, + decreased/increase when holding the button
 - 📋 new progress svg in activity log
