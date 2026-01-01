@@ -711,30 +711,136 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 		btnAccept.disabled = !hasChanged;
 	}
 
-	// Around line 714 (minus button)
-	btnDec.addEventListener('click', () => {
+	// Hold-to-repeat functionality
+	let holdInterval = null;
+	let holdTimeout = null;
+
+	function startHoldRepeat(callback, initialDelay = 500, repeatInterval = 100) {
+	// Clear any existing intervals
+	if (holdInterval) clearInterval(holdInterval);
+	if (holdTimeout) clearTimeout(holdTimeout);
+	
+	// Wait for initial delay, then start repeating
+	holdTimeout = setTimeout(() => {
+		callback(); // Execute first time after delay
+		holdInterval = setInterval(callback, repeatInterval);
+	}, initialDelay);
+	}
+
+	function stopHoldRepeat() {
+	if (holdInterval) {
+		clearInterval(holdInterval);
+		holdInterval = null;
+	}
+	if (holdTimeout) {
+		clearTimeout(holdTimeout);
+		holdTimeout = null;
+	}
+	}
+
+	// REPLACE the existing btnDec.addEventListener('click', ...) with:
+	btnDec.addEventListener('mousedown', (e) => {
+	e.preventDefault();
+	startHoldRepeat(() => {
 		if (card.pendingIndex === -1) {
+		// Already at "Not started", do nothing
 		} else if (card.pendingIndex === 0) {
-			card.pendingIndex = -1;
+		card.pendingIndex = -1;
 		} else {
-			card.pendingIndex--;
+		card.pendingIndex--;
 		}
 		updateChapterDisplay();
-		updateButtonState(); // ADD THIS LINE
+		updateButtonState();
+	}, 300, 50);
 	});
 
-	// Around line 724 (plus button)
-	btnInc.addEventListener('click', () => {
+	// Add click handler for single clicks
+	btnDec.addEventListener('click', (e) => {
+	e.preventDefault();
+	if (card.pendingIndex === -1) {
+		// Already at "Not started", do nothing
+	} else if (card.pendingIndex === 0) {
+		card.pendingIndex = -1;
+	} else {
+		card.pendingIndex--;
+	}
+	updateChapterDisplay();
+	updateButtonState();
+	});
+
+	btnDec.addEventListener('mouseup', stopHoldRepeat);
+	btnDec.addEventListener('mouseleave', stopHoldRepeat);
+
+	// REPLACE the existing btnInc.addEventListener('click', ...) with:
+	btnInc.addEventListener('mousedown', (e) => {
+	e.preventDefault();
+	startHoldRepeat(() => {
 		const sorted = card.sortedChapters || [];
 		if (sorted.length === 0) return;
 		if (card.pendingIndex === -1) {
-			card.pendingIndex = 0;
+		card.pendingIndex = 0;
 		} else if (card.pendingIndex < sorted.length - 1) {
-			card.pendingIndex++;
+		card.pendingIndex++;
 		}
 		updateChapterDisplay();
-		updateButtonState(); // ADD THIS LINE
+		updateButtonState();
+	}, 300, 50);
 	});
+
+	// Add click handler for single clicks
+	btnInc.addEventListener('click', (e) => {
+	e.preventDefault();
+	const sorted = card.sortedChapters || [];
+	if (sorted.length === 0) return;
+	if (card.pendingIndex === -1) {
+		card.pendingIndex = 0;
+	} else if (card.pendingIndex < sorted.length - 1) {
+		card.pendingIndex++;
+	}
+	updateChapterDisplay();
+	updateButtonState();
+	});
+
+	btnInc.addEventListener('mouseup', stopHoldRepeat);
+	btnInc.addEventListener('mouseleave', stopHoldRepeat);
+
+	// Also add touch support for mobile devices
+	btnDec.addEventListener('touchstart', (e) => {
+	e.preventDefault();
+	startHoldRepeat(() => {
+		if (card.pendingIndex === -1) {
+		// Already at "Not started", do nothing
+		} else if (card.pendingIndex === 0) {
+		card.pendingIndex = -1;
+		} else {
+		card.pendingIndex--;
+		}
+		updateChapterDisplay();
+		updateButtonState();
+	}, 300, 50);
+	});
+
+	btnDec.addEventListener('touchend', stopHoldRepeat);
+	btnDec.addEventListener('touchcancel', stopHoldRepeat);
+
+	btnInc.addEventListener('touchstart', (e) => {
+	e.preventDefault();
+	startHoldRepeat(() => {
+		const sorted = card.sortedChapters || [];
+		if (sorted.length === 0) return;
+		if (card.pendingIndex === -1) {
+		card.pendingIndex = 0;
+		} else if (card.pendingIndex < sorted.length - 1) {
+		card.pendingIndex++;
+		}
+		updateChapterDisplay();
+		updateButtonState();
+	}, 300, 50);
+	});
+
+	btnInc.addEventListener('touchend', stopHoldRepeat);
+	btnInc.addEventListener('touchcancel', stopHoldRepeat);
+
 	btnAccept.addEventListener('click', () => {
 		if (card.pendingIndex === -1) {
 			saveChapter(series.id, -1).then(() => loadPage());
