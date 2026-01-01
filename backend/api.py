@@ -873,19 +873,49 @@ def api_get_stats():
         series_added_month = series_added[1] or 0
         series_added_year = series_added[2] or 0
         
-        # Chapters read this week/month/year
+        # *** FIX: Calculate actual chapters read by summing the differences ***
         cursor.execute("""
             SELECT 
-                COUNT(CASE WHEN timestamp >= ? THEN 1 END) as week,
-                COUNT(CASE WHEN timestamp >= ? THEN 1 END) as month,
-                COUNT(CASE WHEN timestamp >= ? THEN 1 END) as year
+                old_value,
+                new_value,
+                timestamp
             FROM activity_log
             WHERE action_type = 'progress'
-        """, (week_ago.isoformat(), month_ago.isoformat(), year_ago.isoformat()))
-        chapters_read = cursor.fetchone()
-        chapters_read_week = chapters_read[0] or 0
-        chapters_read_month = chapters_read[1] or 0
-        chapters_read_year = chapters_read[2] or 0
+        """)
+        progress_logs = cursor.fetchall()
+        
+        chapters_read_week = 0
+        chapters_read_month = 0
+        chapters_read_year = 0
+        
+        for old_value_str, new_value_str, timestamp_str in progress_logs:
+            try:
+                # Parse timestamp
+                timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                
+                # Parse old and new values
+                old_value = json.loads(old_value_str) if old_value_str else {}
+                new_value = json.loads(new_value_str) if new_value_str else {}
+                
+                old_chapter = old_value.get('chapter', -1)
+                new_chapter = new_value.get('chapter', -1)
+                
+                # Calculate difference (count both increases and decreases)
+                # Skip "not started" transitions (-1)
+                if old_chapter >= 0 and new_chapter >= 0:
+                    chapters_diff = int(new_chapter - old_chapter)
+                    
+                    # Add to appropriate time buckets (can be negative)
+                    if timestamp >= week_ago:
+                        chapters_read_week += chapters_diff
+                    if timestamp >= month_ago:
+                        chapters_read_month += chapters_diff
+                    if timestamp >= year_ago:
+                        chapters_read_year += chapters_diff
+                        
+            except Exception as e:
+                # Skip malformed entries
+                continue
         
         # Series per source
         cursor.execute("""

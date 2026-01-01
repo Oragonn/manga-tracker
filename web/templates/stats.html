@@ -472,6 +472,7 @@ function renderBreakdown(title, data, total) {
         const color = COLOR_MAP[key] || '#678ec9';
         
         return `
+        <div style="margin-bottom: 12px;">
           <div class="breakdown-item">
             <div class="breakdown-label">
               <span class="color-dot" style="background: ${color};"></span>
@@ -482,6 +483,7 @@ function renderBreakdown(title, data, total) {
           <div class="breakdown-bar">
             <div class="breakdown-fill" style="width: ${percentage}%; background: ${color};"></div>
           </div>
+        </div>
         `;
       }).join('')}
     </div>
