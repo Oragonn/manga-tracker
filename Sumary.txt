@@ -1,4 +1,4 @@
-# 📚 **Manga Tracker – Complete Project Summary (Updated December 2024)**
+# 📚 **Manga Tracker – Complete Project Summary (Updated January 2026)**
 
 ## 🎯 **Project Overview**
 
@@ -175,12 +175,12 @@ CREATE TABLE meta (
 
 **Row 2:**
 ```
-[Type ▾] [Tags ▾] [Rating ▾] [Pub Status ▾] | [Actions...]
+[Type ▾] [Tags ▾] [Pub Status ▾] [Readable On ▾] | [Actions...]
 ```
 - Content type (manga/manhwa/manhua/other)
-- Genre tags (multi-select)
-- Content rating (safe/mild/mature/explicit)
+- Tags dropdown (combined genre tags + content rating)
 - Publication status (ongoing/completed/etc)
+- Readable On filter (MangaDex/Kagane)
 - Action buttons (Refresh/Add OR Bulk: Read/Edit/Delete)
 
 #### **Series Cards** (221px × 331px covers)
@@ -191,6 +191,7 @@ CREATE TABLE meta (
 - **Metadata**: Last release time (bottom-left)
 - **6 action buttons**: Settings, Google Search, Source, −, +, ✓
 - **Continue button**: Links to next unread chapter
+- **Middle-click support**: All navigation buttons (Search, Source, Continue) support middle-click to open in background tab
 
 #### **Bulk Mode**
 - First selection → enters bulk mode
@@ -217,6 +218,7 @@ Accessible via gear icon on each card. Contains sections:
 - Set current chapter (dropdown with all chapters)
 - Reset to "Not started"
 - Manual "Check Now" button
+- Confirm button disabled when no changes made
 
 **4. Actions**
 - Delete series (red button, left side)
@@ -228,20 +230,22 @@ Accessible via gear icon on each card. Contains sections:
 
 📖 Read chapter: Solo Leveling
    Ch.45 → Ch.50
-   1 hour ago                                      [Undo]
+   1 hour ago (hover for full date/time)              [Undo]
 
 ✏️ Changed status: Reading → On Hold (3 series)
-   10 minutes ago                                   [Undo]
+   10 minutes ago                                      [Undo]
 
 🗑️ Deleted 5 series
    • Series A
    • Series B
    • ... and 3 more
-   2 minutes ago                                    [Undo]
+   2 minutes ago                                       [Undo]
 ```
 - **Features**: Filter by type/time, search, undo within 7 days
 - **Bulk operations**: Grouped with single undo button
 - **Auto-cleanup**: Logs deleted after 14 days
+- **Hover tooltips**: Show full DD/MM/YYYY HH:MM timestamp on "X ago" text
+- **Display improvements**: "Not started" shown for chapter value -1
 
 ### **Backups (`/backups`)**
 ```
@@ -295,6 +299,7 @@ Size: 2.32 MB  •  1 hour ago
    - Volume-aware sorting for manga with volumes
    - Oneshot handling
    - Season-aware parsing for Kagane (handles S2 resets)
+   - Confirm button disabled when no changes made
 
 3. **Background Scheduler**
    - Adaptive checking intervals based on status
@@ -317,6 +322,8 @@ Size: 2.32 MB  •  1 hour ago
    - Bulk operation undo (single button)
    - Auto-cleanup after 14 days
    - Source change tracking
+   - Hover tooltips showing full timestamp
+   - Proper display of "Not started" for chapter -1
 
 6. **Database Backups**
    - Automated hourly backups
@@ -327,6 +334,8 @@ Size: 2.32 MB  •  1 hour ago
 
 7. **Advanced Filtering**
    - Multi-select: Content type, genres, rating, pub status
+   - NEW: "Readable On" filter (MangaDex/Kagane sources)
+   - Combined Tags dropdown (genres + content rating in same menu)
    - Text search across all titles (including alt titles)
    - Sorting with direction control
    - Persistent filters (no URL params)
@@ -344,6 +353,9 @@ Size: 2.32 MB  •  1 hour ago
    - Responsive design
    - Confirmation modals for destructive actions
    - Drag-and-drop source reordering
+   - Refresh button rotation animation
+   - Middle-click support on navigation buttons (Search Google, Go to Source, Continue)
+   - Fixed pagination margin/padding when only 1 page
 
 ---
 
@@ -495,6 +507,13 @@ intervals = {
 }
 ```
 
+### **Middle-Click Navigation**
+All navigation buttons support middle-click (mouse wheel click):
+- **Search Google button**: Opens Google search in background tab
+- **Go to Source button**: Opens series source page in background tab
+- **Continue button**: Opens next chapter in background tab
+- Uses `auxclick` event for proper browser behavior
+
 ---
 
 ## 📊 **System Statistics**
@@ -557,9 +576,25 @@ BackupManager(
 
 ---
 
-## 🔄 **Recent Updates (December 2024)**
+## 🔄 **Recent Updates (January 2026)**
 
-### **Multi-Source Support**
+### **UI/UX Improvements**
+- ✅ Refresh button rotation animation when clicked
+- ✅ Activity log hover tooltips showing full DD/MM/YYYY HH:MM timestamp
+- ✅ Confirm button disabled when no changes made in series settings
+- ✅ "Not started" properly displayed for chapter value -1 in activity log
+- ✅ Fixed pagination margin/padding showing when only 1 page exists
+- ✅ Combined Tags and Content Rating into single dropdown menu
+- ✅ Added "Readable On" filter dropdown (MangaDex/Kagane)
+
+### **Middle-Click Navigation Support**
+- ✅ Search Google button: Middle-click opens in background tab
+- ✅ Go to Source button: Middle-click opens in background tab
+- ✅ Continue button: Middle-click opens in background tab
+- ✅ Uses `auxclick` event for proper browser behavior
+- ✅ Left-click maintains normal behavior (opens and switches to tab)
+
+### **Multi-Source Support** (December 2024)
 - ✅ Multiple sources per series (MangaDex + Kagane)
 - ✅ User-controlled source management
 - ✅ Drag-and-drop source reordering
@@ -567,21 +602,21 @@ BackupManager(
 - ✅ Metadata merging (alt titles, genres)
 - ✅ Activity logging for source changes
 
-### **Season-Aware Parsing**
+### **Season-Aware Parsing** (December 2024)
 - ✅ Detects season markers in chapter titles
 - ✅ Calculates offsets for continuous numbering
 - ✅ Handles multi-season series (S1, S2, S3...)
 - ✅ Preserves all chapters (no data loss)
 - ✅ Supports all season format variants
 
-### **Activity Log System**
+### **Activity Log System** (December 2024)
 - ✅ Logs all user actions (add/delete/edit/progress/status)
 - ✅ Undo within 7 days
 - ✅ Bulk operation undo
 - ✅ Auto-cleanup after 14 days
 - ✅ Fixed: Bulk delete undo with manually re-added series
 
-### **Database Backup System**
+### **Database Backup System** (December 2024)
 - ✅ Automated hourly backups
 - ✅ 7-day retention with auto-cleanup
 - ✅ gzip compression (~70% space savings)
@@ -589,28 +624,24 @@ BackupManager(
 - ✅ Manual backup/restore via UI
 - ✅ Safety backups before restore
 
-### **UI Improvements**
-- ✅ Improved modal close handling
-- ✅ Drag-and-drop source management
-- ✅ Better source type indicators
-- ✅ Enhanced settings modal layout
-
 ---
 
-## 🚀 **Future Enhancements (Potential)**
+## 🚀 **Future Enhancements**
 
 ### **Priority 1: Completed**
 - ✅ Multi-source support
 - ✅ Season-aware parsing
 - ✅ Source management UI
+- ✅ Middle-click navigation support
 
 ### **Priority 2: Under Consideration**
+- 📋 Sorting by available chapter
+- 📋 make -, + decreased/increase when holding the button
+- 📋 new progress svg in activity log
+- 📋 fix kagane way of detecting if a serie is a manga/manhwa/manhua/other
 - 📋 Reading statistics dashboard
-- 📋 Export/import functionality
-- 📋 Custom lists/categories
 - 📋 Reading history timeline
-- 📋 Automatic source detection (fuzzy matching)
-- 📋 Mobile app companion
+
 
 ---
 
