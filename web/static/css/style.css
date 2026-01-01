@@ -281,9 +281,46 @@ html {
 
 .multi-select-trigger,
 .single-select-trigger {
-  width: 100%;
-  text-align: left;
-  justify-content: space-between;
+  height: 46px;
+  padding: 0 14px;
+  font-size: 15px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  color: white;
+  border-radius: 6px;
+  transition: background 0.2s;
+  white-space: nowrap; /* ADD THIS */
+  overflow: hidden; /* ADD THIS */
+  text-overflow: ellipsis; /* ADD THIS - optional, shows ... if text is too long */
+}
+
+/* Fixed widths for specific dropdowns to prevent resizing */
+#filter-status-trigger {
+  min-width: 150px;
+}
+
+#filter-status-container {
+  min-width: 150px;
+}
+
+#sort-order-trigger {
+  min-width: 180px;
+}
+
+#filter-type-trigger {
+  min-width: 140px;
+}
+
+#filter-genre-trigger {
+  min-width: 140px;
+}
+
+#filter-pub-status-trigger {
+  min-width: 180px;
+}
+
+#filter-readable-on-trigger {
+  min-width: 140px;
 }
 
 .multi-select-trigger::after,

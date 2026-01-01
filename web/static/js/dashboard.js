@@ -1156,7 +1156,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		'title': 'Title (A→Z)',
 		'latest_release': 'Chapter Released',
 		'last_added': 'Last Added',
-		'total_chapters': 'Total Chapters'
+		'total_chapters': 'Total Chapters',
+		'available_chapters': 'Available Chapters'
 	}, 'unread_first');
 
 	// Content Type

@@ -414,11 +414,13 @@ def api_series():
     sort_dir = request.args.get('dir', '').strip()
     search_query = request.args.get('search', '').strip()
 
-    valid_sorts = ['unread_first', 'title', 'latest_release', 'last_added', 'total_chapters']
+    # ADD 'available_chapters' to valid sorts
+    valid_sorts = ['unread_first', 'title', 'latest_release', 'last_added', 'total_chapters', 'available_chapters']
     if sort_order not in valid_sorts:
         sort_order = 'unread_first'
 
-    if sort_order in ('latest_release', 'last_added'):
+    # Update effective_dir logic to include available_chapters
+    if sort_order in ('latest_release', 'last_added', 'available_chapters'):
         effective_dir = sort_dir if sort_dir in ('asc', 'desc') else 'desc'
     else:
         effective_dir = sort_dir if sort_dir in ('asc', 'desc') else 'asc'
@@ -449,7 +451,6 @@ def api_series():
     if genre_filter:
         genre_list = [g.strip() for g in genre_filter.split(',') if g.strip()]
         if genre_list:
-            # For AND: each condition must be true
             for g in genre_list:
                 where_parts.append("genres LIKE ?")
                 params.append(f'%"{g}"%')
@@ -472,19 +473,15 @@ def api_series():
             where_parts.append(f"source_status IN ({placeholders})")
             params.extend(pub_status_list)
 
-    # NEW: Readable On filter (multi-select - OR logic)
-    # This filters by which sources the series is available on
+    # Readable On filter
     readable_on_filter = request.args.get('readable_on', '').strip()
     if readable_on_filter:
         readable_on_list = [s.strip() for s in readable_on_filter.split(',') if s.strip()]
         if readable_on_list:
-            # Use a subquery to check if the series has any of the specified sources
-            # Join with series_sources table to check source availability
             source_conditions = []
             for source_type in readable_on_list:
                 source_conditions.append(f"EXISTS (SELECT 1 FROM series_sources WHERE series_sources.series_id = series.id AND series_sources.source_type = ?)")
                 params.append(source_type)
-            
             where_parts.append(f"({' OR '.join(source_conditions)})")
 
     # Search filter
@@ -501,7 +498,7 @@ def api_series():
     
     where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
 
-    # ... rest of the sorting and pagination logic remains the same
+    # ADD available_chapters sorting logic
     if sort_order == 'unread_first':
         inverted_dir = 'asc' if effective_dir == 'desc' else 'desc'
         order_by = f"""
@@ -520,6 +517,11 @@ def api_series():
         order_by = f"ORDER BY title {effective_dir.upper()}"
     elif sort_order == 'total_chapters':
         order_by = f"ORDER BY total_chapters {effective_dir.upper()}"
+    elif sort_order == 'available_chapters':
+        # Sort by (latest_chapter - current_chapter)
+        # desc = most unread first, asc = least unread first
+        inverted_dir = 'asc' if effective_dir == 'desc' else 'desc'
+        order_by = f"ORDER BY (COALESCE(latest_chapter, 0) - current_chapter) {inverted_dir.upper()}"
 
     count_query = f"SELECT COUNT(*) FROM series {where_clause}"
     cursor.execute(count_query, params)
