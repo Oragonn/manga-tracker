@@ -50,9 +50,7 @@ html {
   background-color: #111827;
   width: 100vw;
   position: relative;
-  left: 50%;
-  right: 50%;
-  margin-left: -50vw;
+  margin-left: calc(-50vw + 50%);
   margin-right: -50vw;
   padding: 16px 0;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -1443,23 +1441,25 @@ html {
    ================================ */
 
 @media (max-width: 768px) {
-  /* ================================
-     BASE MOBILE LAYOUT
-     ================================ */
+  /* CRITICAL: Remove ALL body padding/margin on mobile to fix offset */
   body {
-    padding: 0;
+    padding: 0 !important;
+    margin: 0 !important;
   }
-
+  
   /* ================================
-     HAMBURGER MENU
+     MOBILE HEADER - CLEAN VERSION
      ================================ */
   .header-full {
+    width: 100vw;
+    margin-left: calc(-50vw + 50%);
     position: sticky;
     top: 0;
     z-index: 1000;
     transition: transform 0.3s ease;
-    padding: 8px 0; /* Reduce padding */
-    height: 56px; /* Fixed height */
+    height: 56px;
+    display: flex;
+    align-items: center;
   }
 
   .header-full.hidden-mobile {
@@ -1467,23 +1467,19 @@ html {
   }
 
   .nav-container {
-    padding: 0 16px;
     height: 100%;
+    width: 100%;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
   }
 
   .mobile-header {
-    display: flex;
+    display: grid;
+    grid-template-columns: 40px 1fr 40px;
     align-items: center;
-    justify-content: space-between;
-    height: 100%;
-    max-height: 56px;
-  }
-
-  .mobile-header h1 {
-    font-size: 16px !important; /* Smaller title */
-    font-weight: 600;
-    margin: 0 !important;
-    line-height: 1;
+    height: 40px;
+    width: 100%;
   }
 
   .hamburger-btn {
@@ -1497,7 +1493,6 @@ html {
     justify-content: center;
     cursor: pointer;
     padding: 0;
-    flex-shrink: 0;
   }
 
   .hamburger-btn svg {
@@ -1505,6 +1500,21 @@ html {
     height: 24px;
   }
 
+  .mobile-header h1 {
+    font-size: 16px !important;
+    font-weight: 600;
+    margin: 0 !important;
+    line-height: 56px !important;
+    text-align: center;
+  }
+
+  .nav-links {
+    display: none !important;
+  }
+
+  /* ================================
+     MOBILE MENU (LEFT DRAWER)
+     ================================ */
   .mobile-menu-overlay {
     position: fixed;
     inset: 0;
@@ -1574,7 +1584,6 @@ html {
   /* ================================
      MOBILE CONTROL PANEL
      ================================ */
-  /* Adjust control panel position to account for header */
   .control-panel {
     border-radius: 0;
     margin: 0;
@@ -1582,15 +1591,22 @@ html {
     border-left: none;
     border-right: none;
     position: sticky;
-    top: 56px; /* Match header height */
+    top: 56px;
     z-index: 100;
     background: #141b2f;
   }
 
-  .nav-links {
-    display: none !important;
+  /* Add padding back to content areas */
+  .series-grid {
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
+  #pagination,
+  #pagination-bottom {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
 
   /* Hide second row on mobile */
   .control-row:nth-child(2) {
