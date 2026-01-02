@@ -1458,6 +1458,8 @@ html {
     top: 0;
     z-index: 1000;
     transition: transform 0.3s ease;
+    padding: 8px 0; /* Reduce padding */
+    height: 56px; /* Fixed height */
   }
 
   .header-full.hidden-mobile {
@@ -1465,23 +1467,28 @@ html {
   }
 
   .nav-container {
-    padding: 16px;
-  }
-
-  .nav-links {
-    display: none; /* Hide desktop nav */
+    padding: 0 16px;
+    height: 100%;
   }
 
   .mobile-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px;
+    height: 100%;
+    max-height: 56px;
+  }
+
+  .mobile-header h1 {
+    font-size: 16px !important; /* Smaller title */
+    font-weight: 600;
+    margin: 0 !important;
+    line-height: 1;
   }
 
   .hamburger-btn {
-    width: 44px;
-    height: 44px;
+    width: 40px;
+    height: 40px;
     background: none;
     border: none;
     color: white;
@@ -1489,6 +1496,13 @@ html {
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+
+  .hamburger-btn svg {
+    width: 24px;
+    height: 24px;
   }
 
   .mobile-menu-overlay {
@@ -1560,6 +1574,7 @@ html {
   /* ================================
      MOBILE CONTROL PANEL
      ================================ */
+  /* Adjust control panel position to account for header */
   .control-panel {
     border-radius: 0;
     margin: 0;
@@ -1567,9 +1582,15 @@ html {
     border-left: none;
     border-right: none;
     position: sticky;
-    top: 72px; /* Below header */
+    top: 56px; /* Match header height */
     z-index: 100;
+    background: #141b2f;
   }
+
+  .nav-links {
+    display: none !important;
+  }
+
 
   /* Hide second row on mobile */
   .control-row:nth-child(2) {
@@ -1775,6 +1796,7 @@ html {
     font-size: 13px;
     line-height: 1.3;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     min-height: 2.6em;
   }
 
