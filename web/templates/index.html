@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
@@ -466,6 +468,45 @@
   </svg>
 </button>
 
-<script src="/static/js/dashboard.js"></script>
+  <script src="/static/js/dashboard.js"></script>  
+  <script>
+  // Mobile detection and setup
+  (function() {
+    function isMobile() {
+      return window.innerWidth <= 768;
+    }
+
+    if (isMobile()) {
+      console.log('[Mobile] Initializing mobile UI...');
+      document.body.classList.add('mobile-device');
+      
+      // Prevent iOS pull-to-refresh
+      let lastTouchY = 0;
+      let preventPullToRefresh = false;
+
+      document.addEventListener('touchstart', (e) => {
+        if (e.touches.length !== 1) return;
+        lastTouchY = e.touches[0].clientY;
+        preventPullToRefresh = window.pageYOffset === 0;
+      }, { passive: false });
+
+      document.addEventListener('touchmove', (e) => {
+        const touchY = e.touches[0].clientY;
+        const touchYDelta = touchY - lastTouchY;
+        lastTouchY = touchY;
+
+        if (preventPullToRefresh) {
+          const el = e.target;
+          const scrollableParent = el.closest('.bottom-sheet, .mobile-menu, .filter-drawer');
+          
+          if (!scrollableParent && touchYDelta > 0) {
+            e.preventDefault();
+          }
+        }
+      }, { passive: false });
+    }
+  })();
+  </script>
+  <!-- END NEW SCRIPT -->
 </body>
 </html>

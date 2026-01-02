@@ -1864,3 +1864,785 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Initial load
 	loadPage();
 });
+
+// ================================
+// MOBILE UI FUNCTIONALITY
+// Add this to the end of dashboard.js
+// ================================
+
+// Mobile state
+const mobileState = {
+  menuOpen: false,
+  filterDrawerOpen: false,
+  bottomSheetOpen: false,
+  currentSeries: null,
+  lastScrollY: 0
+};
+
+// ================================
+// MOBILE DETECTION & INITIALIZATION
+// ================================
+function isMobileDevice() {
+  return window.innerWidth <= 768;
+}
+
+function initMobile() {
+  if (!isMobileDevice()) return;
+
+  // Create mobile header
+  createMobileHeader();
+
+  // Create mobile menu
+  createMobileMenu();
+
+  // Create filter drawer
+  createFilterDrawer();
+
+  // Create bottom sheet
+  createBottomSheet();
+
+  // Create bulk toolbar
+  createBulkToolbar();
+
+  // Create FAB buttons
+  createFABButtons();
+
+  // Setup scroll behavior
+  setupMobileScroll();
+
+  // Setup card tap behavior
+  setupMobileCardTaps();
+
+  console.log('[Mobile] UI initialized');
+}
+
+// ================================
+// MOBILE HEADER
+// ================================
+function createMobileHeader() {
+  const header = document.querySelector('.header-full');
+  if (!header) return;
+
+  const navContainer = header.querySelector('.nav-container');
+  if (!navContainer) return;
+
+  navContainer.innerHTML = `
+    <div class="mobile-header">
+      <button class="hamburger-btn" id="mobile-menu-btn">
+        <svg class="icon-menu" viewBox="0 0 24 24">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+      <h1 style="font-size: 18px; font-weight: 600; margin: 0;">Manga Tracker</h1>
+      <div style="width: 44px;"></div>
+    </div>
+  `;
+
+  document.getElementById('mobile-menu-btn')?.addEventListener('click', toggleMobileMenu);
+}
+
+// ================================
+// HAMBURGER MENU
+// ================================
+function createMobileMenu() {
+  const existingMenu = document.getElementById('mobile-menu-overlay');
+  if (existingMenu) return;
+
+  const menuHTML = `
+    <div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
+    <div class="mobile-menu" id="mobile-menu">
+      <div class="mobile-menu-header">
+        <h2>Menu</h2>
+        <button class="hamburger-btn" id="mobile-menu-close">
+          <svg class="icon-close" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="mobile-menu-links">
+        <a href="/dashboard">Dashboard</a>
+        <a href="https://kenmei.co/discovery" target="_blank">
+          Discovery
+          <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+          </svg>
+        </a>
+        <a href="/stats">Stats</a>
+        <a href="/logs">Activity Log</a>
+        <a href="/errors">
+          Errors
+          <span id="mobile-error-badge" style="display:none;background:#e53e3e;color:white;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:10px;"></span>
+        </a>
+        <a href="/backups">Backups</a>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', menuHTML);
+
+  document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
+  document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
+}
+
+function toggleMobileMenu() {
+  if (mobileState.menuOpen) {
+    closeMobileMenu();
+  } else {
+    openMobileMenu();
+  }
+}
+
+function openMobileMenu() {
+  mobileState.menuOpen = true;
+  document.getElementById('mobile-menu-overlay')?.classList.add('active');
+  document.getElementById('mobile-menu')?.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeMobileMenu() {
+  mobileState.menuOpen = false;
+  document.getElementById('mobile-menu-overlay')?.classList.remove('active');
+  document.getElementById('mobile-menu')?.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+// ================================
+// FILTER DRAWER
+// ================================
+function createFilterDrawer() {
+  const existingDrawer = document.getElementById('filter-drawer-overlay');
+  if (existingDrawer) return;
+
+  const drawerHTML = `
+    <div class="filter-drawer-overlay" id="filter-drawer-overlay"></div>
+    <div class="filter-drawer" id="filter-drawer">
+      <div class="filter-drawer-header">
+        <h2 style="font-size:18px;font-weight:600;margin:0;">Filters</h2>
+        <button class="hamburger-btn" id="filter-drawer-close">
+          <svg class="icon-close" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="filter-drawer-content">
+        <div class="filter-section">
+          <h3>Content Type</h3>
+          <select id="mobile-content-type" class="filter-dropdown">
+            <option value="">All Types</option>
+            <option value="manga">Manga</option>
+            <option value="manhwa">Manhwa</option>
+            <option value="manhua">Manhua</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+
+        <div class="filter-section">
+          <h3>Tags</h3>
+          <select id="mobile-tags" class="filter-dropdown">
+            <option value="">All Tags</option>
+          </select>
+        </div>
+
+        <div class="filter-section">
+          <h3>Content Rating</h3>
+          <select id="mobile-rating" class="filter-dropdown">
+            <option value="">All Ratings</option>
+            <option value="safe">Safe</option>
+            <option value="mild">Suggestive</option>
+            <option value="mature">Mature</option>
+            <option value="explicit">Explicit</option>
+          </select>
+        </div>
+
+        <div class="filter-section">
+          <h3>Publication Status</h3>
+          <select id="mobile-pub-status" class="filter-dropdown">
+            <option value="">All Statuses</option>
+            <option value="reading">Ongoing</option>
+            <option value="completed">Completed</option>
+            <option value="on_hold">Hiatus</option>
+            <option value="dropped">Cancelled</option>
+          </select>
+        </div>
+
+        <div class="filter-section">
+          <h3>Readable On</h3>
+          <select id="mobile-readable-on" class="filter-dropdown">
+            <option value="">All Sources</option>
+            <option value="mangadex">MangaDex</option>
+            <option value="kagane">Kagane</option>
+          </select>
+        </div>
+      </div>
+      <div class="filter-drawer-footer">
+        <button class="btn-reset-filters-mobile" id="mobile-reset-filters">Reset</button>
+        <button class="btn-add-series-mobile" id="mobile-add-series">+ Add</button>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', drawerHTML);
+
+  // Load genres into dropdown
+  loadMobileGenres();
+
+  // Setup filter drawer events
+  document.getElementById('filter-drawer-overlay')?.addEventListener('click', closeFilterDrawer);
+  document.getElementById('filter-drawer-close')?.addEventListener('click', closeFilterDrawer);
+  document.getElementById('mobile-reset-filters')?.addEventListener('click', resetMobileFilters);
+  document.getElementById('mobile-add-series')?.addEventListener('click', () => {
+    closeFilterDrawer();
+    document.getElementById('btn-add-series')?.click();
+  });
+
+  // Sync dropdowns with state
+  document.getElementById('mobile-content-type')?.addEventListener('change', (e) => {
+    state.type = e.target.value ? [e.target.value] : [];
+    state.page = 1;
+    loadPage();
+  });
+
+  document.getElementById('mobile-tags')?.addEventListener('change', (e) => {
+    state.genre = e.target.value ? [e.target.value] : [];
+    state.page = 1;
+    loadPage();
+  });
+
+  document.getElementById('mobile-rating')?.addEventListener('change', (e) => {
+    state.rating = e.target.value ? [e.target.value] : [];
+    state.page = 1;
+    loadPage();
+  });
+
+  document.getElementById('mobile-pub-status')?.addEventListener('change', (e) => {
+    state.pubStatus = e.target.value ? [e.target.value] : [];
+    state.page = 1;
+    loadPage();
+  });
+
+  document.getElementById('mobile-readable-on')?.addEventListener('change', (e) => {
+    state.readableOn = e.target.value ? [e.target.value] : [];
+    state.page = 1;
+    loadPage();
+  });
+
+  // Add filter button to control panel (only button in row 1 right side)
+  const controlRow = document.querySelector('.control-row:nth-child(1) .control-group-right');
+  if (controlRow && !document.getElementById('mobile-filter-btn')) {
+    controlRow.innerHTML = `
+      <button id="mobile-filter-btn" class="control-button square-button">
+        <svg class="icon-filter" viewBox="0 0 24 24" style="width:18px;height:18px;">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+        </svg>
+      </button>
+      <div class="control-search" style="flex: 1;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <path d="m21 21-4.35-4.35"></path>
+        </svg>
+        <input type="text" id="search-input" placeholder="Search series..." />
+      </div>
+    `;
+    
+    document.getElementById('mobile-filter-btn')?.addEventListener('click', openFilterDrawer);
+    
+    // Reconnect search functionality
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+      let searchTimeout;
+      searchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          state.page = 1;
+          loadPage();
+        }, 300);
+      });
+    }
+  }
+}
+
+async function loadMobileGenres() {
+  try {
+    const res = await fetch('/api/genres');
+    if (res.ok) {
+      const genres = await res.json();
+      const dropdown = document.getElementById('mobile-tags');
+      if (dropdown) {
+        // Add genres as options
+        genres.forEach(genre => {
+          const option = document.createElement('option');
+          option.value = genre;
+          option.textContent = genre;
+          dropdown.appendChild(option);
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load genres:', e);
+  }
+}
+
+function syncMobileFilters(type) {
+  // Not needed anymore - dropdowns handle this directly in their change events
+}
+
+function openFilterDrawer() {
+  mobileState.filterDrawerOpen = true;
+  document.getElementById('filter-drawer-overlay')?.classList.add('active');
+  document.getElementById('filter-drawer')?.classList.add('active');
+  document.body.style.overflow = 'hidden';
+
+  // Sync dropdowns with current state
+  const typeDropdown = document.getElementById('mobile-content-type');
+  if (typeDropdown) {
+    typeDropdown.value = state.type.length > 0 ? state.type[0] : '';
+  }
+
+  const tagsDropdown = document.getElementById('mobile-tags');
+  if (tagsDropdown) {
+    tagsDropdown.value = state.genre.length > 0 ? state.genre[0] : '';
+  }
+
+  const ratingDropdown = document.getElementById('mobile-rating');
+  if (ratingDropdown) {
+    ratingDropdown.value = state.rating.length > 0 ? state.rating[0] : '';
+  }
+
+  const pubStatusDropdown = document.getElementById('mobile-pub-status');
+  if (pubStatusDropdown) {
+    pubStatusDropdown.value = state.pubStatus.length > 0 ? state.pubStatus[0] : '';
+  }
+
+  const readableOnDropdown = document.getElementById('mobile-readable-on');
+  if (readableOnDropdown) {
+    readableOnDropdown.value = state.readableOn.length > 0 ? state.readableOn[0] : '';
+  }
+}
+
+function closeFilterDrawer() {
+  mobileState.filterDrawerOpen = false;
+  document.getElementById('filter-drawer-overlay')?.classList.remove('active');
+  document.getElementById('filter-drawer')?.classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function resetMobileFilters() {
+  state.type = [];
+  state.genre = [];
+  state.rating = [];
+  state.pubStatus = [];
+  state.readableOn = [];
+  state.page = 1;
+  
+  // Reset dropdowns
+  document.getElementById('mobile-content-type').value = '';
+  document.getElementById('mobile-tags').value = '';
+  document.getElementById('mobile-rating').value = '';
+  document.getElementById('mobile-pub-status').value = '';
+  document.getElementById('mobile-readable-on').value = '';
+  
+  loadPage();
+  closeFilterDrawer();
+}
+
+// ================================
+// BOTTOM SHEET
+// ================================
+function createBottomSheet() {
+  const existingSheet = document.getElementById('bottom-sheet-overlay');
+  if (existingSheet) return;
+
+  const sheetHTML = `
+    <div class="bottom-sheet-overlay" id="bottom-sheet-overlay"></div>
+    <div class="bottom-sheet" id="bottom-sheet">
+      <div class="bottom-sheet-handle"></div>
+      <div class="bottom-sheet-content">
+        <div class="bottom-sheet-header">
+          <h2 id="sheet-title"></h2>
+          <button class="btn-sheet-settings" id="sheet-settings-btn">
+            <svg class="icon-settings" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="1"></circle>
+              <circle cx="12" cy="5" r="1"></circle>
+              <circle cx="12" cy="19" r="1"></circle>
+            </svg>
+          </button>
+        </div>
+        
+        <div class="sheet-progress-section">
+          <div class="sheet-chapter-row">
+            <span class="sheet-chapter-label">Current Chapter</span>
+            <div class="sheet-chapter-value">
+              <span id="sheet-current-chapter">Ch.45</span>
+              <button class="btn-chapter-adjust" id="sheet-chapter-plus">
+                <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+            </div>
+          </div>
+          
+          <div class="sheet-progress-bar">
+            <div class="sheet-progress-fill" id="sheet-progress-fill"></div>
+          </div>
+          
+          <div class="sheet-metadata">
+            <span id="sheet-updated">Updated: 2d ago</span>
+            <span id="sheet-behind">5 behind</span>
+          </div>
+        </div>
+        
+        <div class="sheet-actions">
+          <button class="btn-sheet-action secondary" id="sheet-search-btn">
+            Search Ch.<span id="sheet-search-chapter">46</span>
+          </button>
+          <button class="btn-sheet-action primary" id="sheet-continue-btn">
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', sheetHTML);
+
+  document.getElementById('bottom-sheet-overlay')?.addEventListener('click', closeBottomSheet);
+  document.getElementById('sheet-settings-btn')?.addEventListener('click', () => {
+    if (mobileState.currentSeries) {
+      closeBottomSheet();
+      openEditModal(mobileState.currentSeries);
+    }
+  });
+
+  // Add swipe-down gesture
+  let touchStartY = 0;
+  const sheet = document.getElementById('bottom-sheet');
+  
+  sheet?.addEventListener('touchstart', (e) => {
+    touchStartY = e.touches[0].clientY;
+  });
+
+  sheet?.addEventListener('touchmove', (e) => {
+    const touchY = e.touches[0].clientY;
+    const diff = touchY - touchStartY;
+    
+    if (diff > 0) {
+      sheet.style.transform = `translateY(${diff}px)`;
+    }
+  });
+
+  sheet?.addEventListener('touchend', (e) => {
+    const touchY = e.changedTouches[0].clientY;
+    const diff = touchY - touchStartY;
+    
+    if (diff > 100) {
+      closeBottomSheet();
+    } else {
+      sheet.style.transform = '';
+    }
+  });
+}
+
+function openBottomSheet(series) {
+  mobileState.bottomSheetOpen = true;
+  mobileState.currentSeries = series;
+
+  document.getElementById('sheet-title').textContent = series.title;
+  document.getElementById('sheet-current-chapter').textContent = 
+    series.current_chapter === -1 ? 'Not started' : `Ch.${series.current_chapter}`;
+  document.getElementById('sheet-updated').textContent = `Updated: ${series.latest_release || 'Unknown'}`;
+  document.getElementById('sheet-behind').textContent = `${series.unread_count || 0} behind`;
+
+  const progress = series.current_chapter === -1 ? 0 : (series.current_chapter / series.latest_chapter) * 100;
+  document.getElementById('sheet-progress-fill').style.width = `${Math.min(progress, 100)}%`;
+
+  const nextChapter = series.current_chapter === -1 ? 1 : series.current_chapter + 1;
+  document.getElementById('sheet-search-chapter').textContent = nextChapter;
+
+  document.getElementById('bottom-sheet-overlay')?.classList.add('active');
+  document.getElementById('bottom-sheet')?.classList.add('active');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeBottomSheet() {
+  mobileState.bottomSheetOpen = false;
+  mobileState.currentSeries = null;
+
+  document.getElementById('bottom-sheet-overlay')?.classList.remove('active');
+  document.getElementById('bottom-sheet')?.classList.remove('active');
+  document.getElementById('bottom-sheet').style.transform = '';
+  document.body.style.overflow = '';
+}
+
+// ================================
+// BULK TOOLBAR
+// ================================
+function createBulkToolbar() {
+  const existingToolbar = document.getElementById('bulk-toolbar-overlay');
+  if (existingToolbar) return;
+
+  const toolbarHTML = `
+    <div class="bulk-toolbar-overlay" id="bulk-toolbar-overlay"></div>
+    <div class="bulk-toolbar" id="bulk-toolbar">
+      <div class="bulk-toolbar-header">
+        <button class="btn-close-bulk" id="close-bulk-toolbar">
+          <svg class="icon-close" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+      <div class="bulk-toolbar-actions">
+        <button class="btn-bulk-action read" id="mobile-bulk-read">
+          <svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;">
+            <polyline points="9 11 12 14 22 4"></polyline>
+            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"></path>
+          </svg>
+          Mark Read (<span id="mobile-bulk-count">0</span>)
+        </button>
+        <button class="btn-bulk-action edit" id="mobile-bulk-edit">
+          <svg class="icon-edit" viewBox="0 0 24 24" style="width:20px;height:20px;">
+            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"></path>
+            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+          </svg>
+          Edit
+        </button>
+        <button class="btn-bulk-action delete" id="mobile-bulk-delete">
+          <svg class="icon-trash" viewBox="0 0 24 24" style="width:20px;height:20px;">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+          </svg>
+          Delete
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', toolbarHTML);
+
+  document.getElementById('bulk-toolbar-overlay')?.addEventListener('click', exitMobileBulkMode);
+  document.getElementById('close-bulk-toolbar')?.addEventListener('click', exitMobileBulkMode);
+
+  // Connect to existing bulk action handlers
+  document.getElementById('mobile-bulk-read')?.addEventListener('click', () => {
+    document.getElementById('btn-bulk-read')?.click();
+  });
+  document.getElementById('mobile-bulk-edit')?.addEventListener('click', () => {
+    document.getElementById('btn-bulk-edit')?.click();
+  });
+  document.getElementById('mobile-bulk-delete')?.addEventListener('click', () => {
+    document.getElementById('btn-bulk-delete')?.click();
+  });
+}
+
+function showBulkToolbar() {
+  document.getElementById('bulk-toolbar-overlay')?.classList.add('active');
+  document.getElementById('bulk-toolbar')?.classList.add('active');
+  document.getElementById('mobile-bulk-count').textContent = bulkState.selectedIds.size;
+}
+
+function hideBulkToolbar() {
+  document.getElementById('bulk-toolbar-overlay')?.classList.remove('active');
+  document.getElementById('bulk-toolbar')?.classList.remove('active');
+}
+
+function exitMobileBulkMode() {
+  exitBulkMode();
+  hideBulkToolbar();
+}
+
+// Override enterBulkMode for mobile
+const originalEnterBulkMode = window.enterBulkMode;
+window.enterBulkMode = function() {
+  if (isMobileDevice()) {
+    bulkState.isBulkMode = true;
+    document.querySelectorAll('.series-card').forEach(card => {
+      card.classList.add('bulk-mode');
+    });
+    showBulkToolbar();
+    hideFABButtons();
+  } else {
+    originalEnterBulkMode();
+  }
+};
+
+// Override exitBulkMode for mobile
+const originalExitBulkMode = window.exitBulkMode;
+window.exitBulkMode = function() {
+  if (isMobileDevice()) {
+    bulkState.isBulkMode = false;
+    bulkState.selectedIds.clear();
+    document.querySelectorAll('.series-card').forEach(card => {
+      card.classList.remove('bulk-mode', 'selected');
+    });
+    hideBulkToolbar();
+    showFABButtons();
+  } else {
+    originalExitBulkMode();
+  }
+};
+
+// ================================
+// FAB BUTTONS
+// ================================
+function createFABButtons() {
+  const existingFAB = document.getElementById('fab-container');
+  if (existingFAB) return;
+
+  const fabHTML = `
+    <div class="fab-container" id="fab-container">
+      <button class="fab-secondary" id="fab-secondary">
+        <svg class="icon-refresh" viewBox="0 0 24 24" style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;">
+          <polyline points="23 4 23 10 17 10"></polyline>
+          <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"></path>
+        </svg>
+      </button>
+      <button class="fab-primary" id="fab-primary">
+        <svg class="icon-plus" viewBox="0 0 24 24" style="width:28px;height:28px;stroke:currentColor;fill:none;stroke-width:2.5;">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+    </div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', fabHTML);
+
+  document.getElementById('fab-primary')?.addEventListener('click', () => {
+    document.getElementById('btn-add-series')?.click();
+  });
+
+  document.getElementById('fab-secondary')?.addEventListener('click', () => {
+    if (window.scrollY > 300) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      document.getElementById('btn-refresh')?.click();
+    }
+  });
+}
+
+function updateFABIcon() {
+  const fabSecondary = document.getElementById('fab-secondary');
+  if (!fabSecondary) return;
+
+  if (window.scrollY > 300) {
+    fabSecondary.innerHTML = `
+      <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;">
+        <polyline points="18 15 12 9 6 15"></polyline>
+      </svg>
+    `;
+  } else {
+    fabSecondary.innerHTML = `
+      <svg class="icon-refresh" viewBox="0 0 24 24" style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;">
+        <polyline points="23 4 23 10 17 10"></polyline>
+        <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"></path>
+      </svg>
+    `;
+  }
+}
+
+function hideFABButtons() {
+  document.getElementById('fab-container')?.classList.add('hidden');
+}
+
+function showFABButtons() {
+  document.getElementById('fab-container')?.classList.remove('hidden');
+}
+
+// ================================
+// SCROLL BEHAVIOR
+// ================================
+function setupMobileScroll() {
+  let ticking = false;
+
+  window.addEventListener('scroll', () => {
+    if (!ticking) {
+      window.requestAnimationFrame(() => {
+        handleMobileScroll();
+        ticking = false;
+      });
+      ticking = true;
+    }
+  }, { passive: true });
+}
+
+function handleMobileScroll() {
+  const currentScrollY = window.scrollY;
+  const header = document.querySelector('.header-full');
+
+  // Hide header when scrolling down past 300px
+  if (currentScrollY > 300 && currentScrollY > mobileState.lastScrollY) {
+    header?.classList.add('hidden-mobile');
+  } else if (currentScrollY < 50) {
+    header?.classList.remove('hidden-mobile');
+  }
+
+  // Update FAB icon
+  updateFABIcon();
+
+  mobileState.lastScrollY = currentScrollY;
+}
+
+// ================================
+// CARD TAP BEHAVIOR
+// ================================
+function setupMobileCardTaps() {
+  // This will be called after loadPage() renders cards
+  // We'll override the card rendering to add tap handlers
+}
+
+// Override renderSeriesCard to add mobile tap behavior
+const originalRenderSeriesCard = window.renderSeriesCard;
+window.renderSeriesCard = function(series) {
+  const card = originalRenderSeriesCard(series);
+  
+  if (isMobileDevice()) {
+    // Remove click handler from checkbox (it's handled separately)
+    const checkbox = card.querySelector('.series-checkbox');
+    if (checkbox) {
+      checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleCardSelection(series.id);
+      });
+    }
+
+    // Add tap handler to card (except checkbox)
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.series-checkbox')) return;
+      
+      if (bulkState.isBulkMode) {
+        toggleCardSelection(series.id);
+      } else {
+        openBottomSheet(series);
+      }
+    });
+  }
+  
+  return card;
+};
+
+// ================================
+// INITIALIZATION
+// ================================
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initMobile);
+} else {
+  initMobile();
+}
+
+// Re-initialize on window resize
+let resizeTimeout;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    if (isMobileDevice()) {
+      initMobile();
+    }
+  }, 250);
+});
+
+console.log('[Mobile] Script loaded');

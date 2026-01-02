@@ -1063,4 +1063,4 @@ def dashboard():
 def run_server():
     init_db() 
     manga_scheduler.start_scanning()
-    app.run(host='127.0.0.1', port=8080, debug=True, use_reloader=False)
+    app.run(host='192.168.1.26', port=8080, debug=True, use_reloader=False)
