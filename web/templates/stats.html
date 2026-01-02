@@ -383,6 +383,10 @@ function renderStats(stats) {
       </div>
       <div class="stats-grid">
         <div class="stat-card">
+          <div class="stat-label">Series Added (Today)</div>
+          <div class="stat-value">${stats.additional.series_added_today}</div>
+        </div>
+        <div class="stat-card">
           <div class="stat-label">Series Added (Week)</div>
           <div class="stat-value">${stats.additional.series_added_week}</div>
         </div>
@@ -393,6 +397,10 @@ function renderStats(stats) {
         <div class="stat-card">
           <div class="stat-label">Series Added (Year)</div>
           <div class="stat-value">${stats.additional.series_added_year}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Chapters Read (Today)</div>
+          <div class="stat-value">${stats.additional.chapters_read_today}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Chapters Read (Week)</div>
@@ -406,15 +414,10 @@ function renderStats(stats) {
           <div class="stat-label">Chapters Read (Year)</div>
           <div class="stat-value">${stats.additional.chapters_read_year}</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Reading Streak</div>
-          <div class="stat-value">${stats.additional.reading_streak}</div>
-          <div class="stat-subtext">Days active (max 7)</div>
-        </div>
       </div>
     </div>
   `;
-  
+
   // === ROW 5: SOURCES & PREFERENCES ===
   html += `
     <div class="stats-section">

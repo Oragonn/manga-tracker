@@ -839,21 +839,40 @@ def api_get_stats():
         # Most read content type
         most_read_type = max(content_type_breakdown.items(), key=lambda x: x[1])[0] if content_type_breakdown else 'N/A'
         
-        # Reading streak (days since last progress update)
+        # Series and chapters added today
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        
         cursor.execute("""
-            SELECT MAX(timestamp) FROM activity_log 
+            SELECT COUNT(*) FROM series 
+            WHERE created_at >= ?
+        """, (today_start.isoformat(),))
+        series_added_today = cursor.fetchone()[0] or 0
+        
+        # Calculate chapters read today (same logic as weekly/monthly)
+        cursor.execute("""
+            SELECT 
+                old_value,
+                new_value
+            FROM activity_log
             WHERE action_type = 'progress'
-        """)
-        last_progress = cursor.fetchone()[0]
-        if last_progress:
+            AND timestamp >= ?
+        """, (today_start.isoformat(),))
+        progress_logs_today = cursor.fetchall()
+        
+        chapters_read_today = 0
+        for old_value_str, new_value_str in progress_logs_today:
             try:
-                last_progress_dt = datetime.fromisoformat(last_progress.replace('Z', '+00:00'))
-                days_since = (datetime.now(timezone.utc) - last_progress_dt).days
-                reading_streak = max(0, 7 - days_since)  # Streak breaks after 7 days
+                old_value = json.loads(old_value_str) if old_value_str else {}
+                new_value = json.loads(new_value_str) if new_value_str else {}
+                
+                old_chapter = old_value.get('chapter', -1)
+                new_chapter = new_value.get('chapter', -1)
+                
+                if old_chapter >= 0 and new_chapter >= 0:
+                    chapters_diff = int(new_chapter - old_chapter)
+                    chapters_read_today += chapters_diff
             except:
-                reading_streak = 0
-        else:
-            reading_streak = 0
+                continue
         
         # Series added this week/month/year
         now = datetime.now(timezone.utc)
@@ -1007,7 +1026,8 @@ def api_get_stats():
                 'avg_chapters_per_series': avg_chapters_per_series,
                 'completion_rate': completion_rate,
                 'most_read_type': most_read_type,
-                'reading_streak': reading_streak,
+                'series_added_today': series_added_today,
+                'chapters_read_today': chapters_read_today,
                 'series_added_week': series_added_week,
                 'series_added_month': series_added_month,
                 'series_added_year': series_added_year,
