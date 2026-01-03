@@ -2720,6 +2720,11 @@ window.enterBulkMode = function() {
     if (fabContainer) fabContainer.classList.add('hidden');
     if (bulkFAB) bulkFAB.style.display = 'flex';
     
+    // NEW: Check if we should show back-to-top
+    if (window.scrollY > 300) {
+      document.getElementById('back-to-top')?.classList.add('show-bulk');
+    }
+    
   } else {
     originalEnterBulkMode();
   }
@@ -2741,6 +2746,9 @@ window.exitBulkMode = function() {
     
     if (fabContainer) fabContainer.classList.remove('hidden');
     if (bulkFAB) bulkFAB.style.display = 'none';
+    
+    // NEW: Hide back-to-top when exiting bulk mode
+    document.getElementById('back-to-top')?.classList.remove('show-bulk');
     
   } else {
     originalExitBulkMode();
@@ -2783,11 +2791,28 @@ function createFABButtons() {
     document.getElementById('btn-add-series')?.click();
   });
 
-  document.getElementById('fab-secondary')?.addEventListener('click', () => {
+  // UPDATED: Refresh with rotation animation
+  document.getElementById('fab-secondary')?.addEventListener('click', async () => {
+    const fabSecondary = document.getElementById('fab-secondary');
+    
     if (window.scrollY > 300) {
+      // Back to top behavior
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } else {
-      document.getElementById('btn-refresh')?.click();
+      // Refresh behavior with animation
+      if (fabSecondary.disabled) return;
+      
+      fabSecondary.classList.add('refreshing');
+      fabSecondary.disabled = true;
+      
+      try {
+        await loadPage();
+      } finally {
+        setTimeout(() => {
+          fabSecondary.classList.remove('refreshing');
+          fabSecondary.disabled = false;
+        }, 600);
+      }
     }
   });
 
@@ -2845,6 +2870,7 @@ function setupMobileScroll() {
 function handleMobileScroll() {
   const currentScrollY = window.scrollY;
   const header = document.querySelector('.header-full');
+  const backToTop = document.getElementById('back-to-top');
 
   // Hide header when scrolling down past 300px
   if (currentScrollY > 300 && currentScrollY > mobileState.lastScrollY) {
@@ -2856,8 +2882,16 @@ function handleMobileScroll() {
   // Update FAB icon
   updateFABIcon();
 
+  // NEW: Show back-to-top in bulk mode when scrolled
+  if (bulkState.isBulkMode && currentScrollY > 300) {
+    backToTop?.classList.add('show-bulk');
+  } else {
+    backToTop?.classList.remove('show-bulk');
+  }
+
   mobileState.lastScrollY = currentScrollY;
 }
+
 
 // MOBILE CARD TAP BEHAVIOR - COMPLETE REPLACEMENT
 // Add this to dashboard.js around line 1800

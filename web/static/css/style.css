@@ -1437,7 +1437,7 @@ html {
 }
 
 /* ================================
-   MOBILE STYLES - Add to end of style.css
+   MOBILE STYLES
    ================================ */
 
 @media (max-width: 768px) {
@@ -2274,7 +2274,7 @@ html {
     gap: 8px;
     z-index: 999;
     transition: opacity 0.2s ease, transform 0.2s ease;
-    align-items: center; /* Center align the buttons */
+    align-items: center;
   }
 
   .fab-container.hidden {
@@ -2295,10 +2295,21 @@ html {
     align-items: center;
     justify-content: center;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease;
+  }
+
+  /* Add rotation animation for refresh */
+  .fab-secondary.refreshing svg {
+    animation: spin 0.6s linear;
+  }
+
+  .fab-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .fab-secondary svg {
-    flex-shrink: 0; /* Prevent SVG distortion */
+    flex-shrink: 0;
   }
 
   .fab-primary {
@@ -2348,6 +2359,31 @@ html {
   }
 
   /* ================================
+     BACK TO TOP IN BULK MODE
+     ================================ */
+  #back-to-top {
+    /* Override desktop styles for mobile */
+    position: fixed;
+    bottom: 82px; /* Position above bulk FAB */
+    right: 16px;
+    width: 38px;
+    height: 38px;
+    display: none; /* Hidden by default, shown via JS */
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(10px);
+    z-index: 998;
+  }
+
+  /* Show back-to-top in bulk mode when scrolled */
+  #back-to-top.show-bulk {
+    display: flex;
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+
+  /* ================================
      PAGINATION - MOBILE
      ================================ */
   .pagination-kenmei {
@@ -2363,13 +2399,6 @@ html {
     padding: 8px 12px;
     min-width: 40px;
     height: 40px;
-  }
-
-  /* ================================
-     HIDE BACK TO TOP ON MOBILE (use FAB instead)
-     ================================ */
-  #back-to-top {
-    display: none;
   }
 
   /* ================================
@@ -2394,6 +2423,10 @@ html {
   .fab-bulk-edit,
   .bulk-toolbar {
     bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+
+  #back-to-top {
+    bottom: calc(82px + env(safe-area-inset-bottom));
   }
 
   .bottom-sheet {
