@@ -2388,12 +2388,35 @@ html {
 
   .fab-bulk-edit svg {
     flex-shrink: 0;
+    transition: transform 0.2s ease;
   }
 
   .fab-bulk-edit:active {
     transform: scale(0.95);
   }
 
+  /* Active state when bulk edit menu is open */
+  .fab-bulk-edit.active {
+    background: #1f2937;
+    z-index: 3001; /* Above overlay */
+  }
+
+  /* Bulk edit menu overlay (darkened background) */
+  .bulk-edit-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 3000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  .bulk-edit-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  
   /* ================================
      BACK TO TOP IN BULK MODE
      ================================ */

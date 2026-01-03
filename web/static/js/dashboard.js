@@ -1894,6 +1894,11 @@ const mobileState = {
   lastScrollY: 0
 };
 
+// Bulk edit mode state
+const bulkEditMobileState = {
+  isMenuOpen: false
+};
+
 // ================================
 // MOBILE DETECTION & INITIALIZATION
 // ================================
@@ -2686,6 +2691,84 @@ function createBulkToolbar() {
   });
 }
 
+// ================================
+// BULK EDIT OVERLAY
+// ================================
+function createBulkEditOverlay() {
+  const existingOverlay = document.getElementById('bulk-edit-overlay');
+  if (existingOverlay) return;
+
+  const overlayHTML = `
+    <div class="bulk-edit-overlay" id="bulk-edit-overlay"></div>
+  `;
+
+  document.body.insertAdjacentHTML('beforeend', overlayHTML);
+
+  // Close when clicking overlay
+  document.getElementById('bulk-edit-overlay')?.addEventListener('click', closeBulkEditMenu);
+}
+
+function openBulkEditMenu() {
+  bulkEditMobileState.isMenuOpen = true;
+  
+  const fabBtn = document.getElementById('fab-bulk-edit');
+  const overlay = document.getElementById('bulk-edit-overlay');
+  
+  // Change FAB to X icon
+  if (fabBtn) {
+    fabBtn.classList.add('active');
+    fabBtn.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    `;
+  }
+  
+  // Show overlay
+  if (overlay) {
+    overlay.classList.add('active');
+  }
+  
+  // Lock scrolling
+  document.body.style.overflow = 'hidden';
+}
+
+function closeBulkEditMenu() {
+  bulkEditMobileState.isMenuOpen = false;
+  
+  const fabBtn = document.getElementById('fab-bulk-edit');
+  const overlay = document.getElementById('bulk-edit-overlay');
+  
+  // Change X back to edit icon
+  if (fabBtn) {
+    fabBtn.classList.remove('active');
+    fabBtn.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>
+      </svg>
+    `;
+  }
+  
+  // Hide overlay
+  if (overlay) {
+    overlay.classList.remove('active');
+  }
+  
+  // Unlock scrolling
+  document.body.style.overflow = '';
+}
+
+function toggleBulkEditMenu() {
+  if (bulkEditMobileState.isMenuOpen) {
+    closeBulkEditMenu();
+  } else {
+    openBulkEditMenu();
+  }
+}
+
+
 function showBulkToolbar() {
   document.getElementById('bulk-toolbar-overlay')?.classList.add('active');
   document.getElementById('bulk-toolbar')?.classList.add('active');
@@ -2732,6 +2815,11 @@ window.enterBulkMode = function() {
 const originalExitBulkMode = window.exitBulkMode;
 window.exitBulkMode = function() {
   if (isMobileDevice()) {
+    // Close bulk edit menu if open
+    if (bulkEditMobileState.isMenuOpen) {
+      closeBulkEditMenu();
+    }
+    
     bulkState.isBulkMode = false;
     bulkState.selectedIds.clear();
     document.querySelectorAll('.series-card').forEach(card => {
@@ -2752,6 +2840,7 @@ window.exitBulkMode = function() {
     originalExitBulkMode();
   }
 };
+
 
 // ================================
 // FAB BUTTONS
@@ -2814,11 +2903,15 @@ function createFABButtons() {
     }
   });
 
-  // Bulk edit FAB - exits bulk mode for now
-	document.getElementById('fab-bulk-edit')?.addEventListener('click', (e) => {
-	e.stopPropagation(); // Prevent event from bubbling
-	e.preventDefault();  // Prevent default behavior
-	});
+  // Bulk edit FAB click handler
+  document.getElementById('fab-bulk-edit')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    toggleBulkEditMenu();
+  });
+  
+  // Create overlay when FAB is created
+  createBulkEditOverlay();
 }
 
 function updateFABIcon() {
