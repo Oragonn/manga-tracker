@@ -1907,6 +1907,9 @@ function initMobile() {
   // Create FAB buttons
   createFABButtons();
 
+  // **ADD THIS LINE:**
+  setupMobileControlPanel();
+
   // Setup scroll behavior
   setupMobileScroll();
 
@@ -2164,6 +2167,92 @@ function createFilterDrawer() {
     }
   }
 }
+
+function setupMobileControlPanel() {
+  if (!isMobileDevice()) return;
+
+  const row2 = document.querySelector('.control-row:nth-child(2)');
+  if (!row2) return;
+
+  // Check if mobile row already exists
+  if (document.querySelector('.mobile-control-row-2')) return;
+
+  // Create mobile row 2 container
+  const mobileRow2 = document.createElement('div');
+  mobileRow2.className = 'mobile-control-row-2';
+  mobileRow2.style.cssText = 'display: flex; gap: 8px; width: 100%;';
+
+  // Filter button
+  const filterBtn = document.createElement('button');
+  filterBtn.id = 'mobile-filter-btn';
+  filterBtn.className = 'control-button square-button';
+  filterBtn.innerHTML = `
+    <svg class="icon-filter" viewBox="0 0 24 24" style="width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;">
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+    </svg>
+  `;
+  filterBtn.addEventListener('click', openFilterDrawer);
+
+  // Sort direction button (clone from row 1)
+  const sortDirBtn = document.createElement('button');
+  sortDirBtn.id = 'mobile-sort-direction';
+  sortDirBtn.className = 'control-button square-button';
+  sortDirBtn.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.5">
+      ${SORT_ICONS[state.dir]}
+    </svg>
+  `;
+  sortDirBtn.addEventListener('click', () => {
+    state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+    sortDirBtn.querySelector('svg').innerHTML = SORT_ICONS[state.dir];
+    loadPage();
+  });
+
+  // Search input
+  const searchContainer = document.createElement('div');
+  searchContainer.className = 'control-search';
+  searchContainer.style.flex = '1';
+  searchContainer.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"></circle>
+      <path d="m21 21-4.35-4.35"></path>
+    </svg>
+    <input type="text" id="mobile-search-input" placeholder="Search..." />
+  `;
+
+  // Setup search functionality
+  const searchInput = searchContainer.querySelector('input');
+  let searchTimeout;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      state.page = 1;
+      loadPage();
+    }, 300);
+  });
+
+  // Add elements to mobile row
+  mobileRow2.appendChild(filterBtn);
+  mobileRow2.appendChild(sortDirBtn);
+  mobileRow2.appendChild(searchContainer);
+
+  // Insert mobile row at the start of row 2
+  row2.insertBefore(mobileRow2, row2.firstChild);
+
+  console.log('[Mobile] Control panel configured');
+}
+
+// Add this to initMobile() function:
+// setupMobileControlPanel();
+
+// Also update the sort icon when state changes
+function updateMobileSortIcon() {
+  const mobileSortBtn = document.getElementById('mobile-sort-direction');
+  if (mobileSortBtn && isMobileDevice()) {
+    mobileSortBtn.querySelector('svg').innerHTML = SORT_ICONS[state.dir];
+  }
+}
+
 
 async function loadMobileGenres() {
   try {
