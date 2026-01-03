@@ -447,7 +447,7 @@ function renderSeriesCard(series) {
 	}
 	const cleanCoverUrl = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
 	card.innerHTML = `
-<div class="series-cover-container">
+<div class="series-cover-container" data-title="${series.title}">
 <div class="series-checkbox">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
 <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
@@ -931,6 +931,80 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 			toggleCardSelection(series.id);
 		}
 	});
+	
+	// *** MOBILE: Add mobile-specific behavior ***
+	if (isMobileDevice()) {
+		// Hide checkbox completely on mobile
+		const checkbox = card.querySelector('.series-checkbox');
+		if (checkbox) {
+			checkbox.style.display = 'none';
+		}
+
+		// Long-press variables
+		let pressTimer = null;
+		let touchStartTime = 0;
+		const longPressDuration = 500;
+
+		// Add long-press handler for bulk mode
+		card.addEventListener('touchstart', (e) => {
+			if (e.target.closest('button') || e.target.closest('a')) return;
+			
+			touchStartTime = Date.now();
+			
+			pressTimer = setTimeout(() => {
+				e.preventDefault();
+				
+				if (!bulkState.isBulkMode) {
+					toggleCardSelection(series.id);
+					
+					card.style.transform = 'scale(0.95)';
+					setTimeout(() => {
+						card.style.transform = '';
+					}, 100);
+					
+					if (navigator.vibrate) {
+						navigator.vibrate(50);
+					}
+				} else {
+					toggleCardSelection(series.id);
+				}
+			}, longPressDuration);
+		});
+
+		card.addEventListener('touchend', (e) => {
+			clearTimeout(pressTimer);
+			
+			const touchDuration = Date.now() - touchStartTime;
+			
+			if (touchDuration < longPressDuration) {
+				if (e.target.closest('button') || e.target.closest('a')) return;
+				
+				if (bulkState.isBulkMode) {
+					e.preventDefault();
+					toggleCardSelection(series.id);
+				} else {
+					e.preventDefault();
+					openBottomSheet(series);
+				}
+			}
+		});
+
+		card.addEventListener('touchcancel', () => {
+			clearTimeout(pressTimer);
+		});
+
+		// Override click handler for mobile
+		card.addEventListener('click', (e) => {
+			if (e.target.closest('button') || e.target.closest('a')) return;
+			
+			if (bulkState.isBulkMode) {
+				toggleCardSelection(series.id);
+			} else {
+				openBottomSheet(series);
+			}
+		});
+	}
+	
 	return card;
 }
 
@@ -1926,9 +2000,6 @@ function initMobile() {
 
   // Setup scroll behavior
   setupMobileScroll();
-
-  // Setup card tap behavior
-  setupMobileCardTaps();
 
   console.log('[Mobile] UI initialized');
 }
