@@ -2712,8 +2712,14 @@ window.enterBulkMode = function() {
     document.querySelectorAll('.series-card').forEach(card => {
       card.classList.add('bulk-mode');
     });
-    showBulkToolbar();
-    hideFABButtons();
+    
+    // JUST SWAP FAB BUTTONS
+    const fabContainer = document.getElementById('fab-container');
+    const bulkFAB = document.getElementById('fab-bulk-edit');
+    
+    if (fabContainer) fabContainer.classList.add('hidden');
+    if (bulkFAB) bulkFAB.style.display = 'flex';
+    
   } else {
     originalEnterBulkMode();
   }
@@ -2728,8 +2734,14 @@ window.exitBulkMode = function() {
     document.querySelectorAll('.series-card').forEach(card => {
       card.classList.remove('bulk-mode', 'selected');
     });
-    hideBulkToolbar();
-    showFABButtons();
+    
+    // JUST SWAP BACK FAB BUTTONS
+    const fabContainer = document.getElementById('fab-container');
+    const bulkFAB = document.getElementById('fab-bulk-edit');
+    
+    if (fabContainer) fabContainer.classList.remove('hidden');
+    if (bulkFAB) bulkFAB.style.display = 'none';
+    
   } else {
     originalExitBulkMode();
   }
@@ -2745,18 +2757,24 @@ function createFABButtons() {
   const fabHTML = `
     <div class="fab-container" id="fab-container">
       <button class="fab-secondary" id="fab-secondary">
-        <svg class="icon-refresh" viewBox="0 0 24 24" style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;">
-          <polyline points="23 4 23 10 17 10"></polyline>
-          <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"></path>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
         </svg>
       </button>
       <button class="fab-primary" id="fab-primary">
-        <svg class="icon-plus" viewBox="0 0 24 24" style="width:28px;height:28px;stroke:currentColor;fill:none;stroke-width:2.5;">
-          <line x1="12" y1="5" x2="12" y2="19"></line>
-          <line x1="5" y1="12" x2="19" y2="12"></line>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:24px;height:24px;">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
         </svg>
       </button>
     </div>
+    
+    <!-- Bulk Edit FAB (hidden by default) -->
+    <button class="fab-bulk-edit" id="fab-bulk-edit" style="display: none;">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>
+      </svg>
+    </button>
   `;
 
   document.body.insertAdjacentHTML('beforeend', fabHTML);
@@ -2772,6 +2790,11 @@ function createFABButtons() {
       document.getElementById('btn-refresh')?.click();
     }
   });
+
+  // Bulk edit FAB - exits bulk mode for now
+  document.getElementById('fab-bulk-edit')?.addEventListener('click', () => {
+    exitBulkMode();
+  });
 }
 
 function updateFABIcon() {
@@ -2780,19 +2803,19 @@ function updateFABIcon() {
 
   if (window.scrollY > 300) {
     fabSecondary.innerHTML = `
-      <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;">
+      <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
         <polyline points="18 15 12 9 6 15"></polyline>
       </svg>
     `;
   } else {
     fabSecondary.innerHTML = `
-      <svg class="icon-refresh" viewBox="0 0 24 24" style="width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;">
-        <polyline points="23 4 23 10 17 10"></polyline>
-        <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"></path>
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
       </svg>
     `;
   }
 }
+
 
 function hideFABButtons() {
   document.getElementById('fab-container')?.classList.add('hidden');
@@ -2836,13 +2859,12 @@ function handleMobileScroll() {
   mobileState.lastScrollY = currentScrollY;
 }
 
+// MOBILE CARD TAP BEHAVIOR - COMPLETE REPLACEMENT
+// Add this to dashboard.js around line 1800
+
 // ================================
 // CARD TAP BEHAVIOR
 // ================================
-function setupMobileCardTaps() {
-  // This will be called after loadPage() renders cards
-  // We'll override the card rendering to add tap handlers
-}
 
 // Override renderSeriesCard to add mobile tap behavior
 const originalRenderSeriesCard = window.renderSeriesCard;
@@ -2850,18 +2872,67 @@ window.renderSeriesCard = function(series) {
   const card = originalRenderSeriesCard(series);
   
   if (isMobileDevice()) {
-    // Remove click handler from checkbox (it's handled separately)
+    // REMOVE the checkbox from mobile view completely
     const checkbox = card.querySelector('.series-checkbox');
     if (checkbox) {
-      checkbox.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleCardSelection(series.id);
-      });
+      checkbox.style.display = 'none';
     }
 
-    // Add tap handler to card (except checkbox)
+    // Long-press variables
+    let pressTimer = null;
+    let touchStartTime = 0;
+    const longPressDuration = 500;
+
+    // Add long-press handler for bulk mode
+    card.addEventListener('touchstart', (e) => {
+      if (e.target.closest('button') || e.target.closest('a')) return;
+      
+      touchStartTime = Date.now();
+      
+      pressTimer = setTimeout(() => {
+        e.preventDefault();
+        
+        if (!bulkState.isBulkMode) {
+          toggleCardSelection(series.id);
+          
+          card.style.transform = 'scale(0.95)';
+          setTimeout(() => {
+            card.style.transform = '';
+          }, 100);
+          
+          if (navigator.vibrate) {
+            navigator.vibrate(50);
+          }
+        } else {
+          toggleCardSelection(series.id);
+        }
+      }, longPressDuration);
+    });
+
+    card.addEventListener('touchend', (e) => {
+      clearTimeout(pressTimer);
+      
+      const touchDuration = Date.now() - touchStartTime;
+      
+      if (touchDuration < longPressDuration) {
+        if (e.target.closest('button') || e.target.closest('a')) return;
+        
+        if (bulkState.isBulkMode) {
+          e.preventDefault();
+          toggleCardSelection(series.id);
+        } else {
+          e.preventDefault();
+          openBottomSheet(series);
+        }
+      }
+    });
+
+    card.addEventListener('touchcancel', () => {
+      clearTimeout(pressTimer);
+    });
+
     card.addEventListener('click', (e) => {
-      if (e.target.closest('.series-checkbox')) return;
+      if (e.target.closest('button') || e.target.closest('a')) return;
       
       if (bulkState.isBulkMode) {
         toggleCardSelection(series.id);

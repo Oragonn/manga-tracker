@@ -1945,17 +1945,49 @@ html {
     left: 8px;
   }
 
-  /* Checkbox - TOP RIGHT */
+  /* ================================
+     SERIES CARD - MOBILE INTERACTIONS
+     ================================ */
+
+  /* Hide checkbox completely on mobile */
   .series-checkbox {
-    top: 8px;
-    right: 8px;
-    width: 28px;
-    height: 28px;
+    display: none !important;
   }
 
-  .series-card.bulk-mode .series-checkbox,
-  .series-card.selected .series-checkbox {
-    opacity: 1;
+  /* Visual indicator for selected cards - ONLY YELLOW BORDER */
+  .series-card.selected {
+    border-color: #eab308 !important;
+    box-shadow: 0 0 0 2px #eab308 !important;
+    animation: pulseSelected 0.3s ease;
+  }
+
+  /* Remove the checkmark pseudo-elements */
+  .series-card.selected::after,
+  .series-card.selected::before {
+    display: none !important;
+  }
+
+  /* Add touch feedback */
+  .series-card {
+    transition: transform 0.1s ease, border-color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  .series-card:active:not(.selected) {
+    transform: scale(0.98);
+  }
+
+  @keyframes pulseSelected {
+    0%, 100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(0.97);
+    }
   }
 
   .card-info {
@@ -1974,11 +2006,6 @@ html {
   .button-group.single-group,
   .card-buttons-bottom {
     display: none;
-  }
-
-  /* Make entire card tappable */
-  .series-card {
-    cursor: pointer;
   }
 
   /* ================================
@@ -2247,6 +2274,7 @@ html {
     gap: 8px;
     z-index: 999;
     transition: opacity 0.2s ease, transform 0.2s ease;
+    align-items: center; /* Center align the buttons */
   }
 
   .fab-container.hidden {
@@ -2256,8 +2284,8 @@ html {
   }
 
   .fab-secondary {
-    width: 48px;
-    height: 48px;
+    width: 38px;
+    height: 38px;
     background: #334155;
     border: none;
     border-radius: 50%;
@@ -2269,10 +2297,14 @@ html {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   }
 
+  .fab-secondary svg {
+    flex-shrink: 0; /* Prevent SVG distortion */
+  }
+
   .fab-primary {
-    width: 56px;
-    height: 56px;
-    background: #1665f4;
+    width: 50px;
+    height: 50px;
+    background: #334155;
     border: none;
     border-radius: 50%;
     color: white;
@@ -2280,7 +2312,39 @@ html {
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 16px rgba(22, 101, 244, 0.4);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+
+  .fab-primary svg {
+    flex-shrink: 0;
+  }
+
+  /* Bulk Edit FAB - gray like refresh button */
+  .fab-bulk-edit {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    width: 50px;
+    height: 50px;
+    background: #334155;
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 999;
+    transition: all 0.2s ease;
+  }
+
+  .fab-bulk-edit svg {
+    flex-shrink: 0;
+  }
+
+  .fab-bulk-edit:active {
+    transform: scale(0.95);
   }
 
   /* ================================
@@ -2327,8 +2391,9 @@ html {
   }
 
   .fab-container,
+  .fab-bulk-edit,
   .bulk-toolbar {
-    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    bottom: calc(16px + env(safe-area-inset-bottom));
   }
 
   .bottom-sheet {
