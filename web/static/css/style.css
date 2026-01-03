@@ -1945,6 +1945,11 @@ html {
     left: 8px;
   }
 
+  /* *** NEW: Hide last release time on mobile *** */
+  .last-release {
+    display: none !important;
+  }
+
   /* ================================
      SERIES CARD - MOBILE INTERACTIONS
      ================================ */
@@ -2000,6 +2005,11 @@ html {
     -webkit-line-clamp: 2;
     line-clamp: 2;
     min-height: 2.6em;
+  }
+
+  /* *** NEW: Hide current/last chapter info on mobile *** */
+  .card-chapters {
+    display: none !important;
   }
 
   /* Hide all buttons on mobile cards */
@@ -2298,14 +2308,15 @@ html {
     transition: transform 0.2s ease;
   }
 
+  /* Disabled state darker without transparency */
+  .fab-secondary:disabled {
+    cursor: not-allowed;
+    background: #1f2937;
+  }
+
   /* Add rotation animation for refresh */
   .fab-secondary.refreshing svg {
     animation: spin 0.6s linear;
-  }
-
-  .fab-secondary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .fab-secondary svg {
@@ -2361,18 +2372,27 @@ html {
   /* ================================
      BACK TO TOP IN BULK MODE
      ================================ */
+  /* Center aligned with other FABs */
   #back-to-top {
-    /* Override desktop styles for mobile */
     position: fixed;
-    bottom: 82px; /* Position above bulk FAB */
-    right: 16px;
+    bottom: 74px; /* 16px (base) + 50px (fab-primary) + 8px (gap) = 74px */
+    right: 22px; /* 16px + ((50px - 38px) / 2) = 22px to center with fab-primary */
     width: 38px;
     height: 38px;
-    display: none; /* Hidden by default, shown via JS */
+    background: #334155;
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     opacity: 0;
     visibility: hidden;
     transform: translateY(10px);
-    z-index: 998;
+    z-index: 999;
+    transition: all 0.3s ease;
   }
 
   /* Show back-to-top in bulk mode when scrolled */
@@ -2381,6 +2401,16 @@ html {
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
+  }
+
+  #back-to-top:hover {
+    background: #4a5568;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  #back-to-top svg {
+    width: 20px;
+    height: 20px;
   }
 
   /* ================================
@@ -2426,7 +2456,7 @@ html {
   }
 
   #back-to-top {
-    bottom: calc(82px + env(safe-area-inset-bottom));
+    bottom: calc(74px + env(safe-area-inset-bottom));
   }
 
   .bottom-sheet {
