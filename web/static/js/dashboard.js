@@ -1065,8 +1065,12 @@ async function updateUnreadErrorCount() {
 // ─── Load Page (Main Logic) ───────────────────────────────────
 async function loadPage() {
 	const { page, status, sort, dir, type, genre, rating, pubStatus, readableOn } = state;
-	const searchInput = document.getElementById('search-input');
-	const searchQuery = searchInput ? searchInput.value.trim() : '';
+
+	// FIX: Check both desktop and mobile search inputs
+	const desktopSearch = document.getElementById('search-input');
+	const mobileSearch = document.getElementById('mobile-search-input');
+	const searchQuery = (desktopSearch?.value || mobileSearch?.value || '').trim();
+	
 	const iconEl = document.getElementById('sort-direction-icon');
 	if (iconEl) {
 		iconEl.innerHTML = SORT_ICONS[dir];
@@ -1133,61 +1137,71 @@ function closeAllMultiSelectMenus(exceptMenu = null) {
 }
 
 function setupStaticMultiSelect(trigger, menu, checkboxes, stateKey, labelMap = null, defaultText = 'Select') {
-	document.addEventListener('click', (e) => {
-		if (!menu.contains(e.target) && e.target !== trigger) {
-			menu.classList.add('hidden');
-		}
-	});
-	trigger.addEventListener('click', (e) => {
-		e.stopPropagation();
-		menu.classList.toggle('hidden');
-		if (!menu.classList.contains('hidden')) {
-			closeAllMultiSelectMenus(menu);
-			const rect = trigger.getBoundingClientRect();
-			menu.style.position = 'fixed'; // Changed from absolute
-			menu.style.left = rect.left + 'px';
-			menu.style.top = (rect.bottom + 4) + 'px';
-			menu.style.width = rect.width + 'px';
-			menu.style.zIndex = '1001';
-		}
-	});
-	checkboxes.forEach(cb => {
-		cb.addEventListener('change', () => {
-			const selected = Array.from(checkboxes)
-				.filter(cb => cb.checked)
-				.map(cb => cb.value);
-			state[stateKey] = selected;
-			state.page = 1;
-			loadPage();
-			updateTriggerText(trigger, selected, labelMap, defaultText);
-		});
-	});
-	const btnSelectAll = menu.querySelector('.btn-select-all');
-	const btnSelectNone = menu.querySelector('.btn-select-none');
-	if (btnSelectAll) {
-		btnSelectAll.addEventListener('click', () => {
-			checkboxes.forEach(cb => cb.checked = true);
-			state[stateKey] = Array.from(checkboxes).map(cb => cb.value);
-			state.page = 1;
-			loadPage();
-			menu.classList.add('hidden');
-			updateTriggerText(trigger, state[stateKey], labelMap, defaultText);
-		});
-	}
-	if (btnSelectNone) {
-		btnSelectNone.addEventListener('click', () => {
-			checkboxes.forEach(cb => cb.checked = false);
-			state[stateKey] = [];
-			state.page = 1;
-			loadPage();
-			menu.classList.add('hidden');
-			updateTriggerText(trigger, [], labelMap, defaultText);
-		});
-	}
-	checkboxes.forEach(cb => {
-		cb.checked = state[stateKey].includes(cb.value);
-	});
-	updateTriggerText(trigger, state[stateKey], labelMap, defaultText);
+  const isMobileDrawer = trigger.id.startsWith('mobile-');
+  
+  document.addEventListener('click', (e) => {
+    if (!menu.contains(e.target) && e.target !== trigger) {
+      menu.classList.add('hidden');
+    }
+  });
+  
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.classList.toggle('hidden');
+    if (!menu.classList.contains('hidden')) {
+      closeAllMultiSelectMenus(menu);
+      
+      // Only use fixed positioning for desktop
+      if (!isMobileDrawer) {
+        const rect = trigger.getBoundingClientRect();
+        menu.style.position = 'fixed';
+        menu.style.left = rect.left + 'px';
+        menu.style.top = (rect.bottom + 4) + 'px';
+        menu.style.width = rect.width + 'px';
+        menu.style.zIndex = '1001';
+      }
+    }
+  });
+  
+  checkboxes.forEach(cb => {
+    cb.addEventListener('change', () => {
+      const selected = Array.from(checkboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+      state[stateKey] = selected;
+      state.page = 1;
+      loadPage();
+      updateTriggerText(trigger, selected, labelMap, defaultText);
+    });
+  });
+  
+  const btnSelectAll = menu.querySelector('.btn-select-all');
+  const btnSelectNone = menu.querySelector('.btn-select-none');
+  if (btnSelectAll) {
+    btnSelectAll.addEventListener('click', () => {
+      checkboxes.forEach(cb => cb.checked = true);
+      state[stateKey] = Array.from(checkboxes).map(cb => cb.value);
+      state.page = 1;
+      loadPage();
+      menu.classList.add('hidden');
+      updateTriggerText(trigger, state[stateKey], labelMap, defaultText);
+    });
+  }
+  if (btnSelectNone) {
+    btnSelectNone.addEventListener('click', () => {
+      checkboxes.forEach(cb => cb.checked = false);
+      state[stateKey] = [];
+      state.page = 1;
+      loadPage();
+      menu.classList.add('hidden');
+      updateTriggerText(trigger, [], labelMap, defaultText);
+    });
+  }
+  
+  checkboxes.forEach(cb => {
+    cb.checked = state[stateKey].includes(cb.value);
+  });
+  updateTriggerText(trigger, state[stateKey], labelMap, defaultText);
 }
 
 function setupSingleSelect(trigger, menu, stateKey, labelMap, defaultValue) {
@@ -2032,140 +2046,242 @@ function createFilterDrawer() {
         </button>
       </div>
       <div class="filter-drawer-content">
+        
+        <!-- Content Type -->
         <div class="filter-section">
           <h3>Content Type</h3>
-          <select id="mobile-content-type" class="filter-dropdown">
-            <option value="">All Types</option>
-            <option value="manga">Manga</option>
-            <option value="manhwa">Manhwa</option>
-            <option value="manhua">Manhua</option>
-            <option value="other">Other</option>
-          </select>
+          <div class="multi-select" id="mobile-filter-type-container">
+            <button class="control-input multi-select-trigger" id="mobile-filter-type-trigger" style="width: 100%;">
+              Content Type
+            </button>
+            <div class="multi-select-menu hidden">
+              <label><input type="checkbox" value="manga"> Manga</label>
+              <label><input type="checkbox" value="manhwa"> Manhwa</label>
+              <label><input type="checkbox" value="manhua"> Manhua</label>
+              <label><input type="checkbox" value="other"> Other</label>
+              <button class="btn-select-all">Select All</button>
+              <button class="btn-select-none">Clear</button>
+            </div>
+          </div>
         </div>
 
+        <!-- Tags (Genres) -->
         <div class="filter-section">
           <h3>Tags</h3>
-          <select id="mobile-tags" class="filter-dropdown">
-            <option value="">All Tags</option>
-          </select>
+          <div class="multi-select" id="mobile-filter-genre-container">
+            <button class="control-input multi-select-trigger" id="mobile-filter-genre-trigger" style="width: 100%;">
+              Tags
+            </button>
+			<div class="multi-select-menu hidden" id="mobile-filter-genre-menu">
+			<div class="combined-tags-list">
+				<div class="genre-list-section"></div>
+				<div style="border-top: 1px solid #334155; margin: 8px 0;"></div>
+				<div class="rating-section">
+				<label><input type="checkbox" value="safe" class="rating-checkbox"> Safe</label>
+				<label><input type="checkbox" value="mild" class="rating-checkbox"> Suggestive</label>
+				<label><input type="checkbox" value="mature" class="rating-checkbox"> Mature</label>
+				<label><input type="checkbox" value="explicit" class="rating-checkbox"> Explicit</label>
+				</div>
+			</div>
+			<button class="btn-select-none" id="mobile-btn-clear-all-tags">Clear</button>
+			</div>
+          </div>
         </div>
 
-        <div class="filter-section">
-          <h3>Content Rating</h3>
-          <select id="mobile-rating" class="filter-dropdown">
-            <option value="">All Ratings</option>
-            <option value="safe">Safe</option>
-            <option value="mild">Suggestive</option>
-            <option value="mature">Mature</option>
-            <option value="explicit">Explicit</option>
-          </select>
-        </div>
-
+        <!-- Publication Status -->
         <div class="filter-section">
           <h3>Publication Status</h3>
-          <select id="mobile-pub-status" class="filter-dropdown">
-            <option value="">All Statuses</option>
-            <option value="reading">Ongoing</option>
-            <option value="completed">Completed</option>
-            <option value="on_hold">Hiatus</option>
-            <option value="dropped">Cancelled</option>
-          </select>
+          <div class="multi-select" id="mobile-filter-pub-status-container">
+            <button class="control-input multi-select-trigger" id="mobile-filter-pub-status-trigger" style="width: 100%;">
+              Publication Status
+            </button>
+            <div class="multi-select-menu hidden">
+              <label><input type="checkbox" value="reading"> Reading</label>
+              <label><input type="checkbox" value="completed"> Completed</label>
+              <label><input type="checkbox" value="on_hold"> On Hold</label>
+              <label><input type="checkbox" value="dropped"> Dropped</label>
+              <button class="btn-select-all">Select All</button>
+              <button class="btn-select-none">Clear</button>
+            </div>
+          </div>
         </div>
 
+        <!-- Readable On -->
         <div class="filter-section">
           <h3>Readable On</h3>
-          <select id="mobile-readable-on" class="filter-dropdown">
-            <option value="">All Sources</option>
-            <option value="mangadex">MangaDex</option>
-            <option value="kagane">Kagane</option>
-          </select>
+          <div class="multi-select" id="mobile-filter-readable-on-container">
+            <button class="control-input multi-select-trigger" id="mobile-filter-readable-on-trigger" style="width: 100%;">
+              Readable On
+            </button>
+            <div class="multi-select-menu hidden">
+              <label><input type="checkbox" value="mangadex"> MangaDex</label>
+              <label><input type="checkbox" value="kagane"> Kagane</label>
+              <button class="btn-select-all">Select All</button>
+              <button class="btn-select-none">Clear</button>
+            </div>
+          </div>
         </div>
+
       </div>
       <div class="filter-drawer-footer">
-        <button class="btn-reset-filters-mobile" id="mobile-reset-filters">Reset</button>
-        <button class="btn-add-series-mobile" id="mobile-add-series">+ Add</button>
+        <button class="btn-reset-filters-mobile" id="mobile-reset-filters">Reset All Filters</button>
       </div>
     </div>
   `;
 
   document.body.insertAdjacentHTML('beforeend', drawerHTML);
 
-  // Load genres into dropdown
-  loadMobileGenres();
-
   // Setup filter drawer events
   document.getElementById('filter-drawer-overlay')?.addEventListener('click', closeFilterDrawer);
   document.getElementById('filter-drawer-close')?.addEventListener('click', closeFilterDrawer);
   document.getElementById('mobile-reset-filters')?.addEventListener('click', resetMobileFilters);
-  document.getElementById('mobile-add-series')?.addEventListener('click', () => {
-    closeFilterDrawer();
-    document.getElementById('btn-add-series')?.click();
+
+  // Setup multi-select dropdowns (same as desktop)
+  
+  // Content Type
+  const mobileTypeTrigger = document.getElementById('mobile-filter-type-trigger');
+  const mobileTypeMenu = document.querySelector('#mobile-filter-type-container .multi-select-menu');
+  const mobileTypeCheckboxes = mobileTypeMenu.querySelectorAll('input[type="checkbox"]');
+  setupStaticMultiSelect(mobileTypeTrigger, mobileTypeMenu, mobileTypeCheckboxes, 'type', {
+    'manga': 'Manga',
+    'manhwa': 'Manhwa',
+    'manhua': 'Manhua',
+    'other': 'Other'
+  }, 'Content Type');
+
+  // Genres + Rating (Combined Tags)
+  const mobileGenreTrigger = document.getElementById('mobile-filter-genre-trigger');
+  const mobileGenreMenu = document.getElementById('mobile-filter-genre-menu');
+  const mobileGenreListSection = mobileGenreMenu.querySelector('.genre-list-section');
+  const mobileRatingCheckboxes = mobileGenreMenu.querySelectorAll('.rating-checkbox');
+  const mobileClearAllBtn = document.getElementById('mobile-btn-clear-all-tags');
+
+  // Close menu when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!mobileGenreMenu.contains(e.target) && e.target !== mobileGenreTrigger) {
+      mobileGenreMenu.classList.add('hidden');
+    }
   });
 
-  // Sync dropdowns with state
-  document.getElementById('mobile-content-type')?.addEventListener('change', (e) => {
-    state.type = e.target.value ? [e.target.value] : [];
-    state.page = 1;
-    loadPage();
+  // Toggle menu on trigger click
+  mobileGenreTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    mobileGenreMenu.classList.toggle('hidden');
+    if (!mobileGenreMenu.classList.contains('hidden')) {
+      closeAllMultiSelectMenus(mobileGenreMenu);
+      const scrollContainer = mobileGenreMenu.querySelector('.combined-tags-list');
+      if (scrollContainer) {
+        scrollContainer.scrollTop = 0;
+      }
+    }
   });
 
-  document.getElementById('mobile-tags')?.addEventListener('change', (e) => {
-    state.genre = e.target.value ? [e.target.value] : [];
-    state.page = 1;
-    loadPage();
-  });
-
-  document.getElementById('mobile-rating')?.addEventListener('change', (e) => {
-    state.rating = e.target.value ? [e.target.value] : [];
-    state.page = 1;
-    loadPage();
-  });
-
-  document.getElementById('mobile-pub-status')?.addEventListener('change', (e) => {
-    state.pubStatus = e.target.value ? [e.target.value] : [];
-    state.page = 1;
-    loadPage();
-  });
-
-  document.getElementById('mobile-readable-on')?.addEventListener('change', (e) => {
-    state.readableOn = e.target.value ? [e.target.value] : [];
-    state.page = 1;
-    loadPage();
-  });
-
-  // Add filter button to control panel (only button in row 1 right side)
-  const controlRow = document.querySelector('.control-row:nth-child(1) .control-group-right');
-  if (controlRow && !document.getElementById('mobile-filter-btn')) {
-    controlRow.innerHTML = `
-      <button id="mobile-filter-btn" class="control-button square-button">
-        <svg class="icon-filter" viewBox="0 0 24 24" style="width:18px;height:18px;">
-          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
-        </svg>
-      </button>
-      <div class="control-search" style="flex: 1;">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"></circle>
-          <path d="m21 21-4.35-4.35"></path>
-        </svg>
-        <input type="text" id="search-input" placeholder="Search series..." />
-      </div>
-    `;
+  // Update trigger text based on both genres and ratings
+  function updateMobileTagsTriggerText() {
+    const genreCount = state.genre.length;
+    const ratingCount = state.rating.length;
+    const totalCount = genreCount + ratingCount;
     
-    document.getElementById('mobile-filter-btn')?.addEventListener('click', openFilterDrawer);
-    
-    // Reconnect search functionality
-    const searchInput = document.getElementById('search-input');
-    if (searchInput) {
-      let searchTimeout;
-      searchInput.addEventListener('input', () => {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-          state.page = 1;
-          loadPage();
-        }, 300);
-      });
+    if (totalCount === 0) {
+      mobileGenreTrigger.textContent = 'Tags';
+    } else if (totalCount === 1) {
+      if (genreCount === 1) {
+        mobileGenreTrigger.textContent = state.genre[0];
+      } else {
+        const ratingMap = {
+          'safe': 'Safe',
+          'mild': 'Suggestive',
+          'mature': 'Mature',
+          'explicit': 'Explicit'
+        };
+        mobileGenreTrigger.textContent = ratingMap[state.rating[0]] || state.rating[0];
+      }
+    } else {
+      mobileGenreTrigger.textContent = `${totalCount} Selected`;
     }
   }
+
+  // Clear All button (clears both genres and ratings)
+  mobileClearAllBtn.addEventListener('click', () => {
+    state.genre = [];
+    state.rating = [];
+    state.page = 1;
+    loadPage();
+    mobileGenreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    mobileRatingCheckboxes.forEach(cb => cb.checked = false);
+    updateMobileTagsTriggerText();
+  });
+
+  // Setup rating checkboxes (OR logic)
+  mobileRatingCheckboxes.forEach(cb => {
+    cb.checked = state.rating.includes(cb.value);
+    cb.addEventListener('change', () => {
+      if (cb.checked) {
+        if (!state.rating.includes(cb.value)) state.rating.push(cb.value);
+      } else {
+        state.rating = state.rating.filter(r => r !== cb.value);
+      }
+      state.page = 1;
+      loadPage();
+      updateMobileTagsTriggerText();
+    });
+  });
+
+  // Load genres dynamically (mobile version)
+  loadMobileGenres = async function() {
+    try {
+      const res = await fetch('/api/genres');
+      if (res.ok) {
+        const genres = await res.json();
+        mobileGenreListSection.innerHTML = '';
+        genres.forEach(genre => {
+          const label = document.createElement('label');
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.value = genre;
+          cb.checked = state.genre.includes(genre);
+          cb.addEventListener('change', () => {
+            if (cb.checked) {
+              if (!state.genre.includes(genre)) state.genre.push(genre);
+            } else {
+              state.genre = state.genre.filter(g => g !== genre);
+            }
+            state.page = 1;
+            loadPage();
+            updateMobileTagsTriggerText();
+          });
+          label.appendChild(cb);
+          label.appendChild(document.createTextNode(genre));
+          mobileGenreListSection.appendChild(label);
+        });
+      }
+    } catch (e) {
+      console.error('Failed to load genres:', e);
+    }
+  };
+
+  loadMobileGenres();
+
+  // Publication Status
+  const mobilePubStatusTrigger = document.getElementById('mobile-filter-pub-status-trigger');
+  const mobilePubStatusMenu = document.querySelector('#mobile-filter-pub-status-container .multi-select-menu');
+  const mobilePubStatusCheckboxes = mobilePubStatusMenu.querySelectorAll('input[type="checkbox"]');
+  setupStaticMultiSelect(mobilePubStatusTrigger, mobilePubStatusMenu, mobilePubStatusCheckboxes, 'pubStatus', {
+    'reading': 'Reading',
+    'completed': 'Completed',
+    'on_hold': 'On Hold',
+    'dropped': 'Dropped',
+    'plan_to_read': 'Plan to Read'
+  }, 'Publication Status');
+
+  // Readable On
+  const mobileReadableOnTrigger = document.getElementById('mobile-filter-readable-on-trigger');
+  const mobileReadableOnMenu = document.querySelector('#mobile-filter-readable-on-container .multi-select-menu');
+  const mobileReadableOnCheckboxes = mobileReadableOnMenu.querySelectorAll('input[type="checkbox"]');
+  setupStaticMultiSelect(mobileReadableOnTrigger, mobileReadableOnMenu, mobileReadableOnCheckboxes, 'readableOn', {
+    'mangadex': 'MangaDex',
+    'kagane': 'Kagane'
+  }, 'Readable On');
 }
 
 function setupMobileControlPanel() {
@@ -2320,6 +2436,10 @@ function closeFilterDrawer() {
 }
 
 function resetMobileFilters() {
+  // Reset ALL state (including Status and Sort from control panel)
+  state.status = 'reading';
+  state.sort = 'unread_first';
+  state.dir = 'asc';
   state.type = [];
   state.genre = [];
   state.rating = [];
@@ -2327,12 +2447,52 @@ function resetMobileFilters() {
   state.readableOn = [];
   state.page = 1;
   
-  // Reset dropdowns
-  document.getElementById('mobile-content-type').value = '';
-  document.getElementById('mobile-tags').value = '';
-  document.getElementById('mobile-rating').value = '';
-  document.getElementById('mobile-pub-status').value = '';
-  document.getElementById('mobile-readable-on').value = '';
+  // Reset ALL multi-select checkboxes in mobile drawer
+  document.querySelectorAll(`
+    #mobile-filter-type-container input[type="checkbox"],
+    #mobile-filter-genre-container input[type="checkbox"],
+    #mobile-filter-genre-container .rating-checkbox,
+    #mobile-filter-pub-status-container input[type="checkbox"],
+    #mobile-filter-readable-on-container input[type="checkbox"]
+  `).forEach(cb => cb.checked = false);
+  
+  // Reset trigger texts
+  document.getElementById('mobile-filter-type-trigger').textContent = 'Content Type';
+  document.getElementById('mobile-filter-genre-trigger').textContent = 'Tags';
+  document.getElementById('mobile-filter-pub-status-trigger').textContent = 'Publication Status';
+  document.getElementById('mobile-filter-readable-on-trigger').textContent = 'Readable On';
+  
+  // Reset desktop search if it exists
+  const desktopSearch = document.getElementById('search-input');
+  const mobileSearch = document.getElementById('mobile-search-input');
+  if (desktopSearch) desktopSearch.value = '';
+  if (mobileSearch) mobileSearch.value = '';
+  
+  // Update desktop UI elements
+  const statusTrigger = document.getElementById('filter-status-trigger');
+  const sortTrigger = document.getElementById('sort-order-trigger');
+  if (statusTrigger) statusTrigger.textContent = 'Reading';
+  if (sortTrigger) sortTrigger.textContent = 'Unread First';
+  
+  // Update sort direction icon
+  const mobileSortBtn = document.getElementById('mobile-sort-direction');
+  if (mobileSortBtn) {
+    mobileSortBtn.querySelector('svg').innerHTML = SORT_ICONS['asc'];
+  }
+  
+  // Update desktop status/sort selected states
+  document.querySelectorAll('.single-select-menu .option-item').forEach(opt => {
+    opt.classList.remove('selected');
+    if ((opt.dataset.value === 'reading' && opt.closest('#filter-status-container')) ||
+        (opt.dataset.value === 'unread_first' && opt.closest('#sort-order-container'))) {
+      opt.classList.add('selected');
+    }
+  });
+  
+  // Close all menus
+  document.querySelectorAll('.multi-select-menu, .single-select-menu').forEach(menu => {
+    menu.classList.add('hidden');
+  });
   
   loadPage();
   closeFilterDrawer();
