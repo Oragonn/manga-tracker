@@ -447,15 +447,15 @@ function renderSeriesCard(series) {
 	}
 	const cleanCoverUrl = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
 	card.innerHTML = `
-<div class="series-cover-container" data-title="${series.title}">
+<div class="series-cover-container">
 <div class="series-checkbox">
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
 <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
 </svg>
 </div>
 <img class="series-cover" src="${cleanCoverUrl}" onerror="this.src='/static/placeholder.png'">
+<div class="mobile-card-title"><span>${series.title}</span></div>
 ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
-</div>
 <div class="card-info">
 <div class="card-title">${series.title}</div>
 <div class="card-chapters">
@@ -931,79 +931,6 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 			toggleCardSelection(series.id);
 		}
 	});
-	
-	// *** MOBILE: Add mobile-specific behavior ***
-	if (isMobileDevice()) {
-		// Hide checkbox completely on mobile
-		const checkbox = card.querySelector('.series-checkbox');
-		if (checkbox) {
-			checkbox.style.display = 'none';
-		}
-
-		// Long-press variables
-		let pressTimer = null;
-		let touchStartTime = 0;
-		const longPressDuration = 500;
-
-		// Add long-press handler for bulk mode
-		card.addEventListener('touchstart', (e) => {
-			if (e.target.closest('button') || e.target.closest('a')) return;
-			
-			touchStartTime = Date.now();
-			
-			pressTimer = setTimeout(() => {
-				e.preventDefault();
-				
-				if (!bulkState.isBulkMode) {
-					toggleCardSelection(series.id);
-					
-					card.style.transform = 'scale(0.95)';
-					setTimeout(() => {
-						card.style.transform = '';
-					}, 100);
-					
-					if (navigator.vibrate) {
-						navigator.vibrate(50);
-					}
-				} else {
-					toggleCardSelection(series.id);
-				}
-			}, longPressDuration);
-		});
-
-		card.addEventListener('touchend', (e) => {
-			clearTimeout(pressTimer);
-			
-			const touchDuration = Date.now() - touchStartTime;
-			
-			if (touchDuration < longPressDuration) {
-				if (e.target.closest('button') || e.target.closest('a')) return;
-				
-				if (bulkState.isBulkMode) {
-					e.preventDefault();
-					toggleCardSelection(series.id);
-				} else {
-					e.preventDefault();
-					openBottomSheet(series);
-				}
-			}
-		});
-
-		card.addEventListener('touchcancel', () => {
-			clearTimeout(pressTimer);
-		});
-
-		// Override click handler for mobile
-		card.addEventListener('click', (e) => {
-			if (e.target.closest('button') || e.target.closest('a')) return;
-			
-			if (bulkState.isBulkMode) {
-				toggleCardSelection(series.id);
-			} else {
-				openBottomSheet(series);
-			}
-		});
-	}
 	
 	return card;
 }
@@ -2888,9 +2815,10 @@ function createFABButtons() {
   });
 
   // Bulk edit FAB - exits bulk mode for now
-  document.getElementById('fab-bulk-edit')?.addEventListener('click', () => {
-    exitBulkMode();
-  });
+	document.getElementById('fab-bulk-edit')?.addEventListener('click', (e) => {
+	e.stopPropagation(); // Prevent event from bubbling
+	e.preventDefault();  // Prevent default behavior
+	});
 }
 
 function updateFABIcon() {
@@ -2977,7 +2905,7 @@ window.renderSeriesCard = function(series) {
   const card = originalRenderSeriesCard(series);
   
   if (isMobileDevice()) {
-    // REMOVE the checkbox from mobile view completely
+    // Hide checkbox completely on mobile
     const checkbox = card.querySelector('.series-checkbox');
     if (checkbox) {
       checkbox.style.display = 'none';
@@ -2986,32 +2914,40 @@ window.renderSeriesCard = function(series) {
     // Long-press variables
     let pressTimer = null;
     let touchStartTime = 0;
+    let touchStartY = 0;
     const longPressDuration = 500;
+    let touchMoved = false;
+    let longPressTriggered = false;
 
-    // Add long-press handler for bulk mode
     card.addEventListener('touchstart', (e) => {
       if (e.target.closest('button') || e.target.closest('a')) return;
       
       touchStartTime = Date.now();
+      touchStartY = e.touches[0].clientY;
+      touchMoved = false;
+      longPressTriggered = false;
       
       pressTimer = setTimeout(() => {
-        e.preventDefault();
-        
-        if (!bulkState.isBulkMode) {
+        if (!touchMoved) {
+          longPressTriggered = true;
           toggleCardSelection(series.id);
           
           card.style.transform = 'scale(0.95)';
           setTimeout(() => {
             card.style.transform = '';
           }, 100);
-          
-          if (navigator.vibrate) {
-            navigator.vibrate(50);
-          }
-        } else {
-          toggleCardSelection(series.id);
         }
       }, longPressDuration);
+    });
+
+    card.addEventListener('touchmove', (e) => {
+      const touchY = e.touches[0].clientY;
+      const deltaY = Math.abs(touchY - touchStartY);
+      
+      if (deltaY > 10) {
+        touchMoved = true;
+        clearTimeout(pressTimer);
+      }
     });
 
     card.addEventListener('touchend', (e) => {
@@ -3019,14 +2955,21 @@ window.renderSeriesCard = function(series) {
       
       const touchDuration = Date.now() - touchStartTime;
       
-      if (touchDuration < longPressDuration) {
+      // If long-press was triggered, don't do anything on touchend
+      if (longPressTriggered) {
+        longPressTriggered = false;
+        return;
+      }
+      
+      // Short tap - only if not moved and wasn't a long press
+      if (touchDuration < longPressDuration && !touchMoved) {
         if (e.target.closest('button') || e.target.closest('a')) return;
         
+        e.preventDefault();
+        
         if (bulkState.isBulkMode) {
-          e.preventDefault();
           toggleCardSelection(series.id);
         } else {
-          e.preventDefault();
           openBottomSheet(series);
         }
       }
@@ -3034,16 +2977,8 @@ window.renderSeriesCard = function(series) {
 
     card.addEventListener('touchcancel', () => {
       clearTimeout(pressTimer);
-    });
-
-    card.addEventListener('click', (e) => {
-      if (e.target.closest('button') || e.target.closest('a')) return;
-      
-      if (bulkState.isBulkMode) {
-        toggleCardSelection(series.id);
-      } else {
-        openBottomSheet(series);
-      }
+      touchMoved = false;
+      longPressTriggered = false;
     });
   }
   
