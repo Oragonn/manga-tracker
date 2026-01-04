@@ -2127,7 +2127,7 @@ html {
   .sheet-chapter-row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end; /* CHANGED: from space-between to flex-end */
     margin-bottom: 12px;
   }
 
@@ -2154,6 +2154,10 @@ html {
     display: flex;
     align-items: center;
     justify-content: center;
+    touch-action: manipulation; /* ADDED: Disable double-tap zoom */
+    user-select: none; /* ADDED: Prevent text selection */
+    -webkit-user-select: none; /* ADDED: Safari support */
+    -webkit-tap-highlight-color: transparent; /* ADDED: Remove tap highlight */
   }
 
   .sheet-progress-bar {
@@ -2194,6 +2198,11 @@ html {
     cursor: pointer;
     min-height: 44px;
     font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    transition: background 0.2s, opacity 0.2s; /* ADDED: Smooth transition */
   }
 
   .btn-sheet-action.secondary {
@@ -2205,6 +2214,19 @@ html {
   .btn-sheet-action.primary {
     background: #1665f4;
     color: white;
+  }
+
+  /* ADDED: Disabled state styling */
+  .btn-sheet-action:disabled {
+    background: #1f2937;
+    color: #64748b;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .btn-sheet-action.primary:disabled {
+    background: #1f2937;
+    border: 1px solid #334155;
   }
 
   /* ================================

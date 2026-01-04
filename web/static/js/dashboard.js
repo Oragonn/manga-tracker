@@ -454,8 +454,9 @@ function renderSeriesCard(series) {
 </svg>
 </div>
 <img class="series-cover" src="${cleanCoverUrl}" onerror="this.src='/static/placeholder.png'">
-<div class="mobile-card-title"><span>${series.title}</span></div>
 ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
+${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span></div>` : ''}
+</div>
 <div class="card-info">
 <div class="card-title">${series.title}</div>
 <div class="card-chapters">
@@ -1891,7 +1892,8 @@ const mobileState = {
   filterDrawerOpen: false,
   bottomSheetOpen: false,
   currentSeries: null,
-  lastScrollY: 0
+  lastScrollY: 0,
+  pendingChapter: null  // ADDED: Track unsaved chapter changes
 };
 
 // Bulk edit mode state
@@ -2561,19 +2563,25 @@ function createBottomSheet() {
           </button>
         </div>
         
-        <div class="sheet-progress-section">
-          <div class="sheet-chapter-row">
-            <span class="sheet-chapter-label">Current Chapter</span>
-            <div class="sheet-chapter-value">
-              <span id="sheet-current-chapter">Ch.45</span>
-              <button class="btn-chapter-adjust" id="sheet-chapter-plus">
-                <svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;">
-                  <line x1="12" y1="5" x2="12" y2="19"></line>
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-              </button>
-            </div>
-          </div>
+		<div class="sheet-progress-section">
+		<div class="sheet-chapter-row">
+			<div class="sheet-chapter-value">
+			<button class="btn-chapter-adjust" id="sheet-chapter-minus">
+				<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;">
+				<line x1="5" y1="12" x2="19" y2="12"></line>
+				</svg>
+			</button>
+			<span id="sheet-current-chapter">Ch.45</span>
+			<span style="color:#64748b;margin:0 4px;">/</span>
+			<span id="sheet-latest-chapter">Ch.50</span>
+			<button class="btn-chapter-adjust" id="sheet-chapter-plus">
+				<svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;">
+				<line x1="12" y1="5" x2="12" y2="19"></line>
+				<line x1="5" y1="12" x2="19" y2="12"></line>
+				</svg>
+			</button>
+			</div>
+		</div>
           
           <div class="sheet-progress-bar">
             <div class="sheet-progress-fill" id="sheet-progress-fill"></div>
@@ -2639,35 +2647,66 @@ function createBottomSheet() {
 function openBottomSheet(series) {
   mobileState.bottomSheetOpen = true;
   mobileState.currentSeries = series;
+  mobileState.pendingChapter = series.current_chapter;
+  
+  // ADDED: Lock scrolling - MORE AGGRESSIVE (same as bulk edit menu)
+  mobileState.scrollY = window.scrollY;
+  document.body.style.overflow = 'hidden';
+  document.body.style.position = 'fixed';
+  document.body.style.width = '100%';
+  document.body.style.top = `-${mobileState.scrollY}px`;
 
   document.getElementById('sheet-title').textContent = series.title;
+
   document.getElementById('sheet-current-chapter').textContent = 
-    series.current_chapter === -1 ? 'Not started' : `Ch.${series.current_chapter}`;
+  series.current_chapter === -1 ? 'Not started' : `Ch.${series.current_chapter}`;
+
+  // ADDED: Set latest chapter
+  document.getElementById('sheet-latest-chapter').textContent = 
+  series.latest_chapter ? `Ch.${series.latest_chapter}` : 'Ch.?';
   
-  // CHANGED: Format time as "X time ago" with proper pluralization
-  const timeAgo = formatTimeAgo(series.latest_release);
-  document.getElementById('sheet-updated').textContent = `Updated: ${timeAgo}`;
-  
-  // CHANGED: Format behind count as "X chapter(s) behind"
-  const behindCount = series.unread_count || 0;
-  const behindElement = document.getElementById('sheet-behind');
-  
-  if (behindCount === 0) {
-    // Show green "Up to date" with checkmark
-    behindElement.innerHTML = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;">
-        <path d="M20 6 9 17l-5-5"/>
-      </svg>
-      <span style="color:#4ade80;font-weight:500;">Up to date</span>
-    `;
-  } else {
-    // Show regular "X chapter(s) behind"
-    const chapterWord = behindCount === 1 ? 'chapter' : 'chapters';
-    behindElement.textContent = `${behindCount} ${chapterWord} behind`;
-  }
+	// CHANGED: Format time as "X time ago" with proper pluralization
+	const timeAgo = formatTimeAgo(series.latest_release);
+	document.getElementById('sheet-updated').textContent = `Updated: ${timeAgo}`;
+
+	// FIXED: Calculate behind count with proper rounding for floating-point precision
+	const behindElement = document.getElementById('sheet-behind');
+	let behindCount = 0;
+
+	if (series.current_chapter === -1) {
+	behindCount = series.latest_chapter || 0;
+	} else {
+	// Round to 1 decimal place to fix floating-point errors
+	const rawDiff = (series.latest_chapter || 0) - series.current_chapter;
+	behindCount = Math.round(rawDiff * 10) / 10;
+	}
+
+	if (behindCount === 0 && series.current_chapter !== -1) {
+	// Show green "Up to date" with checkmark
+	behindElement.innerHTML = `
+		<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;">
+		<path d="M20 6 9 17l-5-5"/>
+		</svg>
+		<span style="color:#4ade80;font-weight:500;">Up to date</span>
+	`;
+	} else {
+	// Format the number nicely (remove .0 if it's a whole number)
+	const displayCount = behindCount % 1 === 0 ? Math.floor(behindCount) : behindCount;
+	const chapterWord = behindCount === 1 ? 'chapter' : 'chapters';
+	behindElement.textContent = `${displayCount} ${chapterWord} behind`;
+	}
+
 
   const progress = series.current_chapter === -1 ? 0 : (series.current_chapter / series.latest_chapter) * 100;
-  document.getElementById('sheet-progress-fill').style.width = `${Math.min(progress, 100)}%`;
+  const progressFill = document.getElementById('sheet-progress-fill');
+  progressFill.style.width = `${Math.min(progress, 100)}%`;
+
+  // ADDED: Change color to green when caught up
+  if (series.unread_count === 0 && series.current_chapter !== -1) {
+    progressFill.style.background = '#4ade80';
+  } else {
+    progressFill.style.background = '#3b82f6';
+  }
 
   // FIXED: Calculate nextChapter BEFORE passing to setupBottomSheetButtons
   const nextChapter = series.current_chapter === -1 ? 1 : series.current_chapter + 1;
@@ -2683,17 +2722,15 @@ function openBottomSheet(series) {
 
 function setupBottomSheetButtons(series, nextChapter) {
   // Search button - opens Google search for next chapter
-  const searchBtn = document.getElementById('sheet-search-btn');
-  if (searchBtn) {
-    // Remove old listeners by cloning
-    const newSearchBtn = searchBtn.cloneNode(true);
-    searchBtn.parentNode.replaceChild(newSearchBtn, searchBtn);
-    
-    newSearchBtn.addEventListener('click', () => {
-      const query = encodeURIComponent(`${series.title} chapter ${nextChapter}`);
-      window.open(`https://www.google.com/search?q=${query}`, '_blank');
-    });
-  }
+	const searchBtn = document.getElementById('sheet-search-btn');
+	if (searchBtn) {
+	searchBtn.addEventListener('click', () => {
+		const searchChapterSpan = document.getElementById('sheet-search-chapter');
+		const chapterNum = searchChapterSpan ? searchChapterSpan.textContent : nextChapter;
+		const query = encodeURIComponent(`${series.title} chapter ${chapterNum}`);
+		window.open(`https://www.google.com/search?q=${query}`, '_blank');
+	});
+	}
 
   // Continue button - opens next chapter URL or first chapter if not started
   const continueBtn = document.getElementById('sheet-continue-btn');
@@ -2753,38 +2790,326 @@ function setupBottomSheetButtons(series, nextChapter) {
       });
   }
 
-  // Chapter + button - increment and save
-  const plusBtn = document.getElementById('sheet-chapter-plus');
-  if (plusBtn) {
-    const newPlusBtn = plusBtn.cloneNode(true);
-    plusBtn.parentNode.replaceChild(newPlusBtn, plusBtn);
-    
-    newPlusBtn.addEventListener('click', async () => {
-      const newChapter = series.current_chapter === -1 ? 1 : series.current_chapter + 1;
-      
-      try {
-        await saveChapter(series.id, newChapter);
-        // Update display
-        document.getElementById('sheet-current-chapter').textContent = `Ch.${newChapter}`;
-        // Reload page to reflect changes
-        loadPage();
-        closeBottomSheet();
-      } catch (err) {
-        console.error('Failed to update chapter:', err);
-        alert('Failed to update chapter');
-      }
-    });
+// Hold-to-repeat variables
+let holdInterval = null;
+let holdTimeout = null;
+
+function startHoldRepeat(callback, initialDelay = 300, repeatInterval = 50) {
+  // Clear any existing intervals
+  if (holdInterval) clearInterval(holdInterval);
+  if (holdTimeout) clearTimeout(holdTimeout);
+  
+  // Execute immediately on first press
+  callback();
+  
+  // Wait for initial delay, then start repeating
+  holdTimeout = setTimeout(() => {
+    holdInterval = setInterval(callback, repeatInterval);
+  }, initialDelay);
+}
+
+function stopHoldRepeat() {
+  if (holdInterval) {
+    clearInterval(holdInterval);
+    holdInterval = null;
+  }
+  if (holdTimeout) {
+    clearTimeout(holdTimeout);
+    holdTimeout = null;
   }
 }
 
-function closeBottomSheet() {
+	// Fetch and store chapters for navigation
+	let sortedChapters = [];
+	let currentChapterIndex = -1;
+
+	fetch(`/api/series/${series.id}/chapters`)
+	.then(r => r.json())
+	.then(chapters => {
+		// Sort chapters using same logic as desktop
+		const hasAnyNullVolume = chapters.some(ch => ch.volume == null || ch.volume === '');
+		const useVolume = !hasAnyNullVolume;
+		const comparator = useVolume ? compareChapters : (a, b) => a.chapter_number - b.chapter_number;
+		sortedChapters = [...chapters].sort(comparator);
+		
+		// Find current chapter index
+		if (mobileState.pendingChapter === -1) {
+		currentChapterIndex = -1;
+		} else {
+		const matches = sortedChapters
+			.map((ch, idx) => ({ ch, idx }))
+			.filter(item => item.ch.chapter_number === mobileState.pendingChapter);
+		
+		if (matches.length === 0) {
+			currentChapterIndex = -1;
+		} else if (matches.length === 1) {
+			currentChapterIndex = matches[0].idx;
+		} else {
+			// Multiple matches - pick highest volume if using volumes
+			if (useVolume) {
+			const best = matches.reduce((a, b) => {
+				const volA = a.ch.volume ? parseFloat(a.ch.volume) || 0 : 0;
+				const volB = b.ch.volume ? parseFloat(b.ch.volume) || 0 : 0;
+				return volB > volA ? b : a;
+			});
+			currentChapterIndex = best.idx;
+			} else {
+			currentChapterIndex = matches[0].idx;
+			}
+		}
+		}
+		
+		// Update chapter display format
+		updateChapterDisplay();
+	})
+	.catch(err => {
+		console.error('Failed to load chapters:', err);
+	});
+
+	function updateChapterDisplay() {
+	const currentChapterEl = document.getElementById('sheet-current-chapter');
+	if (currentChapterIndex === -1 || sortedChapters.length === 0) {
+		currentChapterEl.textContent = 'Not started';
+	} else {
+		const ch = sortedChapters[currentChapterIndex];
+		if (ch.is_oneshot) {
+		currentChapterEl.textContent = 'Oneshot';
+		} else if (ch.volume) {
+		currentChapterEl.textContent = `Vol.${ch.volume} Ch.${ch.chapter_number}`;
+		} else {
+		currentChapterEl.textContent = `Ch.${ch.chapter_number}`;
+		}
+	}
+	
+	// ADDED: Update Search and Continue buttons
+	updateSheetButtons();
+	}
+
+	function updateSheetButtons() {
+	const searchBtn = document.getElementById('sheet-search-btn');
+	const continueBtn = document.getElementById('sheet-continue-btn');
+	const searchChapterSpan = document.getElementById('sheet-search-chapter');
+	
+	// Determine next chapter to read
+	let nextChapterNumber = null;
+	let nextChapterUrl = null;
+	
+	if (sortedChapters.length === 0) {
+		// No chapters available
+		if (continueBtn) {
+		continueBtn.textContent = 'No chapters';
+		continueBtn.disabled = true;
+		}
+		if (searchBtn) searchBtn.style.display = 'none';
+		return;
+	}
+	
+	if (currentChapterIndex === -1) {
+		// Not started - next is first chapter
+		nextChapterNumber = sortedChapters[0].chapter_number;
+		nextChapterUrl = sortedChapters[0].chapter_url;
+	} else if (currentChapterIndex < sortedChapters.length - 1) {
+		// Next chapter exists
+		nextChapterNumber = sortedChapters[currentChapterIndex + 1].chapter_number;
+		nextChapterUrl = sortedChapters[currentChapterIndex + 1].chapter_url;
+	} else {
+		// Already at last chapter
+		if (continueBtn) {
+		continueBtn.textContent = 'All caught up';
+		continueBtn.disabled = true;
+		}
+		if (searchBtn) {
+		searchBtn.style.display = 'flex';
+		// Search for next chapter number (current + 1)
+		const searchNext = sortedChapters[currentChapterIndex].chapter_number + 1;
+		searchChapterSpan.textContent = searchNext;
+		}
+		return;
+	}
+	
+	// Update Search button
+	if (searchBtn && searchChapterSpan) {
+		searchBtn.style.display = 'flex';
+		searchChapterSpan.textContent = nextChapterNumber;
+	}
+	
+	// Update Continue button
+	if (continueBtn) {
+		continueBtn.textContent = `Continue to Ch.${nextChapterNumber}`;
+		continueBtn.disabled = false;
+		
+		// Update click handler
+		const newContinueBtn = continueBtn.cloneNode(true);
+		continueBtn.parentNode.replaceChild(newContinueBtn, continueBtn);
+		
+		newContinueBtn.addEventListener('click', () => {
+		window.open(nextChapterUrl, '_blank');
+		});
+	}
+	}
+
+	// Chapter - button - decrement (NO SAVE, with hold-to-repeat)
+	const minusBtn = document.getElementById('sheet-chapter-minus');
+	if (minusBtn) {
+	const newMinusBtn = minusBtn.cloneNode(true);
+	minusBtn.parentNode.replaceChild(newMinusBtn, minusBtn);
+	
+	const decrementChapter = () => {
+		if (currentChapterIndex === -1) {
+		stopHoldRepeat();
+		return; // Already at "Not started"
+		}
+		
+		if (currentChapterIndex === 0) {
+		// Go to "Not started"
+		currentChapterIndex = -1;
+		mobileState.pendingChapter = -1;
+		} else {
+		// Go to previous chapter in list
+		currentChapterIndex--;
+		mobileState.pendingChapter = sortedChapters[currentChapterIndex].chapter_number;
+		}
+		
+		updateChapterDisplay();
+		updateSheetProgress(series);
+	};
+	
+	// Mouse events
+	newMinusBtn.addEventListener('mousedown', (e) => {
+		e.preventDefault();
+		startHoldRepeat(decrementChapter);
+	});
+	newMinusBtn.addEventListener('mouseup', stopHoldRepeat);
+	newMinusBtn.addEventListener('mouseleave', stopHoldRepeat);
+	
+	// Touch events
+	newMinusBtn.addEventListener('touchstart', (e) => {
+		e.preventDefault();
+		startHoldRepeat(decrementChapter);
+	});
+	newMinusBtn.addEventListener('touchend', stopHoldRepeat);
+	newMinusBtn.addEventListener('touchcancel', stopHoldRepeat);
+	}
+
+	// Chapter + button - increment (NO SAVE, with hold-to-repeat)
+	const plusBtn = document.getElementById('sheet-chapter-plus');
+	if (plusBtn) {
+	const newPlusBtn = plusBtn.cloneNode(true);
+	plusBtn.parentNode.replaceChild(newPlusBtn, plusBtn);
+	
+	const incrementChapter = () => {
+		if (sortedChapters.length === 0) {
+		stopHoldRepeat();
+		return; // No chapters available
+		}
+		
+		if (currentChapterIndex === -1) {
+		// Go to first chapter
+		currentChapterIndex = 0;
+		mobileState.pendingChapter = sortedChapters[0].chapter_number;
+		} else if (currentChapterIndex < sortedChapters.length - 1) {
+		// Go to next chapter in list
+		currentChapterIndex++;
+		mobileState.pendingChapter = sortedChapters[currentChapterIndex].chapter_number;
+		} else {
+		// Already at last chapter
+		stopHoldRepeat();
+		return;
+		}
+		
+		updateChapterDisplay();
+		updateSheetProgress(series);
+	};
+	
+	// Mouse events
+	newPlusBtn.addEventListener('mousedown', (e) => {
+		e.preventDefault();
+		startHoldRepeat(incrementChapter);
+	});
+	newPlusBtn.addEventListener('mouseup', stopHoldRepeat);
+	newPlusBtn.addEventListener('mouseleave', stopHoldRepeat);
+	
+	// Touch events
+	newPlusBtn.addEventListener('touchstart', (e) => {
+		e.preventDefault();
+		startHoldRepeat(incrementChapter);
+	});
+	newPlusBtn.addEventListener('touchend', stopHoldRepeat);
+	newPlusBtn.addEventListener('touchcancel', stopHoldRepeat);
+	}
+
+}
+
+function updateSheetProgress(series) {
+  const progress = mobileState.pendingChapter === -1 ? 0 : (mobileState.pendingChapter / series.latest_chapter) * 100;
+  const progressFill = document.getElementById('sheet-progress-fill');
+  progressFill.style.width = `${Math.min(progress, 100)}%`;
+
+  // FIXED: Calculate unread using subtraction but round to fix floating-point precision
+  let unreadCount = 0;
+  if (mobileState.pendingChapter === -1) {
+    // Not started - use latest chapter as count
+    unreadCount = series.latest_chapter || 0;
+  } else {
+    // Calculate difference and round to 1 decimal place to fix floating-point errors
+    const rawDiff = series.latest_chapter - mobileState.pendingChapter;
+    unreadCount = Math.round(rawDiff * 10) / 10;
+  }
+  
+  // Change color to green when caught up
+  if (unreadCount === 0 && mobileState.pendingChapter !== -1) {
+    progressFill.style.background = '#4ade80';
+  } else {
+    progressFill.style.background = '#3b82f6';
+  }
+  
+  // Update "behind" text
+  const behindElement = document.getElementById('sheet-behind');
+  if (unreadCount === 0 && mobileState.pendingChapter !== -1) {
+    behindElement.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:4px;">
+        <path d="M20 6 9 17l-5-5"/>
+      </svg>
+      <span style="color:#4ade80;font-weight:500;">Up to date</span>
+    `;
+  } else {
+    // Format the number nicely (remove .0 if it's a whole number)
+    const displayCount = unreadCount % 1 === 0 ? Math.floor(unreadCount) : unreadCount;
+    const chapterWord = unreadCount === 1 ? 'chapter' : 'chapters';
+    behindElement.textContent = `${displayCount} ${chapterWord} behind`;
+  }
+}
+
+async function closeBottomSheet() {
+  // ADDED: Save pending chapter changes before closing
+  if (mobileState.currentSeries && mobileState.pendingChapter !== null && 
+      mobileState.pendingChapter !== mobileState.currentSeries.current_chapter) {
+    try {
+      await saveChapter(mobileState.currentSeries.id, mobileState.pendingChapter);
+      loadPage(); // Reload to reflect changes
+    } catch (err) {
+      console.error('Failed to save chapter:', err);
+      alert('Failed to save chapter');
+      return; // Don't close if save failed
+    }
+  }
+  
   mobileState.bottomSheetOpen = false;
   mobileState.currentSeries = null;
+  mobileState.pendingChapter = null;
 
   document.getElementById('bottom-sheet-overlay')?.classList.remove('active');
   document.getElementById('bottom-sheet')?.classList.remove('active');
   document.getElementById('bottom-sheet').style.transform = '';
+  
+  // ADDED: Unlock scrolling and restore position
   document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.body.style.width = '';
+  document.body.style.top = '';
+  
+  // Restore scroll position
+  window.scrollTo(0, mobileState.scrollY || 0);
 }
 
 // ================================

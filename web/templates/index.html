@@ -470,41 +470,41 @@
   <script src="/static/js/dashboard.js"></script>  
   <script>
   // Mobile detection and setup
-  (function() {
-    function isMobile() {
-      return window.innerWidth <= 768;
-    }
+(function() {
+  function isMobile() {
+    return window.innerWidth <= 768;
+  }
 
-    if (isMobile()) {
-      console.log('[Mobile] Initializing mobile UI...');
-      document.body.classList.add('mobile-device');
-      
-      // Prevent iOS pull-to-refresh
-      let lastTouchY = 0;
-      let preventPullToRefresh = false;
+  if (isMobile()) {
+    console.log('[Mobile] Initializing mobile UI...');
+    document.body.classList.add('mobile-device');
+    
+    // Prevent iOS pull-to-refresh ONLY in bottom sheet
+    let lastTouchY = 0;
 
-      document.addEventListener('touchstart', (e) => {
-        if (e.touches.length !== 1) return;
-        lastTouchY = e.touches[0].clientY;
-        preventPullToRefresh = window.pageYOffset === 0;
-      }, { passive: false });
+    document.addEventListener('touchstart', (e) => {
+      if (e.touches.length !== 1) return;
+      lastTouchY = e.touches[0].clientY;
+    }, { passive: false });
 
-      document.addEventListener('touchmove', (e) => {
-        const touchY = e.touches[0].clientY;
-        const touchYDelta = touchY - lastTouchY;
-        lastTouchY = touchY;
+    document.addEventListener('touchmove', (e) => {
+      const touchY = e.touches[0].clientY;
+      const touchYDelta = touchY - lastTouchY;
+      lastTouchY = touchY;
 
-        if (preventPullToRefresh) {
-          const el = e.target;
-          const scrollableParent = el.closest('.bottom-sheet, .mobile-menu, .filter-drawer');
-          
-          if (!scrollableParent && touchYDelta > 0) {
-            e.preventDefault();
-          }
+      // ONLY prevent pull-to-refresh when bottom sheet is open
+      const bottomSheet = document.getElementById('bottom-sheet');
+      if (bottomSheet && bottomSheet.classList.contains('active')) {
+        const sheetContent = bottomSheet.querySelector('.bottom-sheet-content');
+        // Prevent if at top of sheet AND pulling down
+        if (sheetContent && sheetContent.scrollTop <= 0 && touchYDelta > 0) {
+          e.preventDefault();
         }
-      }, { passive: false });
-    }
-  })();
-  </script>
+      }
+      // No other pull-to-refresh prevention - allow normal behavior everywhere else
+    }, { passive: false });
+  }
+})();
+</script>
 </body>
 </html>
