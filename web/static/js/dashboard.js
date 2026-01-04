@@ -1896,7 +1896,8 @@ const mobileState = {
 
 // Bulk edit mode state
 const bulkEditMobileState = {
-  isMenuOpen: false
+  isMenuOpen: false,
+  scrollY: 0
 };
 
 // ================================
@@ -2708,8 +2709,12 @@ function createBulkEditOverlay() {
   document.getElementById('bulk-edit-overlay')?.addEventListener('click', closeBulkEditMenu);
 }
 
+
 function openBulkEditMenu() {
   bulkEditMobileState.isMenuOpen = true;
+  
+  // Save current scroll position
+  bulkEditMobileState.scrollY = window.scrollY;
   
   const fabBtn = document.getElementById('fab-bulk-edit');
   const overlay = document.getElementById('bulk-edit-overlay');
@@ -2730,8 +2735,22 @@ function openBulkEditMenu() {
     overlay.classList.add('active');
   }
   
-  // Lock scrolling
+  // Show action FABs with stagger animation (bottom to top)
+  setTimeout(() => {
+    document.getElementById('fab-bulk-delete-action')?.classList.add('show');
+  }, 50);
+  setTimeout(() => {
+    document.getElementById('fab-bulk-edit-action')?.classList.add('show');
+  }, 100);
+  setTimeout(() => {
+    document.getElementById('fab-bulk-read')?.classList.add('show');
+  }, 150);
+  
+  // Lock scrolling - MORE AGGRESSIVE
   document.body.style.overflow = 'hidden';
+  document.body.style.position = 'fixed';
+  document.body.style.width = '100%';
+  document.body.style.top = `-${bulkEditMobileState.scrollY}px`;
 }
 
 function closeBulkEditMenu() {
@@ -2739,6 +2758,11 @@ function closeBulkEditMenu() {
   
   const fabBtn = document.getElementById('fab-bulk-edit');
   const overlay = document.getElementById('bulk-edit-overlay');
+  
+  // Hide action FABs
+  document.getElementById('fab-bulk-read')?.classList.remove('show');
+  document.getElementById('fab-bulk-edit-action')?.classList.remove('show');
+  document.getElementById('fab-bulk-delete-action')?.classList.remove('show');
   
   // Change X back to edit icon
   if (fabBtn) {
@@ -2756,8 +2780,14 @@ function closeBulkEditMenu() {
     overlay.classList.remove('active');
   }
   
-  // Unlock scrolling
+  // Unlock scrolling and restore position
   document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.body.style.width = '';
+  document.body.style.top = '';
+  
+  // Restore scroll position
+  window.scrollTo(0, bulkEditMobileState.scrollY);
 }
 
 function toggleBulkEditMenu() {
@@ -2863,7 +2893,26 @@ function createFABButtons() {
       </button>
     </div>
     
-    <!-- Bulk Edit FAB (hidden by default) -->
+    <!-- Bulk Edit FABs (hidden by default) -->
+    <button class="fab-bulk-action" id="fab-bulk-read">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+      </svg>
+    </button>
+    
+    <button class="fab-bulk-action" id="fab-bulk-edit-action">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>
+      </svg>
+    </button>
+    
+    <button class="fab-bulk-action" id="fab-bulk-delete-action">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+      </svg>
+    </button>
+    
     <button class="fab-bulk-edit" id="fab-bulk-edit" style="display: none;">
       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -2909,10 +2958,27 @@ function createFABButtons() {
     e.preventDefault();
     toggleBulkEditMenu();
   });
+
+  // Bulk action FAB handlers
+  document.getElementById('fab-bulk-read')?.addEventListener('click', () => {
+    closeBulkEditMenu();
+    document.getElementById('btn-bulk-read')?.click();
+  });
+
+  document.getElementById('fab-bulk-edit-action')?.addEventListener('click', () => {
+    closeBulkEditMenu();
+    document.getElementById('btn-bulk-edit')?.click();
+  });
+
+  document.getElementById('fab-bulk-delete-action')?.addEventListener('click', () => {
+    closeBulkEditMenu();
+    document.getElementById('btn-bulk-delete')?.click();
+  });
   
   // Create overlay when FAB is created
   createBulkEditOverlay();
 }
+
 
 function updateFABIcon() {
   const fabSecondary = document.getElementById('fab-secondary');

@@ -2401,6 +2401,68 @@ html {
     z-index: 3001; /* Above overlay */
   }
 
+  /* Bulk edit action FABs (Read, Edit, Delete) */
+  .fab-bulk-action {
+    position: fixed;
+    bottom: 82px; /* 16px (base) + 50px (close FAB) + 16px (gap) */
+    right: 22px; /* 16px + ((50px - 38px) / 2) = centered with close FAB */
+    width: 38px;
+    height: 38px;
+    background: #334155;
+    border: none;
+    border-radius: 50%;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0;
+    transform: translateY(20px) scale(0.8);
+    pointer-events: none;
+    z-index: 3001;
+  }
+
+  .fab-bulk-action svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+
+  /* Show bulk action FABs when menu is open */
+  .fab-bulk-action.show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+  }
+
+  /* Position each FAB with proper spacing (bottom to top order) */
+  #fab-bulk-delete-action {
+    bottom: 74px;
+  }
+
+  #fab-bulk-edit-action {
+    bottom: 120px;
+  }
+
+  #fab-bulk-read {
+    bottom: 166px;
+  }
+
+  /* Stagger animation delays (bottom to top) */
+  #fab-bulk-delete-action {
+    transition-delay: 0.05s;
+  }
+
+  #fab-bulk-edit-action {
+    transition-delay: 0.1s;
+  }
+
+  #fab-bulk-read {
+    transition-delay: 0.15s;
+  }
+
   /* Bulk edit menu overlay (darkened background) */
   .bulk-edit-overlay {
     position: fixed;
@@ -2416,7 +2478,7 @@ html {
     opacity: 1;
     pointer-events: auto;
   }
-  
+
   /* ================================
      BACK TO TOP IN BULK MODE
      ================================ */
