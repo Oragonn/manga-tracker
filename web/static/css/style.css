@@ -2167,7 +2167,7 @@ html {
 
   .sheet-progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #1665f4, #3b82f6);
+    background:  #3b82f6;
     border-radius: 4px;
     transition: width 0.3s ease;
   }
