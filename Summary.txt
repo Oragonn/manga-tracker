@@ -2,7 +2,7 @@
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application that monitors 1,300+ series across multiple sources (MangaDex, Kagane) with manual chapter control, automated checking, bulk operations, activity logging, automated backups, multi-source support per series, and comprehensive statistics dashboard.
+A self-hosted manga/manhwa tracking application that monitors 1,300+ series across multiple sources (MangaDex, Kagane) with manual chapter control, automated checking, bulk operations, activity logging, automated backups, multi-source support per series, comprehensive statistics dashboard, and **full mobile UI support**.
 
 ---
 
@@ -13,6 +13,7 @@ A self-hosted manga/manhwa tracking application that monitors 1,300+ series acro
 - **Frontend**: Vanilla JavaScript, Custom CSS (no frameworks)
 - **Special**: Selenium for Kagane (Cloudflare bypass)
 - **Integrations**: MangaDex API, Kagane scraper, AniList enrichment
+- **Mobile**: Responsive design with touch-optimized UI
 
 ### **File Structure**
 ```
@@ -37,9 +38,9 @@ manga-tracker/
 ├── backups/                      # Database backups (7-day retention)
 ├── web/
 │   ├── static/
-│   │   ├── css/style.css         # Clean, organized CSS (~700 lines)
+│   │   ├── css/style.css         # Clean, organized CSS (~2800 lines with mobile)
 │   │   └── js/
-│   │       ├── dashboard.js      # Main dashboard logic
+│   │       ├── dashboard.js      # Main dashboard logic + mobile UI
 │   │       └── backups.js        # Backup management UI
 │   └── templates/
 │       ├── index.html            # Main dashboard
@@ -159,7 +160,7 @@ CREATE TABLE meta (
   new errors            within 7d    backups  page     link
 ```
 
-### **Dashboard (`/`) - Main Interface**
+### **Desktop Dashboard (`/`) - Main Interface**
 
 #### **Control Panel (2 rows)**
 
@@ -226,7 +227,148 @@ Accessible via gear icon on each card. Contains sections:
 - Delete series (red button, left side)
 - Cancel/Save (right side)
 
-### **Statistics Dashboard (`/stats`)**
+---
+
+## 📱 **Mobile UI (≤768px)**
+
+### **Mobile Header**
+```
+[☰ Menu]  Manga Tracker  [        ]
+```
+- Hamburger menu (left drawer)
+- Centered title
+- Auto-hide on scroll down (past 300px)
+- Sticky positioning with safe area support
+
+### **Mobile Menu (Left Drawer)**
+- Slide from left
+- Links: Dashboard, Discovery, Stats, Activity Log, Errors, Backups
+- Dark overlay backdrop
+- Swipe/tap outside to close
+
+### **Mobile Control Panel**
+**Sticky below header (2 rows):**
+
+**Row 1:**
+```
+[Status ▾ - flexible width] [Sort ▾ - 180px fixed]
+```
+
+**Row 2:**
+```
+[Filter 🔍] [Sort ↕] [Search - flexible width]
+```
+- Filter button → opens right drawer
+- Sort direction toggle
+- Search input (synced with desktop)
+
+### **Filter Drawer (Right Side)**
+- Slide from right
+- All filters from desktop in vertical layout:
+  - Content Type (multi-select)
+  - Tags (genres + content rating combined, scrollable)
+  - Publication Status (multi-select, **without "Plan to Read"**)
+  - Readable On (MangaDex/Kagane)
+- Reset All Filters button at bottom
+- Dark overlay backdrop
+
+### **Series Grid (2 columns)**
+- **Card Layout**:
+  - 2/3 aspect ratio covers
+  - Unread badge (top-left)
+  - **No** last-release time display
+  - **Title overlay** at bottom of cover (gradient background)
+    - Max 2 lines with ellipsis
+  - **No** card-info section below cover
+  - **No** action buttons visible
+
+### **Card Interaction (Mobile)**
+- **Short tap** (not in bulk mode): Opens bottom sheet
+- **Long press** (500ms): Enters bulk mode + selects card
+- **Tap** (in bulk mode): Toggle selection
+- **Selected cards**: Yellow border (#eab308)
+- **No checkbox** displayed (hidden completely)
+- **Scroll detection**: Movement >10px cancels long-press
+
+### **Bottom Sheet**
+Opens on card tap (when not in bulk mode):
+- **Header**: Series title + Settings button (⋮)
+- **Progress section**:
+  - Current chapter display
+  - Chapter + button (increment)
+  - Progress bar
+  - Metadata (updated time, chapters behind)
+- **Action buttons**:
+  - Search Ch.X (Google search)
+  - Continue (primary button)
+- **Swipe down** to close
+- Settings button → opens full series settings modal
+
+### **Bulk Edit Mode (Mobile)**
+When bulk mode is active:
+
+**UI Changes:**
+- Normal FAB buttons hidden
+- Bulk edit FAB (edit icon) appears bottom-right
+- Back-to-top button moves up (when scrolled >300px)
+
+**Bulk Edit Menu:**
+- Tap edit FAB → transforms to X icon
+- Dark overlay (70% opacity)
+- **Scroll locked** when menu open
+- 3 action FABs appear above (bottom to top):
+  1. **Delete** (bottom) - with label "Delete"
+  2. **Edit** (middle) - with label "Edit"  
+  3. **Read** (top) - with label "Set chapter to last read"
+- Labels appear to the **left** of FABs
+- Staggered fade-in animation (50ms delay each)
+- Tap X or overlay to close menu
+
+**FAB Button Labels:**
+- White text, no background
+- 14px font, 500 weight
+- Positioned with `right: calc(100%)` from button
+- Fade in/out with buttons
+- No box shadow or background
+
+### **Floating Action Buttons (FABs)**
+**Normal Mode (bottom-right stack):**
+- **Secondary FAB** (38px, gray #334155):
+  - Scroll >300px: Up arrow (back to top)
+  - Scroll <300px: Refresh icon
+  - Disabled when refreshing (darker gray #1f2937)
+  - Rotation animation on refresh (0.6s)
+- **Primary FAB** (50px, gray #334155):
+  - Plus icon (add series)
+
+**Bulk Mode:**
+- Normal FABs hidden
+- Bulk edit FAB (50px) replaces them
+- Edit icon → X icon when menu open
+- Action FABs (38px each) appear above when menu open
+
+### **Safe Area Support**
+- Header: `padding-top: env(safe-area-inset-top)`
+- FABs: `bottom: calc(16px + env(safe-area-inset-bottom))`
+- Bottom sheet: `padding-bottom: env(safe-area-inset-bottom)`
+
+### **Scroll Behavior**
+- Header hides on scroll down (>300px)
+- Header shows when scrolling up or near top (<50px)
+- FAB icon changes at 300px threshold
+- Back-to-top shows in bulk mode when scrolled
+- Smooth scroll animations
+
+### **Touch Optimizations**
+- All interactive elements: min-height 44px (iOS guideline)
+- Tap highlights disabled (`-webkit-tap-highlight-color: transparent`)
+- User-select disabled on cards
+- Pull-to-refresh disabled (iOS)
+- Swipe gestures for drawers and bottom sheet
+
+---
+
+## **Statistics Dashboard (`/stats`)**
 
 Comprehensive statistics page with 5 main sections:
 
@@ -270,6 +412,8 @@ Comprehensive statistics page with 5 main sections:
 - Hover effects on all cards
 - Percentage bars with smooth animations
 - Fixed line overlap in distribution breakdowns
+
+---
 
 ### **Activity Log (`/logs`)**
 ```
@@ -408,7 +552,25 @@ Size: 2.32 MB  •  1 hour ago
    - "New" badge in navigation
    - Per-date viewing
 
-10. **UI Polish**
+10. **Mobile UI** (Complete Responsive Design)
+    - **Touch-optimized interface** for phones (≤768px)
+    - **Left drawer menu** for navigation
+    - **Right drawer** for filters (all desktop filters available)
+    - **Bottom sheet** for quick series actions
+    - **2-column series grid** with optimized card layout
+    - **Long-press selection** for bulk mode (500ms trigger)
+    - **FAB buttons** for primary actions (add, refresh, back-to-top)
+    - **Bulk edit menu** with floating action buttons
+    - **Labeled FAB actions** (Set chapter to last read, Edit, Delete)
+    - **Auto-hiding header** on scroll
+    - **Scroll lock** when modals/drawers open
+    - **Safe area support** for iPhone notch/home indicator
+    - **Pull-to-refresh disabled** (prevents conflicts)
+    - **44px minimum tap targets** (iOS guidelines)
+    - **Smooth animations** for all interactions
+    - **Staggered FAB animations** (bottom-to-top cascade)
+
+11. **UI Polish**
     - Back to top button
     - Smooth scrolling
     - Custom scrollbars
@@ -584,6 +746,15 @@ The +/- buttons support holding for rapid changes:
 - **Smooth**: Natural feel for catching up on long series
 - **Safe**: Confirm button prevents accidental saves
 
+### **Mobile Long-Press Selection**
+Touch-optimized bulk selection:
+- **Trigger**: 500ms press duration
+- **Feedback**: Slight scale animation (0.95)
+- **Scroll detection**: >10px movement cancels press
+- **Touch vs Click**: Separate handlers for each
+- **Visual**: Yellow border on selection
+- **Cancel**: touchcancel event handling
+
 ---
 
 ## 📊 **System Statistics**
@@ -632,6 +803,13 @@ BackupManager(
 - **Activity logs**: 14 days (with 7-day undo window)
 - **Backups**: 7 days
 
+### **Mobile Breakpoint**
+```css
+@media (max-width: 768px) {
+  /* Mobile styles */
+}
+```
+
 ---
 
 ## 🎯 **Success Metrics**
@@ -645,17 +823,47 @@ BackupManager(
 ✅ Error tracking catches issues proactively
 ✅ UI remains responsive under load
 ✅ Statistics dashboard provides accurate reading insights
+✅ **Full mobile support with touch-optimized UI**
+✅ **Smooth animations and transitions throughout**
+✅ **Consistent UX across desktop and mobile**
 
 ---
 
 ## 🔄 **Recent Updates (January 2026)**
 
-### **Statistics Dashboard Fixes**
+### **Mobile UI Implementation (Current)**
+- ✅ Complete responsive design for phones (≤768px)
+- ✅ Fixed mobile header with hamburger menu
+- ✅ Reorganized control panel for mobile (2 rows)
+- ✅ Right-side filter drawer with all desktop filters
+- ✅ Combined Tags menu (genres + content rating)
+- ✅ Removed "Plan to Read" from Publication Status filter
+- ✅ Mobile search functionality (synced with desktop)
+- ✅ 2-column series grid with optimized cards
+- ✅ Title overlay on cover (max 2 lines)
+- ✅ Removed last-release display on mobile
+- ✅ Removed card-info section below cover
+- ✅ Long-press bulk selection (500ms trigger)
+- ✅ Scroll detection to prevent false triggers
+- ✅ FAB buttons (add, refresh, back-to-top)
+- ✅ Refresh rotation animation + disable state
+- ✅ Bulk edit FAB menu with X icon toggle
+- ✅ Scroll lock when bulk menu open
+- ✅ Dark overlay (70% opacity) for bulk menu
+- ✅ 3 action FABs (Read, Edit, Delete)
+- ✅ Staggered fade-in animations (50ms delay)
+- ✅ FAB text labels (left side, no background)
+- ✅ Back-to-top in bulk mode (when scrolled)
+- ✅ Proper FAB centering and sizing
+- ✅ Darker disabled state for refresh FAB
+- ✅ Fixed bulk deselection on edit button click
+
+### **Statistics Dashboard Fixes** (Previous)
 - ✅ Fixed Content Rating, Reading Status, and Content Type lines overlapping in distribution breakdowns
 - ✅ Fixed Chapters Read stat to correctly calculate +x/-x changes instead of only +1
 - ✅ Replaced Reading Streak with Series Added Today and Chapters Read Today metrics
 
-### **UI/UX Improvements** (Previous Updates)
+### **UI/UX Improvements** (Previous)
 - ✅ Hold-to-repeat for +/- buttons (300ms start, 50ms repeat)
 - ✅ Fixed manual chapter change functionality
 - ✅ Fixed +/- buttons not unlocking confirm button
@@ -670,7 +878,7 @@ BackupManager(
 - ✅ Combined Tags and Content Rating into single dropdown menu
 - ✅ Added "Readable On" filter dropdown (MangaDex/Kagane)
 
-### **Middle-Click Navigation Support** (Previous Update)
+### **Middle-Click Navigation Support** (Previous)
 - ✅ Search Google button: Middle-click opens in background tab
 - ✅ Go to Source button: Middle-click opens in background tab
 - ✅ Continue button: Middle-click opens in background tab
@@ -711,7 +919,7 @@ BackupManager(
 
 ## 🚀 **Future Enhancements**
 
-### **Priority to do:**
+### **Priority To-Do:**
 - 📋 Reading statistics trends over time
 - 📋 Fix Kagane way of detecting if a series is manga/manhwa/manhua/other
 - 📋 Reading history timeline
@@ -719,6 +927,13 @@ BackupManager(
 - 📋 Genre preferences chart (radar/spider chart)
 - 📋 Series completion timeline
 - 📋 Reading heatmap (days active)
+
+### **Mobile UI Polish (In Progress):**
+- 📋 Bottom sheet refinements
+- 📋 Swipe gestures for navigation
+- 📋 Haptic feedback (where supported)
+- 📋 Landscape mode optimization
+- 📋 Tablet layout (768-1024px)
 
 ### **Priority Completed**
 - ✅ Multi-source support
@@ -730,14 +945,72 @@ BackupManager(
 - ✅ Comprehensive statistics dashboard
 - ✅ Fixed statistics display issues (line overlap, chapters read calculation)
 - ✅ Today's activity metrics (series added, chapters read)
+- ✅ **Complete mobile UI implementation**
 
 ---
 
 ## 📝 **Next Chat Reference**
 
 When resuming work on this project, provide:
-1. This project summary document
+1. This updated project summary document
 2. Any specific issues or feature requests
 3. Console/error logs if debugging
+4. Screenshots for UI issues (especially mobile)
 
 The assistant will have full context to continue development! 🚀
+
+---
+
+## 💡 **Code Format Request Template**
+
+When asking another AI assistant to help with this project, use this format:
+
+**For Code Changes:**
+```
+Please provide code updates in this format:
+1. Show the EXACT code section to find (with context lines)
+2. Show the NEW code to replace it with
+3. Explain what changed and why
+4. Use clear markers like "// ADDED:", "// CHANGED:", "// REMOVED:"
+
+Example:
+"Find this in style.css (around line 2500):
+```css
+.fab-bulk-action {
+  opacity: 0;
+}
+```
+
+Replace with:
+```css
+.fab-bulk-action {
+  opacity: 0;
+  /* ADDED: Label styling */
+  position: relative;
+}
+
+.fab-bulk-action::before {
+  content: attr(data-label);
+  /* ... */
+}
+```
+"
+```
+
+**This format is called:**
+- "Inline diff format" or "contextual code replacement"
+- "Before/After code blocks with context"
+- "Targeted code replacement instructions"
+
+**Alternative names:**
+- "Patch format" (for developers)
+- "Code diff format"
+- "Specific line replacement format"
+
+**Key elements:**
+1. **Context** (show surrounding code to locate the change)
+2. **Clear markers** (FIND THIS / REPLACE WITH)
+3. **Annotations** (// ADDED, // CHANGED, // REMOVED comments)
+4. **Explanation** (why the change was made)
+
+This makes it easy to implement changes without confusion about WHERE to make them!

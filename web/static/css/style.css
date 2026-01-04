@@ -2424,6 +2424,39 @@ html {
     z-index: 3001;
   }
 
+  .fab-bulk-action::before {
+    content: attr(data-label);
+    position: absolute;
+    right: calc(100%);
+    white-space: nowrap;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none; /* Don't block clicks */
+  }
+  
+  /* Show labels when FAB is visible */
+  .fab-bulk-action.show::before {
+    opacity: 1;
+  }
+
+  /* Optional: Add slight animation delay for labels */
+  #fab-bulk-delete-action::before {
+    transition-delay: 0.05s;
+  }
+
+  #fab-bulk-edit-action::before {
+    transition-delay: 0.1s;
+  }
+
+  #fab-bulk-read::before {
+    transition-delay: 0.15s;
+  }
+
   .fab-bulk-action svg {
     width: 20px;
     height: 20px;
