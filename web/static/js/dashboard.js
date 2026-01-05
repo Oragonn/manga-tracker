@@ -207,20 +207,16 @@ async function loadSeriesSources(seriesId) {
 }
 
 function renderSources(sources) {
-	const container = document.getElementById('sources-list');
+  const container = document.getElementById('sources-list');
 
-	// Sort so primary is always first
-	const sortedSources = [...sources].sort((a, b) => {
-		if (a.id === pendingSourceChanges.primarySourceId) return -1;
-		if (b.id === pendingSourceChanges.primarySourceId) return 1;
-		return 0;
-	});
+  // Sort so primary is always first
+  const sortedSources = [...sources].sort((a, b) => {
+    if (a.id === pendingSourceChanges.primarySourceId) return -1;
+    if (b.id === pendingSourceChanges.primarySourceId) return 1;
+    return 0;
+  });
 
-	const helpText = sources.length > 1
-		? '<div class="sources-help-text">💡 Drag sources to reorder. The top source is the primary source used for "Go to Source" button.</div>'
-		: '';
-
-	container.innerHTML = helpText + sortedSources.map(source => {
+  container.innerHTML = sortedSources.map(source => {
 		const sourceTypeLabel = {
 			'mangadex': 'MangaDex',
 			'kagane': 'Kagane',
@@ -2683,9 +2679,19 @@ function createBottomSheet() {
 	document.getElementById('sheet-settings-menu')?.classList.remove('active');
 	
 	switch (action) {
+		case 'edit':
+		// ADDED: Open mobile edit modal
+		openMobileEditModal(series);
+		closeBottomSheet();
+		break;
+		
+		case 'settings':
+		// ADDED: Open mobile settings modal
+		openMobileSettingsModal(series);
+		closeBottomSheet();
+		break;
 
-		case 'go-to-source':
-		// CHANGED: Use pre-fetched URL
+		case 'go-to-source':		// CHANGED: Use pre-fetched URL
 		const sourceUrl = mobileState.primarySourceUrl || series.source_url;
 		window.open(sourceUrl, '_blank');
 		break;
@@ -3357,6 +3363,565 @@ async function closeBottomSheet() {
   // Restore scroll position
   window.scrollTo(0, mobileState.scrollY || 0);
 }
+
+// ================================
+// MOBILE EDIT MODAL
+// ================================
+let mobilePendingSourceChanges = {
+  hasChanges: false,
+  primarySourceId: null,
+  originalPrimaryId: null
+};
+
+async function openMobileEditModal(series) {
+  const modal = document.getElementById('mobile-edit-modal');
+  document.getElementById('mobile-edit-series-id').value = series.id;
+  document.getElementById('mobile-edit-status').value = series.status || 'plan_to_read';
+  
+  // Load sources
+  await loadMobileSeriesSources(series.id);
+  
+  // Load chapters
+  fetch(`/api/series/${series.id}/chapters`)
+    .then(r => r.json())
+    .then(chapters => {
+      const select = document.getElementById('mobile-edit-current-chapter');
+      select.innerHTML = '<option value="-1">Not started</option>';
+      
+      const hasAnyNullVolume = chapters.some(ch => ch.volume == null || ch.volume === '');
+      const useVolumeLabels = !hasAnyNullVolume;
+      const comparator = useVolumeLabels ? compareChapters : (a, b) => a.chapter_number - b.chapter_number;
+      const sortedChapters = [...chapters].sort(comparator);
+      const numeric = sortedChapters.filter(ch => !ch.is_oneshot).reverse();
+      const oneshots = sortedChapters.filter(ch => ch.is_oneshot);
+      
+      function formatLabel(ch) {
+        if (ch.is_oneshot) {
+          return oneshots.length === 1 ? "Oneshot" : `Oneshot ${oneshots.indexOf(ch) + 1}`;
+        }
+        if (useVolumeLabels && ch.volume) {
+          return `Vol.${ch.volume} Ch.${ch.chapter_number}`;
+        }
+        return `Ch.${ch.chapter_number}`;
+      }
+      
+      numeric.forEach(ch => {
+        const opt = document.createElement('option');
+        opt.value = ch.chapter_number;
+        opt.textContent = formatLabel(ch);
+        if (ch.chapter_number === parseFloat(series.current_chapter)) {
+          opt.selected = true;
+        }
+        select.appendChild(opt);
+      });
+      
+      oneshots.forEach(ch => {
+        const opt = document.createElement('option');
+        opt.value = ch.chapter_number;
+        opt.textContent = formatLabel(ch);
+        if (ch.chapter_number === parseFloat(series.current_chapter)) {
+          opt.selected = true;
+        }
+        select.appendChild(opt);
+      });
+    })
+    .catch(err => console.error('Chapter load error:', err));
+  
+  modal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  
+  // ADDED: Scroll modal to top
+  const modalContent = modal.querySelector('.modal-content');
+  if (modalContent) {
+    modalContent.scrollTop = 0;
+  }
+}
+
+async function loadMobileSeriesSources(seriesId) {
+  try {
+    const res = await fetch(`/api/series/${seriesId}/sources`);
+    if (!res.ok) throw new Error('Failed to load sources');
+    
+    const data = await res.json();
+    const container = document.getElementById('mobile-sources-list');
+    
+    if (data.sources.length === 0) {
+      container.innerHTML = '<p class="loading-text">No sources found.</p>';
+      return;
+    }
+    
+    const primarySource = data.sources.find(s => s.is_primary);
+    mobilePendingSourceChanges.originalPrimaryId = primarySource ? primarySource.id : null;
+    mobilePendingSourceChanges.primarySourceId = mobilePendingSourceChanges.originalPrimaryId;
+    mobilePendingSourceChanges.hasChanges = false;
+    
+    renderMobileSources(data.sources);
+    initializeMobileDragAndDrop();
+  } catch (err) {
+    console.error('Failed to load sources:', err);
+    document.getElementById('mobile-sources-list').innerHTML = '<p class="loading-text">Error loading sources.</p>';
+  }
+}
+
+function renderMobileSources(sources) {
+  const container = document.getElementById('mobile-sources-list');
+  
+  const sortedSources = [...sources].sort((a, b) => {
+    if (a.id === mobilePendingSourceChanges.primarySourceId) return -1;
+    if (b.id === mobilePendingSourceChanges.primarySourceId) return 1;
+    return 0;
+  });
+    
+  container.innerHTML = sortedSources.map(source => {    
+	const sourceTypeLabel = {
+      'mangadex': 'MangaDex',
+      'kagane': 'Kagane',
+      'unknown': 'Unknown'
+    }[source.source_type] || source.source_type;
+    
+    const isPrimary = source.id === mobilePendingSourceChanges.primarySourceId;
+    
+    return `
+      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" draggable="true">
+        <div class="source-drag-handle">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="9" cy="5" r="1.5"/>
+            <circle cx="9" cy="12" r="1.5"/>
+            <circle cx="9" cy="19" r="1.5"/>
+            <circle cx="15" cy="5" r="1.5"/>
+            <circle cx="15" cy="12" r="1.5"/>
+            <circle cx="15" cy="19" r="1.5"/>
+          </svg>
+        </div>
+        <div class="source-info">
+          <div class="source-type">
+            ${sourceTypeLabel}
+            ${isPrimary ? '<span class="primary-badge">PRIMARY</span>' : ''}
+          </div>
+          <div class="source-url">${source.source_url}</div>
+        </div>
+        <div class="source-actions">
+          <button class="btn-icon" onclick="window.open('${source.source_url}', '_blank')" title="Open Source">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+            </svg>
+          </button>
+          ${!isPrimary && sortedSources.length > 1 ? `
+            <button class="btn-icon danger" onclick="removeMobileSource(${document.getElementById('mobile-edit-series-id').value}, ${source.id})" title="Remove Source">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+              </svg>
+            </button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function initializeMobileDragAndDrop() {
+  const container = document.getElementById('mobile-sources-list');
+  if (!container) return;
+  
+  let draggedElement = null;
+  
+  // ADDED: Touch support for mobile drag-and-drop
+  let touchStartY = 0;
+  let touchCurrentY = 0;
+  let isDragging = false;
+  let draggedTouchElement = null;
+  
+  container.addEventListener('touchstart', (e) => {
+    const sourceItem = e.target.closest('.source-item');
+    if (!sourceItem) return;
+    
+    // Don't drag if touching a button
+    if (e.target.closest('button')) return;
+    
+    draggedTouchElement = sourceItem;
+    touchStartY = e.touches[0].clientY;
+    isDragging = true;
+    
+    sourceItem.classList.add('dragging');
+  }, { passive: true });
+  
+  container.addEventListener('touchmove', (e) => {
+    if (!isDragging || !draggedTouchElement) return;
+    
+    touchCurrentY = e.touches[0].clientY;
+    const afterElement = getDragAfterElement(container, touchCurrentY);
+    
+    if (afterElement == null) {
+      container.appendChild(draggedTouchElement);
+    } else {
+      container.insertBefore(draggedTouchElement, afterElement);
+    }
+  }, { passive: true });
+  
+  container.addEventListener('touchend', (e) => {
+    if (!isDragging || !draggedTouchElement) return;
+    
+    draggedTouchElement.classList.remove('dragging');
+    isDragging = false;
+    
+    // Update primary source after drag
+    const sourceItems = container.querySelectorAll('.source-item:not(.sources-help-text)');
+    if (sourceItems.length > 0) {
+      const newPrimaryId = parseInt(sourceItems[0].dataset.sourceId);
+      
+      if (newPrimaryId !== mobilePendingSourceChanges.primarySourceId) {
+        mobilePendingSourceChanges.primarySourceId = newPrimaryId;
+        mobilePendingSourceChanges.hasChanges = true;
+        
+        const currentSources = Array.from(sourceItems).map(item => ({
+          id: parseInt(item.dataset.sourceId),
+          source_type: item.querySelector('.source-type').textContent.trim().replace(/\s*\(.*?\)/, '').toLowerCase(),
+          source_url: item.querySelector('.source-url').textContent,
+          is_primary: parseInt(item.dataset.sourceId) === newPrimaryId
+        }));
+        
+        renderMobileSources(currentSources);
+        initializeMobileDragAndDrop();
+      }
+    }
+    
+    draggedTouchElement = null;
+  }, { passive: true });
+  
+  container.addEventListener('touchcancel', () => {
+    if (draggedTouchElement) {
+      draggedTouchElement.classList.remove('dragging');
+    }
+    isDragging = false;
+    draggedTouchElement = null;
+  }, { passive: true });
+  
+  // Mouse drag events (for desktop testing)
+  container.addEventListener('dragstart', (e) => {
+    if (e.target.classList.contains('source-item')) {
+      draggedElement = e.target;
+      e.target.classList.add('dragging');
+    }
+  });
+  
+  container.addEventListener('dragend', (e) => {
+    if (e.target.classList.contains('source-item')) {
+      e.target.classList.remove('dragging');
+      draggedElement = null;
+    }
+  });
+  
+  container.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    const afterElement = getDragAfterElement(container, e.clientY);
+    const dragging = document.querySelector('.dragging');
+    
+    if (afterElement == null) {
+      container.appendChild(dragging);
+    } else {
+      container.insertBefore(dragging, afterElement);
+    }
+  });
+  
+  container.addEventListener('drop', (e) => {
+    e.preventDefault();
+    
+    const sourceItems = container.querySelectorAll('.source-item:not(.sources-help-text)');
+    if (sourceItems.length > 0) {
+      const newPrimaryId = parseInt(sourceItems[0].dataset.sourceId);
+      
+      if (newPrimaryId !== mobilePendingSourceChanges.primarySourceId) {
+        mobilePendingSourceChanges.primarySourceId = newPrimaryId;
+        mobilePendingSourceChanges.hasChanges = true;
+        
+        const currentSources = Array.from(sourceItems).map(item => ({
+          id: parseInt(item.dataset.sourceId),
+          source_type: item.querySelector('.source-type').textContent.trim().replace(/\s*\(.*?\)/, '').toLowerCase(),
+          source_url: item.querySelector('.source-url').textContent,
+          is_primary: parseInt(item.dataset.sourceId) === newPrimaryId
+        }));
+        
+        renderMobileSources(currentSources);
+        initializeMobileDragAndDrop();
+      }
+    }
+  });
+}
+
+async function removeMobileSource(seriesId, sourceId) {
+  if (!confirm('Remove this source? Chapters from this source will remain but won\'t be updated.')) {
+    return;
+  }
+  
+  try {
+    const res = await fetch(`/api/series/${seriesId}/sources/${sourceId}`, {
+      method: 'DELETE'
+    });
+    
+    if (res.ok) {
+      await loadMobileSeriesSources(seriesId);
+    } else {
+      const data = await res.json();
+      alert('Failed to remove source: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    console.error('Failed to remove source:', err);
+    alert('Error: ' + err.message);
+  }
+}
+
+function showMobileAddSourceForm() {
+  document.getElementById('mobile-add-source-form').classList.remove('hidden');
+  document.getElementById('mobile-new-source-url').focus();
+}
+
+function hideMobileAddSourceForm() {
+  document.getElementById('mobile-add-source-form').classList.add('hidden');
+  document.getElementById('mobile-new-source-url').value = '';
+}
+
+async function addMobileNewSource() {
+  const url = document.getElementById('mobile-new-source-url').value.trim();
+  const seriesId = document.getElementById('mobile-edit-series-id').value;
+  
+  if (!url) {
+    alert('Please enter a source URL');
+    return;
+  }
+  
+  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.org/')) {
+    alert('Only MangaDex and Kagane sources are supported');
+    return;
+  }
+  
+  try {
+    const res = await fetch(`/api/series/${seriesId}/sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_url: url })
+    });
+    
+    if (res.ok) {
+      hideMobileAddSourceForm();
+      await loadMobileSeriesSources(seriesId);
+      alert('✅ Source added! Fetching chapters...');
+    } else {
+      const data = await res.json();
+      alert('Failed to add source: ' + (data.error || 'Unknown error'));
+    }
+  } catch (err) {
+    console.error('Failed to add source:', err);
+    alert('Error: ' + err.message);
+  }
+}
+
+// Mobile Edit Save/Cancel handlers
+document.getElementById('mobile-btn-edit-save')?.addEventListener('click', async () => {
+  const seriesId = document.getElementById('mobile-edit-series-id').value;
+  if (!seriesId) {
+    alert('No series selected');
+    return;
+  }
+  
+  const chapterSelect = document.getElementById('mobile-edit-current-chapter');
+  let currentChapterValue = chapterSelect?.value;
+  let currentChapterNum = -1;
+  if (currentChapterValue !== "-1") {
+    currentChapterNum = parseFloat(currentChapterValue);
+    if (isNaN(currentChapterNum)) {
+      alert('Invalid chapter selection');
+      return;
+    }
+  }
+  
+  const updates = {
+    status: document.getElementById('mobile-edit-status')?.value || 'plan_to_read',
+    current_chapter: currentChapterNum
+  };
+  
+  try {
+    if (mobilePendingSourceChanges.hasChanges) {
+      const res = await fetch(`/api/series/${seriesId}/sources/${mobilePendingSourceChanges.primarySourceId}/primary`, {
+        method: 'POST'
+      });
+      
+      if (res.ok) {
+        mobilePendingSourceChanges.hasChanges = false;
+        mobilePendingSourceChanges.originalPrimaryId = mobilePendingSourceChanges.primarySourceId;
+      }
+    }
+    
+    const res = await fetch(`/api/series/${seriesId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    
+    if (res.ok) {
+      document.getElementById('mobile-edit-modal').classList.add('hidden');
+      document.body.style.overflow = '';
+      loadPage();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert('Save failed: ' + (err.error || 'Unknown error'));
+    }
+  } catch (e) {
+    console.error('Save error:', e);
+    alert('Network error: ' + e.message);
+  }
+});
+
+document.getElementById('mobile-btn-edit-cancel')?.addEventListener('click', () => {
+  if (mobilePendingSourceChanges.hasChanges) {
+    if (!confirm('You have unsaved source changes. Discard them?')) {
+      return;
+    }
+  }
+  document.getElementById('mobile-edit-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+});
+
+document.getElementById('mobile-btn-reset-not-started')?.addEventListener('click', () => {
+  const seriesId = document.getElementById('mobile-edit-series-id').value;
+  if (seriesId) {
+    saveChapter(seriesId, -1).then(() => {
+      document.getElementById('mobile-edit-modal').classList.add('hidden');
+      document.body.style.overflow = '';
+      loadPage();
+    });
+  }
+});
+
+// ADDED: Click outside to close Edit modal
+document.getElementById('mobile-edit-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'mobile-edit-modal') {
+    if (mobilePendingSourceChanges.hasChanges) {
+      if (!confirm('You have unsaved source changes. Discard them?')) {
+        return;
+      }
+    }
+    document.getElementById('mobile-edit-modal').classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+});
+
+// ================================
+// MOBILE SETTINGS MODAL
+// ================================
+async function openMobileSettingsModal(series) {
+  const modal = document.getElementById('mobile-settings-modal');
+  document.getElementById('mobile-settings-series-id').value = series.id;
+  document.getElementById('mobile-settings-title').value = series.title || '';
+  document.getElementById('mobile-settings-cover-url').value = series.cover_url || '';
+  
+  modal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  
+  // ADDED: Scroll modal to top
+  const modalContent = modal.querySelector('.modal-content');
+  if (modalContent) {
+    modalContent.scrollTop = 0;
+  }
+}
+
+// Mobile Settings Save/Cancel handlers
+document.getElementById('mobile-btn-settings-save')?.addEventListener('click', async () => {
+  const seriesId = document.getElementById('mobile-settings-series-id').value;
+  if (!seriesId) {
+    alert('No series selected');
+    return;
+  }
+  
+  const updates = {
+    title: document.getElementById('mobile-settings-title')?.value || '',
+    cover_url: document.getElementById('mobile-settings-cover-url')?.value || ''
+  };
+  
+  try {
+    const res = await fetch(`/api/series/${seriesId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    
+    if (res.ok) {
+      document.getElementById('mobile-settings-modal').classList.add('hidden');
+      document.body.style.overflow = '';
+      loadPage();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      alert('Save failed: ' + (err.error || 'Unknown error'));
+    }
+  } catch (e) {
+    console.error('Save error:', e);
+    alert('Network error: ' + e.message);
+  }
+});
+
+document.getElementById('mobile-btn-settings-cancel')?.addEventListener('click', () => {
+  document.getElementById('mobile-settings-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+});
+
+document.getElementById('mobile-btn-check-now')?.addEventListener('click', async () => {
+  const seriesId = document.getElementById('mobile-settings-series-id').value;
+  const btn = document.getElementById('mobile-btn-check-now');
+  btn.disabled = true;
+  btn.textContent = 'Checking...';
+  
+  try {
+    const res = await fetch(`/api/series/${seriesId}/check-now`, { method: 'POST' });
+    if (res.ok) {
+      btn.textContent = '✓ Done';
+      setTimeout(() => {
+        btn.textContent = 'Check Now';
+        btn.disabled = false;
+        loadPage();
+      }, 1500);
+    } else {
+      btn.textContent = 'Error';
+      setTimeout(() => { btn.disabled = false; btn.textContent = 'Check Now'; }, 1500);
+    }
+  } catch (e) {
+    btn.textContent = 'Fail';
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Check Now'; }, 1500);
+  }
+});
+
+document.getElementById('mobile-btn-delete-series')?.addEventListener('click', async () => {
+  const seriesId = document.getElementById('mobile-settings-series-id').value;
+  const title = document.getElementById('mobile-settings-title').value;
+  
+  if (!confirm(`Delete "${title}"? This action cannot be undone.`)) return;
+  
+  try {
+    const res = await fetch(`/api/series/${seriesId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    if (res.ok) {
+      document.getElementById('mobile-settings-modal').classList.add('hidden');
+      document.body.style.overflow = '';
+      loadPage();
+      if (typeof loadGenres === 'function') {
+        loadGenres();
+      }
+    } else {
+      alert('Failed to delete series');
+    }
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  }
+});
+
+// ADDED: Click outside to close Settings modal
+document.getElementById('mobile-settings-modal')?.addEventListener('click', (e) => {
+  if (e.target.id === 'mobile-settings-modal') {
+    document.getElementById('mobile-settings-modal').classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+});
 
 // ================================
 // BULK TOOLBAR

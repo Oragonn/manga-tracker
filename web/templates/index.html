@@ -376,7 +376,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
         </svg>
-        Delete Series
+        Delete Serie
       </button>
       <div class="spacer"></div>
       <button class="btn-cancel" id="btn-edit-cancel">Cancel</button>
@@ -461,8 +461,147 @@
   </div>
 </div>
 
+<!-- Mobile Edit Modal (Sources + Progress) -->
+<div id="mobile-edit-modal" class="modal hidden">
+  <div class="modal-content settings-modal">
+    <div class="settings-header">
+      <h3>Edit Series</h3>
+      <button class="btn-close-modal" onclick="document.getElementById('mobile-edit-modal').classList.add('hidden')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    
+    <input type="hidden" id="mobile-edit-series-id" />
+    
+    <!-- Sources Management Section -->
+    <div class="settings-section">
+      <div class="section-header">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+        <h4>Sources</h4>
+      </div>
+      
+      <div id="mobile-sources-list" class="sources-list">
+        <p class="loading-text">Loading sources...</p>
+      </div>
+      
+      <button class="btn-add-source" onclick="showMobileAddSourceForm()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        Add Another Source
+      </button>
+      
+      <div id="mobile-add-source-form" class="add-source-form hidden">
+        <input type="url" id="mobile-new-source-url" placeholder="Paste source URL (MangaDex, Kagane...)" />
+        <div class="form-actions">
+          <button class="btn-cancel" onclick="hideMobileAddSourceForm()">Cancel</button>
+          <button class="btn-primary" onclick="addMobileNewSource()">Add Source</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Reading Progress Section -->
+    <div class="settings-section">
+      <div class="section-header">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+        <h4>Reading Progress</h4>
+      </div>
+      
+      <div class="form-group">
+        <label>Status</label>
+        <select id="mobile-edit-status" class="form-input">
+          <option value="reading">Reading</option>
+          <option value="plan_to_read">Plan to Read</option>
+          <option value="on_hold">On Hold</option>
+          <option value="dropped">Dropped</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
+      
+      <div class="form-group">
+        <label>Current Chapter</label>
+        <select id="mobile-edit-current-chapter" class="form-input">
+          <option value="-1">Not started</option>
+        </select>
+      </div>
+      
+      <div class="form-actions-inline">
+        <button class="btn-secondary" id="mobile-btn-reset-not-started">
+          Reset to Not Started
+        </button>
+      </div>
+    </div>
+    
+    <!-- Action Buttons -->
+    <div class="settings-footer">
+      <div class="spacer"></div>
+      <button class="btn-cancel" id="mobile-btn-edit-cancel">Cancel</button>
+      <button class="btn-primary" id="mobile-btn-edit-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Mobile Settings Modal (Info + Delete + Check) -->
+<div id="mobile-settings-modal" class="modal hidden">
+  <div class="modal-content settings-modal">
+    <div class="settings-header">
+      <h3>Series Settings</h3>
+      <button class="btn-close-modal" onclick="document.getElementById('mobile-settings-modal').classList.add('hidden')">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M18 6L6 18M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+    
+<input type="hidden" id="mobile-settings-series-id" />
+    
+    <!-- REMOVED: Section headers for cleaner look -->
+    <div class="settings-section">
+      <div class="form-group">
+        <label>Title</label>
+        <input type="text" id="mobile-settings-title" class="form-input" />
+      </div>
+      
+      <div class="form-group">
+        <label>Cover URL</label>
+        <input type="url" id="mobile-settings-cover-url" class="form-input" />
+      </div>
+      
+      <div class="form-actions-inline">
+        <button class="btn-secondary" id="mobile-btn-check-now">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+            <path d="M21 3v5h-5"/>
+          </svg>
+          Check Now
+        </button>
+      </div>
+    </div>
+
+    <!-- Footer Buttons -->
+    <div class="settings-footer">
+      <button class="btn-danger" id="mobile-btn-delete-series">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+        Delete
+      </button>
+      <div class="spacer"></div>
+      <button class="btn-cancel" id="mobile-btn-settings-cancel">Cancel</button>
+      <button class="btn-primary" id="mobile-btn-settings-save">Save</button>
+    </div>
+  </div>
+</div>
 <button id="back-to-top" title="Back to top">
-  <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+    <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
     <polyline points="18 15 12 9 6 15"></polyline>
   </svg>
 </button>
@@ -492,8 +631,11 @@
       const touchYDelta = touchY - lastTouchY;
       lastTouchY = touchY;
 
-      // ONLY prevent pull-to-refresh when bottom sheet is open
+      // UPDATED: Prevent pull-to-refresh for bottom sheet, edit modal, and settings modal
       const bottomSheet = document.getElementById('bottom-sheet');
+      const editModal = document.getElementById('mobile-edit-modal');
+      const settingsModal = document.getElementById('mobile-settings-modal');
+      
       if (bottomSheet && bottomSheet.classList.contains('active')) {
         const sheetContent = bottomSheet.querySelector('.bottom-sheet-content');
         // Prevent if at top of sheet AND pulling down
@@ -501,7 +643,22 @@
           e.preventDefault();
         }
       }
-      // No other pull-to-refresh prevention - allow normal behavior everywhere else
+      
+      // ADDED: Prevent pull-to-refresh in Edit modal
+      if (editModal && !editModal.classList.contains('hidden')) {
+        const modalContent = editModal.querySelector('.modal-content');
+        if (modalContent && modalContent.scrollTop <= 0 && touchYDelta > 0) {
+          e.preventDefault();
+        }
+      }
+      
+      // ADDED: Prevent pull-to-refresh in Settings modal
+      if (settingsModal && !settingsModal.classList.contains('hidden')) {
+        const modalContent = settingsModal.querySelector('.modal-content');
+        if (modalContent && modalContent.scrollTop <= 0 && touchYDelta > 0) {
+          e.preventDefault();
+        }
+      }
     }, { passive: false });
   }
 })();
