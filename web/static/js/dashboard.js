@@ -2615,33 +2615,90 @@ function createBottomSheet() {
     }
   });
 
-  // Add swipe-down gesture
+  // Add swipe-down gesture with velocity detection
   let touchStartY = 0;
+  let touchStartTime = 0;
+  let lastTouchY = 0;
+  let lastTouchTime = 0;
+  let currentTranslateY = 0;
+  let isDragging = false;
   const sheet = document.getElementById('bottom-sheet');
   
   sheet?.addEventListener('touchstart', (e) => {
+    // Don't drag if touching a button
+    if (e.target.closest('button')) {
+      return;
+    }
+    
+    // Allow dragging from anywhere in the sheet
     touchStartY = e.touches[0].clientY;
-  });
+    touchStartTime = Date.now();
+    lastTouchY = touchStartY;
+    lastTouchTime = touchStartTime;
+    currentTranslateY = 0;
+    isDragging = true;
+    sheet.style.transition = 'none'; // Disable transition during drag
+  }, { passive: true });
 
   sheet?.addEventListener('touchmove', (e) => {
+    if (!isDragging) return;
+    
     const touchY = e.touches[0].clientY;
+    const now = Date.now();
     const diff = touchY - touchStartY;
     
+    // Track for velocity calculation
+    lastTouchY = touchY;
+    lastTouchTime = now;
+    
+    // Only allow downward movement
     if (diff > 0) {
+      currentTranslateY = diff;
       sheet.style.transform = `translateY(${diff}px)`;
+      
+      // Add resistance effect when pulling far
+      if (diff > 200) {
+        const resistance = 200 + (diff - 200) * 0.3;
+        sheet.style.transform = `translateY(${resistance}px)`;
+      }
     }
-  });
+  }, { passive: true });
 
   sheet?.addEventListener('touchend', (e) => {
-    const touchY = e.changedTouches[0].clientY;
-    const diff = touchY - touchStartY;
+    if (!isDragging) return;
     
-    if (diff > 100) {
+    isDragging = false;
+    sheet.style.transition = ''; // Re-enable transition
+    
+    // Calculate velocity (pixels per millisecond)
+    const timeDiff = Date.now() - lastTouchTime;
+    const distance = lastTouchY - touchStartY;
+    const velocity = timeDiff > 0 ? distance / timeDiff : 0;
+    
+    // Close if:
+    // 1. Dragged more than 100px, OR
+    // 2. Fast swipe down (velocity > 0.5 px/ms) with at least 30px movement
+    const shouldClose = currentTranslateY > 100 || (velocity > 0.5 && distance > 30);
+    
+    if (shouldClose) {
       closeBottomSheet();
     } else {
+      // Snap back to original position
       sheet.style.transform = '';
     }
-  });
+    
+    currentTranslateY = 0;
+  }, { passive: true });
+  
+  sheet?.addEventListener('touchcancel', (e) => {
+    if (!isDragging) return;
+    
+    isDragging = false;
+    sheet.style.transition = '';
+    sheet.style.transform = '';
+    currentTranslateY = 0;
+  }, { passive: true });
+
 }
 
 function openBottomSheet(series) {

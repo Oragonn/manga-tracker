@@ -2095,7 +2095,7 @@ html {
 
   .bottom-sheet-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;  /* CHANGED: from flex-start to center */
     justify-content: space-between;
     margin-bottom: 20px;
   }
@@ -2118,6 +2118,7 @@ html {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;  /* ADDED: prevent button from shrinking */
   }
 
   .sheet-progress-section {
