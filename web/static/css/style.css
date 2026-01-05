@@ -2114,21 +2114,26 @@ html {
     align-items: center;
   }
 
-.btn-sheet-settings {
-    padding: 8px;
+  .btn-sheet-settings {
+    width: 32px;
+    height: 32px;
+    padding: 0;
     background: #1a2436;
     border: 1px solid #334155;
-    border-radius: 8px;
+    border-radius: 6px;
     color: #cbd5e1;
     cursor: pointer;
-    min-width: 44px;
-    min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     position: relative;
     transition: all 0.2s ease;
+  }
+
+  .btn-sheet-settings svg {
+    width: 16px;
+    height: 16px;
   }
 
   .btn-sheet-settings:hover {

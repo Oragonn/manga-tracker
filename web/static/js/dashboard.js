@@ -2696,15 +2696,17 @@ function createBottomSheet() {
 	document.addEventListener('click', async (e) => {
 	const option = e.target.closest('.sheet-settings-option');
 	if (!option || option.classList.contains('disabled')) return;
-	
+
 	const action = option.dataset.action;
 	const series = mobileState.currentSeries;
 	if (!series) return;
-	
-	// Close menu
+
+	// CHANGED: Only close menu for certain actions (not copy-name)
+	if (action !== 'copy-name') {
 	document.getElementById('sheet-settings-menu')?.classList.remove('active');
-	
-	switch (action) {
+	}
+
+	switch (action) {		
 		case 'edit':
 		// ADDED: Open mobile edit modal
 		openMobileEditModal(series);
@@ -2712,9 +2714,16 @@ function createBottomSheet() {
 		break;
 		
 		case 'settings':
-		// ADDED: Open mobile settings modal
+		// CHANGED: Open settings WITHOUT closing bottom sheet first
 		openMobileSettingsModal(series);
-		closeBottomSheet();
+		// THEN close bottom sheet WITHOUT unlocking scroll
+		const bottomSheet = document.getElementById('bottom-sheet');
+		const overlay = document.getElementById('bottom-sheet-overlay');
+		bottomSheet?.classList.remove('active');
+		overlay?.classList.remove('active');
+		bottomSheet.style.transform = '';
+		mobileState.bottomSheetOpen = false;
+		// DON'T restore scroll - keep it locked for Settings modal
 		break;
 
 		case 'go-to-source':		// CHANGED: Use pre-fetched URL
@@ -2769,13 +2778,17 @@ function createBottomSheet() {
 		</svg>
 		Copied!
 		`;
-		
+
 		setTimeout(() => {
 			option.innerHTML = originalHTML;
 		}, 1500);
 		} else {
 		alert('Failed to copy to clipboard');
 		}
+
+		// ADDED: Prevent menu from closing by stopping event propagation
+		e.stopPropagation();
+		return; // ADDED: Exit early without closing menu
 		break;
 		
 		case 'delete':
@@ -3358,7 +3371,7 @@ function updateSheetProgress(series) {
   }
 }
 
-async function closeBottomSheet() {
+async function closeBottomSheet(keepScrollLocked = false) { // CHANGED: Add parameter
   // ADDED: Save pending chapter changes before closing
   if (mobileState.currentSeries && mobileState.pendingChapter !== null && 
       mobileState.pendingChapter !== mobileState.currentSeries.current_chapter) {
@@ -3380,14 +3393,17 @@ async function closeBottomSheet() {
   document.getElementById('bottom-sheet')?.classList.remove('active');
   document.getElementById('bottom-sheet').style.transform = '';
   
-  // ADDED: Unlock scrolling and restore position
-  document.body.style.overflow = '';
-  document.body.style.position = '';
-  document.body.style.width = '';
-  document.body.style.top = '';
-  
-  // Restore scroll position
-  window.scrollTo(0, mobileState.scrollY || 0);
+  // CHANGED: Only unlock scrolling if not keeping it locked
+  if (!keepScrollLocked) {
+    // Unlock scrolling and restore position
+    document.body.style.overflow = '';
+    document.body.style.position = '';
+    document.body.style.width = '';
+    document.body.style.top = '';
+    
+    // Restore scroll position
+    window.scrollTo(0, mobileState.scrollY || 0);
+  }
 }
 
 // ================================
@@ -3867,12 +3883,20 @@ async function openMobileSettingsModal(series) {
   document.getElementById('mobile-settings-title').value = series.title || '';
   document.getElementById('mobile-settings-cover-url').value = series.cover_url || '';
   
-  // FIXED: Lock scrolling - SAME AS BOTTOM SHEET
-  mobileState.scrollY = window.scrollY;
-  document.body.style.overflow = 'hidden';
-  document.body.style.position = 'fixed';
-  document.body.style.width = '100%';
-  document.body.style.top = `-${mobileState.scrollY}px`;
+  // FIXED: Check if already locked (coming from bottom sheet)
+  const isAlreadyLocked = document.body.style.overflow === 'hidden';
+  
+  if (!isAlreadyLocked) {
+    // Save current scroll position if not already saved
+    mobileState.scrollY = window.scrollY;
+    
+    // Lock scrolling - SIMPLE VERSION
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+    document.body.style.top = `-${mobileState.scrollY}px`;
+  }
+  // If already locked, keep existing scroll lock from bottom sheet
   
   modal.classList.remove('hidden');
   
@@ -3903,14 +3927,21 @@ document.getElementById('mobile-btn-settings-save')?.addEventListener('click', a
       body: JSON.stringify(updates)
     });
     
-    if (res.ok) {
+	if (res.ok) {
+      const savedScrollY = mobileState.scrollY || 0; // CHANGED: Save before clearing
       document.getElementById('mobile-settings-modal').classList.add('hidden');
+      
       // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
       document.body.style.overflow = '';
       document.body.style.position = '';
       document.body.style.width = '';
       document.body.style.top = '';
-      window.scrollTo(0, mobileState.scrollY || 0);
+      
+      // CHANGED: Restore scroll after unlocking
+      setTimeout(() => {
+        window.scrollTo(0, savedScrollY);
+      }, 0);
+      
       loadPage();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -3923,13 +3954,19 @@ document.getElementById('mobile-btn-settings-save')?.addEventListener('click', a
 });
 
 document.getElementById('mobile-btn-settings-cancel')?.addEventListener('click', () => {
+  const savedScrollY = mobileState.scrollY || 0; // CHANGED: Save before clearing
   document.getElementById('mobile-settings-modal').classList.add('hidden');
+  
   // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
   document.body.style.overflow = '';
   document.body.style.position = '';
   document.body.style.width = '';
   document.body.style.top = '';
-  window.scrollTo(0, mobileState.scrollY || 0);
+  
+  // CHANGED: Restore scroll after unlocking
+  setTimeout(() => {
+    window.scrollTo(0, savedScrollY);
+  }, 0);
 });
 
 document.getElementById('mobile-btn-check-now')?.addEventListener('click', async () => {
@@ -3969,18 +4006,25 @@ document.getElementById('mobile-btn-delete-series')?.addEventListener('click', a
       headers: { 'Content-Type': 'application/json' }
     });
     
-    if (res.ok) {
-      document.getElementById('mobile-settings-modal').classList.add('hidden');
-      // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
-      document.body.style.overflow = '';
-      document.body.style.position = '';
-      document.body.style.width = '';
-      document.body.style.top = '';
-      window.scrollTo(0, mobileState.scrollY || 0);
-      loadPage();
-      if (typeof loadGenres === 'function') {
-        loadGenres();
-      }
+	if (res.ok) {
+		const savedScrollY = mobileState.scrollY || 0; // CHANGED: Save before clearing
+		document.getElementById('mobile-settings-modal').classList.add('hidden');
+		
+		// FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
+		document.body.style.overflow = '';
+		document.body.style.position = '';
+		document.body.style.width = '';
+		document.body.style.top = '';
+		
+		// CHANGED: Restore scroll after unlocking
+		setTimeout(() => {
+			window.scrollTo(0, savedScrollY);
+		}, 0);
+		
+		loadPage();
+		if (typeof loadGenres === 'function') {
+			loadGenres();
+		}
     } else {
       alert('Failed to delete series');
     }
@@ -3992,13 +4036,19 @@ document.getElementById('mobile-btn-delete-series')?.addEventListener('click', a
 // Click outside to close Settings modal
 document.getElementById('mobile-settings-modal')?.addEventListener('click', (e) => {
   if (e.target.id === 'mobile-settings-modal') {
+    const savedScrollY = mobileState.scrollY || 0; // CHANGED: Save before clearing
     document.getElementById('mobile-settings-modal').classList.add('hidden');
+    
     // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
     document.body.style.overflow = '';
     document.body.style.position = '';
     document.body.style.width = '';
     document.body.style.top = '';
-    window.scrollTo(0, mobileState.scrollY || 0);
+    
+    // CHANGED: Restore scroll after unlocking
+    setTimeout(() => {
+      window.scrollTo(0, savedScrollY);
+    }, 0);
   }
 });
 
