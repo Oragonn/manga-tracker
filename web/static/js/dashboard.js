@@ -2552,16 +2552,59 @@ function createBottomSheet() {
     <div class="bottom-sheet" id="bottom-sheet">
       <div class="bottom-sheet-handle"></div>
       <div class="bottom-sheet-content">
-        <div class="bottom-sheet-header">
-          <h2 id="sheet-title"></h2>
-          <button class="btn-sheet-settings" id="sheet-settings-btn">
-            <svg class="icon-settings" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="1"></circle>
-              <circle cx="12" cy="5" r="1"></circle>
-              <circle cx="12" cy="19" r="1"></circle>
-            </svg>
-          </button>
-        </div>
+		<div class="bottom-sheet-header">
+		<h2 id="sheet-title"></h2>
+		<button class="btn-sheet-settings" id="sheet-settings-btn">
+			<svg class="icon-settings" viewBox="0 0 24 24">
+			<circle cx="12" cy="12" r="1"></circle>
+			<circle cx="12" cy="5" r="1"></circle>
+			<circle cx="12" cy="19" r="1"></circle>
+			</svg>
+			<!-- ADDED: Settings dropdown menu -->
+			<div class="sheet-settings-menu" id="sheet-settings-menu">
+			<button class="sheet-settings-option" data-action="edit">
+				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+				<path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>
+				</svg>
+				Edit
+			</button>
+			
+			<button class="sheet-settings-option" data-action="settings">
+				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48">
+				<path fill="currentColor" d="M24 4c-1.577 0-3.097.2-4.549.537a1.5 1.5 0 0 0-1.15 1.299l-.319 2.902a2.997 2.997 0 0 1-4.189 2.418h-.002l-2.666-1.174a1.5 1.5 0 0 0-1.7.348 20 20 0 0 0-4.566 7.871 1.5 1.5 0 0 0 .55 1.645l2.364 1.734a3 3 0 0 1 0 4.84l-2.365 1.732a1.5 1.5 0 0 0-.549 1.645 19.96 19.96 0 0 0 4.567 7.873 1.5 1.5 0 0 0 1.699.346l2.666-1.174a3 3 0 0 1 4.191 2.42l.319 2.902a1.5 1.5 0 0 0 1.148 1.297C20.901 43.8 22.423 44 24 44s3.097-.2 4.549-.537a1.5 1.5 0 0 0 1.15-1.299l.319-2.902a3 3 0 0 1 4.19-2.42l2.667 1.174a1.5 1.5 0 0 0 1.7-.346 20 20 0 0 0 4.566-7.873 1.5 1.5 0 0 0-.55-1.645l-2.364-1.732A3 3 0 0 1 39 24c0-.958.454-1.853 1.227-2.42l2.365-1.732a1.5 1.5 0 0 0 .549-1.645 20 20 0 0 0-4.567-7.873 1.5 1.5 0 0 0-1.699-.346l-2.668 1.174a3 3 0 0 1-4.19-2.42L29.7 5.836a1.5 1.5 0 0 0-1.148-1.297A20 20 0 0 0 24 4m0 3c.974 0 1.91.175 2.848.34l.187 1.724a6.003 6.003 0 0 0 8.38 4.84l1.587-.697a16.9 16.9 0 0 1 2.855 4.924l-1.406 1.031A6 6 0 0 0 36 24c0 1.91.912 3.708 2.451 4.838l1.406 1.031a16.9 16.9 0 0 1-2.855 4.924l-1.586-.697a6.003 6.003 0 0 0-8.38 4.84l-.188 1.724c-.938.165-1.874.34-2.848.34s-1.91-.175-2.848-.34l-.187-1.724a6.003 6.003 0 0 0-8.38-4.84l-1.587.697a16.9 16.9 0 0 1-2.855-4.924l1.406-1.031a6.003 6.003 0 0 0 0-9.678l-1.406-1.03A16.9 16.9 0 0 1 11 13.205l1.584.697a6.002 6.002 0 0 0 8.38-4.838l.188-1.724C22.09 7.175 23.026 7 24 7m0 9c-4.4 0-8 3.6-8 8s3.6 8 8 8 8-3.6 8-8-3.6-8-8-8m0 3c2.78 0 5 2.22 5 5s-2.22 5-5 5-5-2.22-5-5 2.22-5 5-5"/>
+				</svg>
+				Settings
+			</button>
+			
+			<button class="sheet-settings-option" data-action="go-to-source">
+				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+				</svg>
+				Go to Source
+			</button>
+			
+			<button class="sheet-settings-option" data-action="copy-name">
+				<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+				<path d="M2.5 1C1.676 1 1 1.676 1 2.5v8c0 .824.676 1.5 1.5 1.5H4v.5c0 .824.676 1.5 1.5 1.5h8c.824 0 1.5-.676 1.5-1.5v-8c0-.824-.676-1.5-1.5-1.5H12v-.5c0-.824-.676-1.5-1.5-1.5Zm0 1h8c.281 0 .5.219.5.5v8c0 .281-.219.5-.5.5h-8a.494.494 0 0 1-.5-.5v-8c0-.281.219-.5.5-.5M12 4h1.5c.281 0 .5.219.5.5v8c0 .281-.219.5-.5.5h-8a.494.494 0 0 1-.5-.5V12h5.5c.824 0 1.5-.676 1.5-1.5Z" transform="translate(.56 1.275)scale(1.43)"/>
+				</svg>
+				Copy Name
+			</button>
+			
+			<button class="sheet-settings-option danger" data-action="delete">
+				<svg width="20" height="20" viewBox="0 0 64 64" stroke-width="3" stroke="currentColor" fill="none">
+				<path d="M45.49,54.87h-27a1,1,0,0,1-1-1l-2-36H48.46l-2,36A1,1,0,0,1,45.49,54.87Z"/>
+				<path d="M51,17.86H13c-.28,0-.5-.16-.5-.35l.93-4.35a.49.49,0,0,1,.5-.3H50.07a.49.49,0,0,1,.5.3l.93,4.35C51.5,17.7,51.28,17.86,51,17.86Z"/>
+				<line x1="24" y1="23.44" x2="24" y2="48.44"/>
+				<line x1="32" y1="23.44" x2="32" y2="48.44"/>
+				<line x1="40" y1="23.44" x2="40" y2="48.44"/>
+				<path d="M25.73,12.86V7.57a1,1,0,0,1,1-1H37.27a1,1,0,0,1,1,1v5.29"/>
+				</svg>
+				Delete
+			</button>
+			</div>
+		</button>
+		</div>
         
 		<div class="sheet-progress-section">
 		<div class="sheet-chapter-row">
@@ -2607,13 +2650,92 @@ function createBottomSheet() {
 
   document.body.insertAdjacentHTML('beforeend', sheetHTML);
 
-  document.getElementById('bottom-sheet-overlay')?.addEventListener('click', closeBottomSheet);
-  document.getElementById('sheet-settings-btn')?.addEventListener('click', () => {
-    if (mobileState.currentSeries) {
-      closeBottomSheet();
-      openEditModal(mobileState.currentSeries);
-    }
-  });
+	document.getElementById('bottom-sheet-overlay')?.addEventListener('click', closeBottomSheet);
+
+	// CHANGED: Toggle settings menu instead of opening edit modal
+	document.getElementById('sheet-settings-btn')?.addEventListener('click', (e) => {
+	e.stopPropagation();
+	const menu = document.getElementById('sheet-settings-menu');
+	menu?.classList.toggle('active');
+	});
+
+	// ADDED: Close settings menu when clicking outside
+	document.addEventListener('click', (e) => {
+	const menu = document.getElementById('sheet-settings-menu');
+	const settingsBtn = document.getElementById('sheet-settings-btn');
+	
+	if (menu && !menu.contains(e.target) && e.target !== settingsBtn && !settingsBtn?.contains(e.target)) {
+		menu.classList.remove('active');
+	}
+	});
+
+	// ADDED: Settings menu actions
+	document.addEventListener('click', async (e) => {
+	const option = e.target.closest('.sheet-settings-option');
+	if (!option || option.classList.contains('disabled')) return;
+	
+	const action = option.dataset.action;
+	const series = mobileState.currentSeries;
+	if (!series) return;
+	
+	// Close menu
+	document.getElementById('sheet-settings-menu')?.classList.remove('active');
+	
+	switch (action) {
+		case 'go-to-source':
+		window.open(series.source_url, '_blank');
+		break;
+		
+		case 'copy-name':
+		try {
+			await navigator.clipboard.writeText(series.title);
+			// Optional: Show toast notification
+			const option = e.target.closest('.sheet-settings-option');
+			const originalText = option.textContent;
+			option.innerHTML = `
+			<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M20 6L9 17l-5-5"/>
+			</svg>
+			Copied!
+			`;
+			setTimeout(() => {
+			option.innerHTML = `
+				<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+				<path d="M2.5 1C1.676 1 1 1.676 1 2.5v8c0 .824.676 1.5 1.5 1.5H4v.5c0 .824.676 1.5 1.5 1.5h8c.824 0 1.5-.676 1.5-1.5v-8c0-.824-.676-1.5-1.5-1.5H12v-.5c0-.824-.676-1.5-1.5-1.5Zm0 1h8c.281 0 .5.219.5.5v8c0 .281-.219.5-.5.5h-8a.494.494 0 0 1-.5-.5v-8c0-.281.219-.5.5-.5M12 4h1.5c.281 0 .5.219.5.5v8c0 .281-.219.5-.5.5h-8a.494.494 0 0 1-.5-.5V12h5.5c.824 0 1.5-.676 1.5-1.5Z" transform="translate(.56 1.275)scale(1.43)"/>
+				</svg>
+				Copy Name
+			`;
+			}, 1500);
+		} catch (err) {
+			console.error('Failed to copy:', err);
+			alert('Failed to copy to clipboard');
+		}
+		break;
+		
+		case 'delete':
+		if (confirm(`Delete "${series.title}"? This action cannot be undone.`)) {
+			try {
+			const res = await fetch(`/api/series/${series.id}`, {
+				method: 'DELETE'
+			});
+			
+			if (res.ok) {
+				closeBottomSheet();
+				loadPage();
+				if (typeof loadGenres === 'function') {
+				loadGenres();
+				}
+			} else {
+				alert('Failed to delete series');
+			}
+			} catch (err) {
+			console.error('Delete error:', err);
+			alert('Error: ' + err.message);
+			}
+		}
+		break;
+	}
+	});
 
   // Add swipe-down gesture with velocity detection
   let touchStartY = 0;
