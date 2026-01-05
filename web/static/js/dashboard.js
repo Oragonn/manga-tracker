@@ -3867,14 +3867,14 @@ async function openMobileSettingsModal(series) {
   document.getElementById('mobile-settings-title').value = series.title || '';
   document.getElementById('mobile-settings-cover-url').value = series.cover_url || '';
   
-  modal.classList.remove('hidden');
-  
-  // FIXED: Lock scrolling AFTER showing modal - SAME AS BOTTOM SHEET
+  // FIXED: Lock scrolling - SAME AS BOTTOM SHEET
   mobileState.scrollY = window.scrollY;
   document.body.style.overflow = 'hidden';
   document.body.style.position = 'fixed';
   document.body.style.width = '100%';
   document.body.style.top = `-${mobileState.scrollY}px`;
+  
+  modal.classList.remove('hidden');
   
   // Scroll modal to top
   const modalContent = modal.querySelector('.modal-content');
