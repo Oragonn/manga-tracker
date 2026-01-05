@@ -1,5 +1,6 @@
 // web/static/js/dashboard.js
 let loadGenres;
+
 // ─── Constants ───────────────────────────────────────────────
 const SORT_ICONS = {
 asc: `
@@ -110,6 +111,7 @@ function openEditModal(series) {
 	document.getElementById('edit-title').value = series.title || '';
 	document.getElementById('edit-cover-url').value = series.cover_url || '';
 	document.getElementById('edit-status').value = series.status || 'plan_to_read';
+
 	// Load sources
 	loadSeriesSources(series.id);
 
@@ -168,6 +170,7 @@ function openEditModal(series) {
 		.catch(err => console.error('Chapter load error:', err));
 
 	document.getElementById('edit-series-modal').classList.remove('hidden');
+	document.body.style.overflow = 'hidden';
 }
 
 // ─── Source Management Functions ─────────────────────────────
@@ -217,16 +220,17 @@ function renderSources(sources) {
   });
 
   container.innerHTML = sortedSources.map(source => {
+		// FIXED: Always use source.source_type directly (don't read from DOM)
 		const sourceTypeLabel = {
 			'mangadex': 'MangaDex',
 			'kagane': 'Kagane',
 			'unknown': 'Unknown'
-		}[source.source_type] || source.source_type;
+		}[source.source_type.toLowerCase()] || source.source_type;
 
 		const isPrimary = source.id === pendingSourceChanges.primarySourceId;
 
-		return `
-      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" draggable="true">
+    return `
+      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" data-source-type="${source.source_type}" draggable="true">
         <div class="source-drag-handle">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="9" cy="5" r="1.5"/>
@@ -309,10 +313,10 @@ function initializeDragAndDrop() {
 
 				// Re-render to update visual state
 				const currentSources = Array.from(sourceItems).map(item => ({
-					id: parseInt(item.dataset.sourceId),
-					source_type: item.querySelector('.source-type').textContent.trim().replace(/\s*\(.*?\)/, '').toLowerCase(),
-					source_url: item.querySelector('.source-url').textContent,
-					is_primary: parseInt(item.dataset.sourceId) === newPrimaryId
+				id: parseInt(item.dataset.sourceId),
+				source_type: item.dataset.sourceType, // CHANGED: Read from data attribute
+				source_url: item.querySelector('.source-url').textContent,
+				is_primary: parseInt(item.dataset.sourceId) === newPrimaryId
 				}));
 
 				renderSources(currentSources);
@@ -1451,7 +1455,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-	// ─── Modified Save Button Handler ─────────────────────────────
+// ─── Modified Save Button Handler ─────────────────────────────
 	document.getElementById('btn-edit-save')?.addEventListener('click', async () => {
 		if (!currentSeriesIdForEdit) {
 			alert('No series selected');
@@ -1492,6 +1496,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 			if (res.ok) {
 				editModal.classList.add('hidden');
+				document.body.style.overflow = ''; // ADDED
 				loadPage();
 			} else {
 				const err = await res.json().catch(() => ({}));
@@ -1511,6 +1516,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 		}
 		editModal.classList.add('hidden');
+		document.body.style.overflow = ''; // ADDED
 	});
 
 	// ─── Modified Modal Close Handler ─────────────────────────────
@@ -1522,6 +1528,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				}
 			}
 			editModal.classList.add('hidden');
+			document.body.style.overflow = ''; // ADDED
 		}
 	});
 
@@ -1687,6 +1694,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			});
 			if (res.ok) {
 				editModal.classList.add('hidden');
+				document.body.style.overflow = '';
 				loadPage();
 				loadGenres();
 			} else {
@@ -1702,6 +1710,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (currentSeriesIdForEdit) {
 			saveChapter(currentSeriesIdForEdit, -1).then(() => {
 				editModal.classList.add('hidden');
+				document.body.style.overflow = '';
 				loadPage();
 			});
 		}
@@ -3473,16 +3482,17 @@ function renderMobileSources(sources) {
   });
     
   container.innerHTML = sortedSources.map(source => {    
+	// FIXED: Always use source.source_type directly (don't read from DOM)
 	const sourceTypeLabel = {
       'mangadex': 'MangaDex',
       'kagane': 'Kagane',
       'unknown': 'Unknown'
-    }[source.source_type] || source.source_type;
+    }[source.source_type.toLowerCase()] || source.source_type;
     
     const isPrimary = source.id === mobilePendingSourceChanges.primarySourceId;
     
     return `
-      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" draggable="true">
+      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" data-source-type="${source.source_type}" draggable="true">
         <div class="source-drag-handle">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="9" cy="5" r="1.5"/>
@@ -3575,7 +3585,7 @@ function initializeMobileDragAndDrop() {
         
         const currentSources = Array.from(sourceItems).map(item => ({
           id: parseInt(item.dataset.sourceId),
-          source_type: item.querySelector('.source-type').textContent.trim().replace(/\s*\(.*?\)/, '').toLowerCase(),
+          source_type: item.dataset.sourceType, // CHANGED: Read from data attribute
           source_url: item.querySelector('.source-url').textContent,
           is_primary: parseInt(item.dataset.sourceId) === newPrimaryId
         }));
@@ -3636,7 +3646,7 @@ function initializeMobileDragAndDrop() {
         
         const currentSources = Array.from(sourceItems).map(item => ({
           id: parseInt(item.dataset.sourceId),
-          source_type: item.querySelector('.source-type').textContent.trim().replace(/\s*\(.*?\)/, '').toLowerCase(),
+          source_type: item.dataset.sourceType, // CHANGED: Read from data attribute
           source_url: item.querySelector('.source-url').textContent,
           is_primary: parseInt(item.dataset.sourceId) === newPrimaryId
         }));
