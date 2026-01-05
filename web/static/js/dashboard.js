@@ -2554,14 +2554,15 @@ function createBottomSheet() {
       <div class="bottom-sheet-content">
 		<div class="bottom-sheet-header">
 		<h2 id="sheet-title"></h2>
-		<button class="btn-sheet-settings" id="sheet-settings-btn">
-			<svg class="icon-settings" viewBox="0 0 24 24">
-			<circle cx="12" cy="12" r="1"></circle>
-			<circle cx="12" cy="5" r="1"></circle>
-			<circle cx="12" cy="19" r="1"></circle>
-			</svg>
-		</button>
-		<div class="sheet-settings-menu" id="sheet-settings-menu">
+		<div class="settings-wrapper">
+			<button class="btn-sheet-settings" id="sheet-settings-btn">
+				<svg class="icon-settings" viewBox="0 0 24 24">
+				<circle cx="12" cy="12" r="1"></circle>
+				<circle cx="12" cy="5" r="1"></circle>
+				<circle cx="12" cy="19" r="1"></circle>
+				</svg>
+			</button>
+			<div class="sheet-settings-menu" id="sheet-settings-menu">
 			<button class="sheet-settings-option" data-action="edit">
 				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -2603,6 +2604,7 @@ function createBottomSheet() {
 				Delete
 			</button>
 			</div>
+		</div>
 		</div>
         
 		<div class="sheet-progress-section">
@@ -2947,9 +2949,19 @@ function setupBottomSheetButtons(series, nextChapter) {
   // Search button - opens Google search for next chapter
 	const searchBtn = document.getElementById('sheet-search-btn');
 	if (searchBtn) {
-	searchBtn.addEventListener('click', () => {
-		const searchChapterSpan = document.getElementById('sheet-search-chapter');
-		const chapterNum = searchChapterSpan ? searchChapterSpan.textContent : nextChapter;
+	// Remove old listeners by cloning
+	const newSearchBtn = searchBtn.cloneNode(true);
+	searchBtn.parentNode.replaceChild(newSearchBtn, searchBtn);
+	
+	// Always show search button with appropriate chapter number
+	newSearchBtn.style.display = 'flex';
+	const searchChapterSpan = newSearchBtn.querySelector('#sheet-search-chapter');
+	if (searchChapterSpan) {
+		searchChapterSpan.textContent = nextChapter || 1;
+	}
+	
+	newSearchBtn.addEventListener('click', () => {
+		const chapterNum = searchChapterSpan ? searchChapterSpan.textContent : (nextChapter || 1);
 		const query = encodeURIComponent(`${series.title} chapter ${chapterNum}`);
 		window.open(`https://www.google.com/search?q=${query}`, '_blank');
 	});
@@ -2969,6 +2981,13 @@ function setupBottomSheetButtons(series, nextChapter) {
         if (chapters.length === 0) {
           newContinueBtn.textContent = 'No chapters';
           newContinueBtn.disabled = true;
+          // ADDED: Search button still works for chapter 1
+          if (searchBtn) {
+            const searchChapterSpan = searchBtn.querySelector('#sheet-search-chapter');
+            if (searchChapterSpan) {
+              searchChapterSpan.textContent = '1';
+            }
+          }
           return;
         }
 
@@ -3123,7 +3142,11 @@ function stopHoldRepeat() {
 		continueBtn.textContent = 'No chapters';
 		continueBtn.disabled = true;
 		}
-		if (searchBtn) searchBtn.style.display = 'none';
+		// CHANGED: Always show search button, default to chapter 1
+		if (searchBtn && searchChapterSpan) {
+		searchBtn.style.display = 'flex';
+		searchChapterSpan.textContent = '1';
+		}
 		return;
 	}
 	
