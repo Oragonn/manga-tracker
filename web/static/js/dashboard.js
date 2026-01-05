@@ -1695,6 +1695,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (res.ok) {
 				editModal.classList.add('hidden');
 				document.body.style.overflow = '';
+				document.body.style.position = '';
+				document.body.style.width = '';
+				document.body.style.top = '';
+				window.scrollTo(0, mobileState.scrollY || 0);
 				loadPage();
 				loadGenres();
 			} else {
@@ -1711,6 +1715,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			saveChapter(currentSeriesIdForEdit, -1).then(() => {
 				editModal.classList.add('hidden');
 				document.body.style.overflow = '';
+				document.body.style.position = '';
+				document.body.style.width = '';
+				document.body.style.top = '';
+				window.scrollTo(0, mobileState.scrollY || 0);
 				loadPage();
 			});
 		}
@@ -2070,7 +2078,12 @@ function closeMobileMenu() {
   mobileState.menuOpen = false;
   document.getElementById('mobile-menu-overlay')?.classList.remove('active');
   document.getElementById('mobile-menu')?.classList.remove('active');
-  document.body.style.overflow = '';
+	document.body.style.overflow = '';
+	document.body.style.position = '';
+	document.body.style.width = '';
+	document.body.style.top = '';
+	window.scrollTo(0, mobileState.scrollY || 0);
+
 }
 
 // ================================
@@ -2479,7 +2492,11 @@ function closeFilterDrawer() {
   mobileState.filterDrawerOpen = false;
   document.getElementById('filter-drawer-overlay')?.classList.remove('active');
   document.getElementById('filter-drawer')?.classList.remove('active');
-  document.body.style.overflow = '';
+	document.body.style.overflow = '';
+	document.body.style.position = '';
+	document.body.style.width = '';
+	document.body.style.top = '';
+	window.scrollTo(0, mobileState.scrollY || 0);
 }
 
 function resetMobileFilters() {
@@ -3436,10 +3453,16 @@ async function openMobileEditModal(series) {
     })
     .catch(err => console.error('Chapter load error:', err));
   
-  modal.classList.remove('hidden');
+  // FIXED: Lock scrolling - SAME AS BOTTOM SHEET
+  mobileState.scrollY = window.scrollY;
   document.body.style.overflow = 'hidden';
+  document.body.style.position = 'fixed';
+  document.body.style.width = '100%';
+  document.body.style.top = `-${mobileState.scrollY}px`;
   
-  // ADDED: Scroll modal to top
+  modal.classList.remove('hidden');
+  
+  // Scroll modal to top
   const modalContent = modal.querySelector('.modal-content');
   if (modalContent) {
     modalContent.scrollTop = 0;
@@ -3769,7 +3792,12 @@ document.getElementById('mobile-btn-edit-save')?.addEventListener('click', async
     
     if (res.ok) {
       document.getElementById('mobile-edit-modal').classList.add('hidden');
+      // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
       document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      window.scrollTo(0, mobileState.scrollY || 0);
       loadPage();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -3788,7 +3816,12 @@ document.getElementById('mobile-btn-edit-cancel')?.addEventListener('click', () 
     }
   }
   document.getElementById('mobile-edit-modal').classList.add('hidden');
+  // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
   document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.body.style.width = '';
+  document.body.style.top = '';
+  window.scrollTo(0, mobileState.scrollY || 0);
 });
 
 document.getElementById('mobile-btn-reset-not-started')?.addEventListener('click', () => {
@@ -3796,13 +3829,18 @@ document.getElementById('mobile-btn-reset-not-started')?.addEventListener('click
   if (seriesId) {
     saveChapter(seriesId, -1).then(() => {
       document.getElementById('mobile-edit-modal').classList.add('hidden');
+      // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
       document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      window.scrollTo(0, mobileState.scrollY || 0);
       loadPage();
     });
   }
 });
 
-// ADDED: Click outside to close Edit modal
+// Click outside to close Edit modal
 document.getElementById('mobile-edit-modal')?.addEventListener('click', (e) => {
   if (e.target.id === 'mobile-edit-modal') {
     if (mobilePendingSourceChanges.hasChanges) {
@@ -3811,7 +3849,12 @@ document.getElementById('mobile-edit-modal')?.addEventListener('click', (e) => {
       }
     }
     document.getElementById('mobile-edit-modal').classList.add('hidden');
+    // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
     document.body.style.overflow = '';
+    document.body.style.position = '';
+    document.body.style.width = '';
+    document.body.style.top = '';
+    window.scrollTo(0, mobileState.scrollY || 0);
   }
 });
 
@@ -3825,9 +3868,15 @@ async function openMobileSettingsModal(series) {
   document.getElementById('mobile-settings-cover-url').value = series.cover_url || '';
   
   modal.classList.remove('hidden');
-  document.body.style.overflow = 'hidden';
   
-  // ADDED: Scroll modal to top
+  // FIXED: Lock scrolling AFTER showing modal - SAME AS BOTTOM SHEET
+  mobileState.scrollY = window.scrollY;
+  document.body.style.overflow = 'hidden';
+  document.body.style.position = 'fixed';
+  document.body.style.width = '100%';
+  document.body.style.top = `-${mobileState.scrollY}px`;
+  
+  // Scroll modal to top
   const modalContent = modal.querySelector('.modal-content');
   if (modalContent) {
     modalContent.scrollTop = 0;
@@ -3856,7 +3905,12 @@ document.getElementById('mobile-btn-settings-save')?.addEventListener('click', a
     
     if (res.ok) {
       document.getElementById('mobile-settings-modal').classList.add('hidden');
+      // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
       document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      window.scrollTo(0, mobileState.scrollY || 0);
       loadPage();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -3870,7 +3924,12 @@ document.getElementById('mobile-btn-settings-save')?.addEventListener('click', a
 
 document.getElementById('mobile-btn-settings-cancel')?.addEventListener('click', () => {
   document.getElementById('mobile-settings-modal').classList.add('hidden');
+  // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
   document.body.style.overflow = '';
+  document.body.style.position = '';
+  document.body.style.width = '';
+  document.body.style.top = '';
+  window.scrollTo(0, mobileState.scrollY || 0);
 });
 
 document.getElementById('mobile-btn-check-now')?.addEventListener('click', async () => {
@@ -3912,7 +3971,12 @@ document.getElementById('mobile-btn-delete-series')?.addEventListener('click', a
     
     if (res.ok) {
       document.getElementById('mobile-settings-modal').classList.add('hidden');
+      // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
       document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      window.scrollTo(0, mobileState.scrollY || 0);
       loadPage();
       if (typeof loadGenres === 'function') {
         loadGenres();
@@ -3925,11 +3989,16 @@ document.getElementById('mobile-btn-delete-series')?.addEventListener('click', a
   }
 });
 
-// ADDED: Click outside to close Settings modal
+// Click outside to close Settings modal
 document.getElementById('mobile-settings-modal')?.addEventListener('click', (e) => {
   if (e.target.id === 'mobile-settings-modal') {
     document.getElementById('mobile-settings-modal').classList.add('hidden');
+    // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
     document.body.style.overflow = '';
+    document.body.style.position = '';
+    document.body.style.width = '';
+    document.body.style.top = '';
+    window.scrollTo(0, mobileState.scrollY || 0);
   }
 });
 
