@@ -2560,8 +2560,8 @@ function createBottomSheet() {
 			<circle cx="12" cy="5" r="1"></circle>
 			<circle cx="12" cy="19" r="1"></circle>
 			</svg>
-			<!-- ADDED: Settings dropdown menu -->
-			<div class="sheet-settings-menu" id="sheet-settings-menu">
+		</button>
+		<div class="sheet-settings-menu" id="sheet-settings-menu">
 			<button class="sheet-settings-option" data-action="edit">
 				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -2603,7 +2603,6 @@ function createBottomSheet() {
 				Delete
 			</button>
 			</div>
-		</button>
 		</div>
         
 		<div class="sheet-progress-section">
@@ -2682,33 +2681,81 @@ function createBottomSheet() {
 	document.getElementById('sheet-settings-menu')?.classList.remove('active');
 	
 	switch (action) {
+
 		case 'go-to-source':
+		// CHANGED: Use series data already loaded in mobileState
+		if (mobileState.currentSeries) {
+		// Try to get primary source from current series data
+		fetch(`/api/series/${series.id}/sources`)
+			.then(res => res.json())
+			.then(data => {
+			const primarySource = data.sources.find(s => s.is_primary);
+			const sourceUrl = primarySource ? primarySource.source_url : series.source_url;
+			window.open(sourceUrl, '_blank');
+			})
+			.catch(err => {
+			console.error('Failed to get sources:', err);
+			// Fallback to series.source_url
+			window.open(series.source_url, '_blank');
+			});
+		} else {
 		window.open(series.source_url, '_blank');
+		}
 		break;
-		
+
 		case 'copy-name':
+		const option = e.target.closest('.sheet-settings-option');
+		const originalHTML = option.innerHTML;
+
+		// CHANGED: Try multiple copy methods with fallback
+		let copySuccess = false;
+
+		// Method 1: Modern Clipboard API
+		if (navigator.clipboard && navigator.clipboard.writeText) {
 		try {
 			await navigator.clipboard.writeText(series.title);
-			// Optional: Show toast notification
-			const option = e.target.closest('.sheet-settings-option');
-			const originalText = option.textContent;
-			option.innerHTML = `
-			<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-				<path d="M20 6L9 17l-5-5"/>
-			</svg>
-			Copied!
-			`;
-			setTimeout(() => {
-			option.innerHTML = `
-				<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-				<path d="M2.5 1C1.676 1 1 1.676 1 2.5v8c0 .824.676 1.5 1.5 1.5H4v.5c0 .824.676 1.5 1.5 1.5h8c.824 0 1.5-.676 1.5-1.5v-8c0-.824-.676-1.5-1.5-1.5H12v-.5c0-.824-.676-1.5-1.5-1.5Zm0 1h8c.281 0 .5.219.5.5v8c0 .281-.219.5-.5.5h-8a.494.494 0 0 1-.5-.5v-8c0-.281.219-.5.5-.5M12 4h1.5c.281 0 .5.219.5.5v8c0 .281-.219.5-.5.5h-8a.494.494 0 0 1-.5-.5V12h5.5c.824 0 1.5-.676 1.5-1.5Z" transform="translate(.56 1.275)scale(1.43)"/>
-				</svg>
-				Copy Name
-			`;
-			}, 1500);
+			copySuccess = true;
 		} catch (err) {
-			console.error('Failed to copy:', err);
-			alert('Failed to copy to clipboard');
+			console.log('Clipboard API failed, trying fallback:', err);
+		}
+		}
+
+		// Method 2: Fallback for older browsers/mobile
+		if (!copySuccess) {
+		try {
+			const textArea = document.createElement('textarea');
+			textArea.value = series.title;
+			textArea.style.position = 'fixed';
+			textArea.style.left = '-999999px';
+			textArea.style.top = '-999999px';
+			document.body.appendChild(textArea);
+			textArea.focus();
+			textArea.select();
+			
+			const successful = document.execCommand('copy');
+			document.body.removeChild(textArea);
+			
+			if (successful) {
+			copySuccess = true;
+			}
+		} catch (err) {
+			console.error('Fallback copy failed:', err);
+		}
+		}
+
+		if (copySuccess) {
+		option.innerHTML = `
+		<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<path d="M20 6L9 17l-5-5"/>
+		</svg>
+		Copied!
+		`;
+		
+		setTimeout(() => {
+			option.innerHTML = originalHTML;
+		}, 1500);
+		} else {
+		alert('Failed to copy to clipboard');
 		}
 		break;
 		
