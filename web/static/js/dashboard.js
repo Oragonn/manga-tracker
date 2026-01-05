@@ -2683,24 +2683,9 @@ function createBottomSheet() {
 	switch (action) {
 
 		case 'go-to-source':
-		// CHANGED: Use series data already loaded in mobileState
-		if (mobileState.currentSeries) {
-		// Try to get primary source from current series data
-		fetch(`/api/series/${series.id}/sources`)
-			.then(res => res.json())
-			.then(data => {
-			const primarySource = data.sources.find(s => s.is_primary);
-			const sourceUrl = primarySource ? primarySource.source_url : series.source_url;
-			window.open(sourceUrl, '_blank');
-			})
-			.catch(err => {
-			console.error('Failed to get sources:', err);
-			// Fallback to series.source_url
-			window.open(series.source_url, '_blank');
-			});
-		} else {
-		window.open(series.source_url, '_blank');
-		}
+		// CHANGED: Use pre-fetched URL
+		const sourceUrl = mobileState.primarySourceUrl || series.source_url;
+		window.open(sourceUrl, '_blank');
 		break;
 
 		case 'copy-name':
@@ -2875,6 +2860,18 @@ function openBottomSheet(series) {
   mobileState.currentSeries = series;
   mobileState.pendingChapter = series.current_chapter;
   
+  // ADDED: Fetch and store primary source URL
+  fetch(`/api/series/${series.id}/sources`)
+    .then(res => res.json())
+    .then(data => {
+      const primarySource = data.sources.find(s => s.is_primary);
+      mobileState.primarySourceUrl = primarySource ? primarySource.source_url : series.source_url;
+    })
+    .catch(err => {
+      console.error('Failed to get sources:', err);
+      mobileState.primarySourceUrl = series.source_url;
+    });
+
   // ADDED: Lock scrolling - MORE AGGRESSIVE (same as bulk edit menu)
   mobileState.scrollY = window.scrollY;
   document.body.style.overflow = 'hidden';
