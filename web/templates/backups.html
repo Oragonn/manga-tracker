@@ -527,7 +527,7 @@
         void fabRefresh.offsetWidth; // Trigger reflow
         fabRefresh.classList.add('refreshing');
         
-        await loadLogs();
+        await loadBackups(); // CHANGED: Call correct function for this page
         
         setTimeout(() => {
           fabRefresh.classList.remove('refreshing');
