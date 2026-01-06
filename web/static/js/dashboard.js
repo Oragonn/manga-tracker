@@ -2673,8 +2673,11 @@ function createBottomSheet() {
 
   document.body.insertAdjacentHTML('beforeend', sheetHTML);
 
-	document.getElementById('bottom-sheet-overlay')?.addEventListener('click', closeBottomSheet);
-
+	document.getElementById('bottom-sheet-overlay')?.addEventListener('click', (e) => {
+	e.stopPropagation();
+	closeBottomSheet();
+	});
+	
 	// CHANGED: Toggle settings menu instead of opening edit modal
 	document.getElementById('sheet-settings-btn')?.addEventListener('click', (e) => {
 	e.stopPropagation();
@@ -2920,12 +2923,13 @@ function openBottomSheet(series) {
     });
 
   // ADDED: Lock scrolling - MORE AGGRESSIVE (same as bulk edit menu)
-  mobileState.scrollY = window.scrollY;
+  if (!mobileState.scrollY) { // CHANGED: Only save if not already saved
+    mobileState.scrollY = window.scrollY;
+  }
   document.body.style.overflow = 'hidden';
   document.body.style.position = 'fixed';
   document.body.style.width = '100%';
   document.body.style.top = `-${mobileState.scrollY}px`;
-
   document.getElementById('sheet-title').textContent = series.title;
 
   document.getElementById('sheet-current-chapter').textContent = 
@@ -3371,7 +3375,7 @@ function updateSheetProgress(series) {
   }
 }
 
-async function closeBottomSheet(keepScrollLocked = false) { // CHANGED: Add parameter
+async function closeBottomSheet(keepScrollLocked = false) {
   // ADDED: Save pending chapter changes before closing
   if (mobileState.currentSeries && mobileState.pendingChapter !== null && 
       mobileState.pendingChapter !== mobileState.currentSeries.current_chapter) {
@@ -3389,20 +3393,31 @@ async function closeBottomSheet(keepScrollLocked = false) { // CHANGED: Add para
   mobileState.currentSeries = null;
   mobileState.pendingChapter = null;
 
-  document.getElementById('bottom-sheet-overlay')?.classList.remove('active');
-  document.getElementById('bottom-sheet')?.classList.remove('active');
-  document.getElementById('bottom-sheet').style.transform = '';
+  const bottomSheet = document.getElementById('bottom-sheet');
+  const overlay = document.getElementById('bottom-sheet-overlay');
   
-  // CHANGED: Only unlock scrolling if not keeping it locked
+  overlay?.classList.remove('active');
+  bottomSheet?.classList.remove('active');
+  if (bottomSheet) bottomSheet.style.transform = '';
+  
+  // FIXED: Only unlock scrolling if not keeping it locked
   if (!keepScrollLocked) {
-    // Unlock scrolling and restore position
+    const savedScrollY = mobileState.scrollY || 0;
+    
+    // Clear the saved scroll position
+    mobileState.scrollY = 0;
+    
+    // Unlock body styles
     document.body.style.overflow = '';
     document.body.style.position = '';
     document.body.style.width = '';
     document.body.style.top = '';
     
+    // Force reflow to ensure styles are applied
+    document.body.offsetHeight;
+    
     // Restore scroll position
-    window.scrollTo(0, mobileState.scrollY || 0);
+    window.scrollTo(0, savedScrollY);
   }
 }
 

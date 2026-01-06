@@ -192,6 +192,106 @@
       align-items: center;
       gap: 8px;
     }
+
+    /* Mobile styles */
+    @media (max-width: 768px) {
+      .backups-container-name {
+        display: none; /* Hide header on mobile */
+      }
+
+      .backups-container {
+        padding-bottom: 80px; /* Add space for FABs */
+      }
+      
+      /* FAB Container */
+      .fab-container {
+        position: fixed;
+        bottom: 16px;
+        right: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 999;
+      }
+      
+      .fab-secondary {
+        width: 38px;
+        height: 38px;
+        background: #334155;
+        border: none;
+        border-radius: 50%;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        transition: transform 0.2s ease, opacity 0.2s ease;
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(10px);
+      }
+      
+      .fab-secondary.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+      
+      .fab-secondary:active {
+        transform: scale(0.95);
+      }
+      
+      .fab-primary {
+        width: 50px;
+        height: 50px;
+        background: #334155;
+        border: none;
+        border-radius: 50%;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        transition: transform 0.2s ease;
+      }
+      
+      .fab-primary:active {
+        transform: scale(0.95);
+      }
+      
+      /* ADDED: Disabled state */
+      .fab-primary:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      
+      .fab-primary svg,
+      .fab-secondary svg {
+        flex-shrink: 0;
+      }
+      
+      /* Rotation animation for refresh */
+      @keyframes spin {
+        from {
+          transform: rotate(360deg);
+        }
+        to {
+          transform: rotate(0deg);
+        }
+      }
+      
+      .fab-primary.refreshing svg {
+        animation: spin 0.6s linear;
+      }
+      
+      /* Safe area support */
+      .fab-container {
+        bottom: calc(16px + env(safe-area-inset-bottom));
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -221,8 +321,38 @@
   </nav>
 </header>
 
+<!-- Mobile Menu Overlay -->
+<div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
+<div class="mobile-menu" id="mobile-menu">
+  <div class="mobile-menu-header">
+    <h2>Menu</h2>
+    <button class="hamburger-btn" id="mobile-menu-close">
+      <svg class="icon-close" viewBox="0 0 24 24">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+  <div class="mobile-menu-links">
+    <a href="/dashboard">Dashboard</a>
+    <a href="https://kenmei.co/discovery" target="_blank">
+      Discovery
+      <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+      </svg>
+    </a>
+    <a href="/stats">Stats</a>
+    <a href="/logs">Activity Log</a>
+    <a href="/errors">
+      Errors
+      <span id="mobile-error-badge" style="display:none;background:#e53e3e;color:white;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:10px;"></span>
+    </a>
+    <a href="/backups">Backups</a>
+  </div>
+</div>
+
 <div class="backups-container">
-  <h1 style="color: white; margin-bottom: 24px;">📦 Database Backups</h1>
+  <h1 style="color: white; margin-bottom: 24px;" class="backups-container-name">📦 Database Backups</h1>
   
   <!-- Status Card -->
   <div class="backup-status-card">
@@ -290,7 +420,137 @@
   </div>
 </div>
 
-<script src="/static/js/backups.js"></script>
+<!-- Mobile FAB Buttons -->
+<div class="fab-container" id="fab-container" style="display: none;">
+  <button class="fab-secondary" id="fab-back-to-top">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+      <polyline points="18 15 12 9 6 15"></polyline>
+    </svg>
+  </button>
+  <button class="fab-primary" id="fab-refresh">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+    </svg>
+  </button>
+</div>
 
+
+<script src="/static/js/backups.js"></script>
+<script>
+
+// Mobile menu functionality
+(function() {
+  function isMobile() {
+    return window.innerWidth <= 768;
+  }
+
+  if (isMobile()) {
+    console.log('[Mobile] Initializing mobile UI for Backups...');
+    
+    // Create mobile header if on mobile
+    const header = document.querySelector('.header-full');
+    const navContainer = header?.querySelector('.nav-container');
+    
+    if (navContainer) {
+      navContainer.innerHTML = `
+        <div class="mobile-header">
+          <button class="hamburger-btn" id="mobile-menu-btn">
+            <svg class="icon-menu" viewBox="0 0 24 24">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <h1 style="font-size: 18px; font-weight: 600; margin: 0;">Backups</h1>
+          <div style="width: 44px;"></div>
+        </div>
+      `;
+    }
+    
+    // Mobile menu state
+    let menuOpen = false;
+    let scrollY = 0;
+    
+    function openMobileMenu() {
+      menuOpen = true;
+      scrollY = window.scrollY;
+      document.getElementById('mobile-menu-overlay')?.classList.add('active');
+      document.getElementById('mobile-menu')?.classList.add('active');
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+      document.body.style.top = `-${scrollY}px`;
+    }
+    
+    function closeMobileMenu() {
+      menuOpen = false;
+      document.getElementById('mobile-menu-overlay')?.classList.remove('active');
+      document.getElementById('mobile-menu')?.classList.remove('active');
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      window.scrollTo(0, scrollY);
+    }
+    
+// Event listeners
+    document.getElementById('mobile-menu-btn')?.addEventListener('click', openMobileMenu);
+    document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
+    document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
+    
+    // Show FAB container on mobile
+    const fabContainer = document.getElementById('fab-container');
+    if (fabContainer) {
+      fabContainer.style.display = 'flex';
+    }
+    
+    // Back to top FAB
+    const fabBackToTop = document.getElementById('fab-back-to-top');
+    if (fabBackToTop) {
+      fabBackToTop.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    }
+    
+    // Refresh FAB
+    const fabRefresh = document.getElementById('fab-refresh');
+    if (fabRefresh) {
+      fabRefresh.addEventListener('click', async () => {
+        // ADDED: Prevent double-click
+        if (fabRefresh.disabled || fabRefresh.classList.contains('refreshing')) return;
+        
+        // ADDED: Disable button
+        fabRefresh.disabled = true;
+        
+        // CHANGED: Force animation restart by removing and re-adding class
+        fabRefresh.classList.remove('refreshing');
+        void fabRefresh.offsetWidth; // Trigger reflow
+        fabRefresh.classList.add('refreshing');
+        
+        await loadLogs();
+        
+        setTimeout(() => {
+          fabRefresh.classList.remove('refreshing');
+          fabRefresh.disabled = false; // ADDED: Re-enable button
+        }, 600);
+      });
+    }
+    
+    // Show/hide back to top based on scroll
+    let lastScrollY = 0;
+    window.addEventListener('scroll', () => {
+      const currentScrollY = window.scrollY;
+      
+      if (currentScrollY > 300) {
+        fabBackToTop?.classList.add('show');
+      } else {
+        fabBackToTop?.classList.remove('show');
+      }
+      
+      lastScrollY = currentScrollY;
+    }, { passive: true });
+  }
+})();
+</script>
 </body>
 </html>
