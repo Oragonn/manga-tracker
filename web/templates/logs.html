@@ -24,20 +24,86 @@
       color: white;
     }
 
+    .mobile-menu-overlay,
+    .mobile-menu {
+      display: none;
+    }
+
     /* Mobile styles */
     @media (max-width: 768px) {
       .logs-header {
         display: none; /* Hide header on mobile */
       }
       
-      .logs-container {
-        padding-bottom: 80px; /* Add space for FABs */
+      .mobile-menu-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 998;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease, visibility 0.3s ease;
       }
       
+      .mobile-menu-overlay.active {
+        display: block;
+        opacity: 1;
+        visibility: visible;
+      }
+      
+      .mobile-menu {
+        position: fixed;
+        top: 0;
+        right: -100%;
+        width: 280px;
+        height: 100%;
+        background: #0f172a;
+        z-index: 999;
+        transition: right 0.3s ease;
+        display: block;
+      }
+      
+      .mobile-menu.active {
+        right: 0;
+      }
+      
+      /* Mobile filter controls layout */
+      .logs-controls {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        max-width: 100%;
+        flex-wrap: nowrap;
+      }
+      
+      .logs-controls select {
+        height: 44px;
+        font-size: 13px;
+        padding: 0 10px;
+        min-width: 0;
+        width: auto !important;
+        max-width: 100% !important;
+      }
+      
+      .logs-controls .control-search {
+        grid-column: 1 / -1;
+        width: 100% !important;
+        max-width: 100% !important;
+        flex: none !important;
+      }
+      
+      .logs-controls .control-search input {
+        width: 100%;
+        height: 44px;
+      }
+
       /* FAB Container */
       .fab-container {
         position: fixed;
-        bottom: 16px;
+        bottom: calc(16px + env(safe-area-inset-bottom));
         right: 16px;
         display: flex;
         flex-direction: column;
@@ -92,7 +158,6 @@
         transform: scale(0.95);
       }
       
-      /* ADDED: Disabled state */
       .fab-primary:disabled {
         opacity: 0.6;
         cursor: not-allowed;
@@ -116,21 +181,12 @@
       .fab-primary.refreshing svg {
         animation: spin 0.6s linear;
       }
-      
-      /* Safe area support */
-      .fab-container {
-        bottom: calc(16px + env(safe-area-inset-bottom));
-      }
-      
-      .logs-controls {
-        justify-content: center;
-      }
     }
 
     .logs-controls {
       display: flex;
       gap: 12px;
-      margin-bottom: 24px;
+      margin-bottom: 12px;
       flex-wrap: wrap;
     }
 
