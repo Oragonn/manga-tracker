@@ -409,19 +409,9 @@
         justify-content: center;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         transition: transform 0.2s ease, opacity 0.2s ease;
-        opacity: 0;
-        visibility: hidden;
-        transform: translateY(10px);
       }
       
       .fab-secondary.show {
-        opacity: 1;
-        visibility: visible;
-        transform: translateY(0);
-      }
-      
-      /* ADDED: Show secondary FAB as create button when at top */
-      .fab-secondary.show-create {
         opacity: 1;
         visibility: visible;
         transform: translateY(0);
@@ -611,14 +601,14 @@
 
 <!-- Mobile FAB Buttons -->
 <div class="fab-container" id="fab-container" style="display: none;">
-  <button class="fab-secondary" id="fab-back-to-top">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
-      <polyline points="18 15 12 9 6 15"></polyline>
-    </svg>
-  </button>
-  <button class="fab-primary" id="fab-refresh">
+  <button class="fab-secondary" id="fab-secondary">
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
       <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+    </svg>
+  </button>
+  <button class="fab-primary" id="fab-primary">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:24px;height:24px;">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"></path>
     </svg>
   </button>
 </div>
@@ -682,7 +672,7 @@
       window.scrollTo(0, scrollY);
     }
     
-// Event listeners
+    // Event listeners
     document.getElementById('mobile-menu-btn')?.addEventListener('click', openMobileMenu);
     document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
     document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
@@ -693,104 +683,95 @@
       fabContainer.style.display = 'flex';
     }
     
-    // CHANGED: Combined FAB button behavior
-    const fabBackToTop = document.getElementById('fab-back-to-top');
-    const fabRefresh = document.getElementById('fab-refresh');
+    // NEW: Dashboard-style FAB behavior
+    const fabSecondary = document.getElementById('fab-secondary');
+    const fabPrimary = document.getElementById('fab-primary');
     
-    // Back to top click
-    if (fabBackToTop) {
-      fabBackToTop.addEventListener('click', () => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      });
-    }
-    
-    // Create backup / Refresh combined button
-    if (fabRefresh) {
-      fabRefresh.addEventListener('click', async () => {
-        const currentScrollY = window.scrollY;
-        
-        if (currentScrollY > 300) {
-          // Scrolled down - do nothing (back to top button is shown)
-          return;
+    // Secondary FAB: Refresh at top, Back to top when scrolled
+    if (fabSecondary) {
+      fabSecondary.addEventListener('click', () => {
+        if (window.scrollY > 300) {
+          // Back to top behavior
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         } else {
-          // At top - create backup
-          if (fabRefresh.disabled || fabRefresh.classList.contains('refreshing')) return;
-          
-          fabRefresh.disabled = true;
-          
-          // Change to loading state
-          const originalHTML = fabRefresh.innerHTML;
-          fabRefresh.innerHTML = `
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-            </svg>
-          `;
-          fabRefresh.classList.add('refreshing');
-          
-          try {
-            const res = await fetch('/api/backups/create', { method: 'POST' });
-            const data = await res.json();
-            
-            if (data.success) {
-              // Show checkmark
-              fabRefresh.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                </svg>
-              `;
-              
-              setTimeout(() => {
-                fabRefresh.innerHTML = originalHTML;
-                fabRefresh.classList.remove('refreshing');
-                fabRefresh.disabled = false;
-                loadBackups();
-              }, 1500);
-            } else {
-              throw new Error('Backup failed');
-            }
-          } catch (err) {
-            console.error('Backup creation failed:', err);
-            // Show error
-            fabRefresh.innerHTML = `
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            `;
-            
-            setTimeout(() => {
-              fabRefresh.innerHTML = originalHTML;
-              fabRefresh.classList.remove('refreshing');
-              fabRefresh.disabled = false;
-            }, 1500);
-          }
+          // Refresh backups at top
+          loadBackups();
         }
       });
     }
     
-    // CHANGED: Show/hide FAB buttons based on scroll
+    // Primary FAB: Create backup
+    if (fabPrimary) {
+      fabPrimary.addEventListener('click', async () => {
+        if (fabPrimary.disabled || fabPrimary.classList.contains('refreshing')) return;
+        
+        fabPrimary.disabled = true;
+        fabPrimary.classList.add('refreshing');
+        
+        try {
+          const res = await fetch('/api/backups/create', { method: 'POST' });
+          const data = await res.json();
+          
+          if (data.success) {
+            // Show checkmark briefly
+            const originalHTML = fabPrimary.innerHTML;
+            fabPrimary.innerHTML = `
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:24px;height:24px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+              </svg>
+            `;
+            
+            setTimeout(() => {
+              fabPrimary.innerHTML = originalHTML;
+              fabPrimary.classList.remove('refreshing');
+              fabPrimary.disabled = false;
+              loadBackups();
+            }, 1500);
+          } else {
+            throw new Error('Backup failed');
+          }
+        } catch (err) {
+          console.error('Backup creation failed:', err);
+          alert('Failed to create backup');
+          fabPrimary.classList.remove('refreshing');
+          fabPrimary.disabled = false;
+        }
+      });
+    }
+    
+    // Update FAB icon based on scroll position
+    function updateFABIcon() {
+      if (!fabSecondary) return;
+      
+      if (window.scrollY > 300) {
+        // Show back to top icon
+        fabSecondary.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+            <polyline points="18 15 12 9 6 15"></polyline>
+          </svg>
+        `;
+        fabSecondary.classList.add('show');
+      } else {
+        // Show refresh icon
+        fabSecondary.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+        `;
+        fabSecondary.classList.remove('show');
+      }
+    }
+    
+    // Listen for scroll events
     let lastScrollY = 0;
     window.addEventListener('scroll', () => {
       const currentScrollY = window.scrollY;
-      
-      if (currentScrollY > 300) {
-        // Scrolled down - show back to top
-        fabBackToTop?.classList.add('show');
-        fabRefresh?.classList.remove('show-create');
-      } else {
-        // At top - show create backup button
-        fabBackToTop?.classList.remove('show');
-        fabRefresh?.classList.add('show-create');
-      }
-      
+      updateFABIcon();
       lastScrollY = currentScrollY;
     }, { passive: true });
     
-    // ADDED: Initialize FAB state on load
-    const initialScrollY = window.scrollY;
-    if (initialScrollY <= 300) {
-      fabRefresh?.classList.add('show-create');
-    }
+    // Initialize FAB state on load
+    updateFABIcon();
   }
 })();
 </script>

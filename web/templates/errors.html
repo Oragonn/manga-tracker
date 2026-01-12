@@ -99,9 +99,18 @@
     .error-title { font-weight: bold; color: #e53e3e; }
     .error-url { color: #678ec9; word-break: break-all; }
     .error-message { color: #f56565; margin-top: 6px; white-space: pre-wrap; }
+
     h2 {
       color: white;
       margin-bottom: 16px;
+    }
+
+    /* Style for "no errors" message (desktop and mobile) */
+    .main-content > p.no-errors-message,
+    .main-content > p:not([class]) {
+      color: #94a3b8;
+      text-align: center;
+      padding: 40px 20px;
     }
 
     .mobile-menu-overlay,
@@ -112,6 +121,81 @@
 
     /* Mobile styles */
     @media (max-width: 768px) {
+      body {
+        padding: 0 !important;
+      }
+
+      .errors-layout {
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        gap: 0;
+      }
+
+      /* Hide sidebar on mobile */
+      .sidebar {
+        display: none;
+      }
+
+      /* Main content takes full width */
+      .main-content {
+        padding: 12px;
+      }
+
+      .main-content h2 {
+        font-size: 18px;
+        margin-bottom: 12px;
+        display: none; /* Hide since we'll use mobile header */
+      }
+
+      /* Date selector for mobile */
+      .mobile-date-selector {
+        display: block;
+        width: 100%;
+        padding: 12px;
+        background: #141b2f;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        color: white;
+        font-size: 14px;
+        margin-bottom: 16px;
+        cursor: pointer;
+      }
+
+      /* Compact error entries */
+      .error-entry {
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 8px;
+      }
+
+      .error-time {
+        font-size: 11px;
+        margin-bottom: 4px;
+      }
+
+      .error-title {
+        font-size: 14px;
+        margin-bottom: 4px;
+      }
+
+      .error-url {
+        font-size: 11px;
+        margin-bottom: 6px;
+        word-break: break-all;
+      }
+
+      .error-message {
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      /* Style for "no errors" message */
+      .main-content > p {
+        color: #94a3b8 !important;
+        text-align: center;
+        padding: 40px 20px;
+      }
 
       .mobile-menu-overlay {
         position: fixed;
@@ -307,7 +391,16 @@
       {% endfor %}
     </div>
 
-    <div class="main-content">
+  <div class="main-content">
+      <!-- Mobile date selector -->
+      <select class="mobile-date-selector" id="mobile-date-selector" style="display: none;">
+        {% for date_str, label in log_dates %}
+          <option value="{{ date_str }}" {% if date_str == current_date %}selected{% endif %}>
+            {{ label }}
+          </option>
+        {% endfor %}
+      </select>
+      
       <h2>Recent Errors</h2>
       {% if errors %}
         {% for err in errors %}
@@ -324,19 +417,19 @@
           </div>
         {% endfor %}
       {% else %}
-        <p>No errors found for this date.</p>
+        <p class="no-errors-message">No errors found for this date.</p>
       {% endif %}
     </div>
   </div>
 
 <!-- Mobile FAB Buttons -->
 <div class="fab-container" id="fab-container" style="display: none;">
-  <button class="fab-secondary" id="fab-back-to-top">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
-      <polyline points="18 15 12 9 6 15"></polyline>
+  <button class="fab-secondary" id="fab-secondary">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
     </svg>
   </button>
-  <button class="fab-primary" id="fab-refresh">
+  <button class="fab-primary" id="fab-primary">
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
       <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
     </svg>
@@ -375,6 +468,68 @@
       `;
     }
     
+// Show mobile date selector
+    const mobileSelector = document.getElementById('mobile-date-selector');
+    if (mobileSelector) {
+      mobileSelector.style.display = 'block';
+      
+      // Handle date change with proper event delegation
+      async function handleDateChange(e) {
+        const dateStr = e.target.value;
+        
+        try {
+          const res = await fetch(`/api/errors/${dateStr}`);
+          const data = await res.json();
+          
+          if (res.ok && data.errors) {
+            // Find the errors container (everything after the selector)
+            const mainContent = document.querySelector('.main-content');
+            const selector = document.getElementById('mobile-date-selector');
+            
+            if (mainContent && selector) {
+              const h2 = mainContent.querySelector('h2'); // Keep the h2 on desktop
+              
+              // FIXED: Remove ALL content after selector (errors + messages), except h2
+              const allChildren = Array.from(mainContent.children);
+              allChildren.forEach(child => {
+                if (child !== selector && child !== h2 && child.id !== 'mobile-date-selector') {
+                  child.remove();
+                }
+              });
+              
+              // Add new errors after the selector
+              if (data.errors.length > 0) {
+                data.errors.forEach(err => {
+                  const errorDiv = document.createElement('div');
+                  errorDiv.className = 'error-entry';
+                  errorDiv.innerHTML = `
+                    <div class="error-time">
+                      ${err.display_time}
+                      ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
+                    </div>
+                    <div class="error-title">${err.series_title}</div>
+                    <div class="error-url">${err.source_url}</div>
+                    <div class="error-message">${err.error}</div>
+                  `;
+                  mainContent.appendChild(errorDiv);
+                });
+              } else {
+                const noErrors = document.createElement('p');
+                noErrors.className = 'no-errors-message'; // ADDED: Class for easier targeting
+                noErrors.style.cssText = 'color: #94a3b8; text-align: center; padding: 40px 20px;';
+                noErrors.textContent = 'No errors found for this date.';
+                mainContent.appendChild(noErrors);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load errors:', e);
+        }
+      }
+      
+      mobileSelector.addEventListener('change', handleDateChange);
+    }
+
     // Mobile menu state
     let menuOpen = false;
     let scrollY = 0;
@@ -401,7 +556,7 @@
       window.scrollTo(0, scrollY);
     }
     
-// Event listeners
+    // Event listeners
     document.getElementById('mobile-menu-btn')?.addEventListener('click', openMobileMenu);
     document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
     document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
@@ -412,47 +567,171 @@
       fabContainer.style.display = 'flex';
     }
     
-    // Back to top FAB
-    const fabBackToTop = document.getElementById('fab-back-to-top');
-    if (fabBackToTop) {
-      fabBackToTop.addEventListener('click', () => {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    // NEW: Dashboard-style FAB behavior
+    const fabSecondary = document.getElementById('fab-secondary');
+    const fabPrimary = document.getElementById('fab-primary');
+    
+    // Secondary FAB: Refresh at top, Back to top when scrolled
+    if (fabSecondary) {
+      fabSecondary.addEventListener('click', async () => {
+        if (window.scrollY > 300) {
+          // Back to top behavior
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+          // Refresh errors at top
+          if (fabSecondary.disabled || fabSecondary.classList.contains('refreshing')) return;
+          
+          fabSecondary.disabled = true;
+          fabSecondary.classList.add('refreshing');
+          
+          // Reload the current date's errors
+          const selector = document.getElementById('mobile-date-selector');
+          const currentDate = selector ? selector.value : null;
+
+          if (currentDate) {
+            try {
+              const res = await fetch(`/api/errors/${currentDate}`);
+              const data = await res.json();
+              
+              if (res.ok && data.errors) {
+                const mainContent = document.querySelector('.main-content');
+                const selector = document.getElementById('mobile-date-selector');
+                const h2 = mainContent.querySelector('h2'); // Keep the h2 on desktop
+                
+                // FIXED: Remove ALL content after selector (except h2 for desktop)
+                const allChildren = Array.from(mainContent.children);
+                allChildren.forEach(child => {
+                  if (child !== selector && child !== h2 && child.id !== 'mobile-date-selector') {
+                    child.remove();
+                  }
+                });
+                
+                if (data.errors.length > 0) {
+                  data.errors.forEach(err => {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'error-entry';
+                    errorDiv.innerHTML = `
+                      <div class="error-time">
+                        ${err.display_time}
+                        ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
+                      </div>
+                      <div class="error-title">${err.series_title}</div>
+                      <div class="error-url">${err.source_url}</div>
+                      <div class="error-message">${err.error}</div>
+                    `;
+                    mainContent.appendChild(errorDiv);
+                  });
+                } else {
+                  const noErrors = document.createElement('p');
+                  noErrors.className = 'no-errors-message';
+                  noErrors.textContent = 'No errors found for this date.';
+                  mainContent.appendChild(noErrors);
+                }
+              }
+            } catch (err) {
+              console.error('Failed to refresh errors:', err);
+            }
+          }
+          
+          setTimeout(() => {
+            fabSecondary.classList.remove('refreshing');
+            fabSecondary.disabled = false;
+          }, 600);
+        }
       });
     }
     
-    // Refresh FAB
-    const fabRefresh = document.getElementById('fab-refresh');
-    if (fabRefresh) {
-      fabRefresh.addEventListener('click', async () => {
-        // ADDED: Prevent double-click
-        if (fabRefresh.disabled || fabRefresh.classList.contains('refreshing')) return;
+    // Primary FAB: Refresh (visible on errors page)
+    if (fabPrimary) {
+      fabPrimary.style.display = 'flex'; // CHANGED: Show the primary FAB
+      
+      fabPrimary.addEventListener('click', async () => {
+        if (fabPrimary.disabled || fabPrimary.classList.contains('refreshing')) return;
         
-        // ADDED: Disable button
-        fabRefresh.disabled = true;
+        fabPrimary.disabled = true;
+        fabPrimary.classList.add('refreshing');
         
-        // CHANGED: Force animation restart by removing and re-adding class
-        fabRefresh.classList.remove('refreshing');
-        void fabRefresh.offsetWidth; // Trigger reflow
-        fabRefresh.classList.add('refreshing');
+        // Reload the current date's errors
+        const selector = document.getElementById('mobile-date-selector');
+        const currentDate = selector ? selector.value : null;
         
-        // CHANGED: Reload the page for errors (simplest approach)
-        window.location.reload();
+        if (currentDate) {
+          try {
+            const res = await fetch(`/api/errors/${currentDate}`);
+            const data = await res.json();
+            
+            if (res.ok && data.errors) {
+              const mainContent = document.querySelector('.main-content');
+              const existingErrors = mainContent.querySelectorAll('.error-entry, p[style*="color: #94a3b8"]');
+              existingErrors.forEach(el => el.remove());
+              
+              if (data.errors.length > 0) {
+                data.errors.forEach(err => {
+                  const errorDiv = document.createElement('div');
+                  errorDiv.className = 'error-entry';
+                  errorDiv.innerHTML = `
+                    <div class="error-time">
+                      ${err.display_time}
+                      ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
+                    </div>
+                    <div class="error-title">${err.series_title}</div>
+                    <div class="error-url">${err.source_url}</div>
+                    <div class="error-message">${err.error}</div>
+                  `;
+                  mainContent.appendChild(errorDiv);
+                });
+              } else {
+                const noErrors = document.createElement('p');
+                noErrors.style.cssText = 'color: #94a3b8; text-align: center; padding: 40px 20px;';
+                noErrors.textContent = 'No errors found for this date.';
+                mainContent.appendChild(noErrors);
+              }
+            }
+          } catch (err) {
+            console.error('Failed to refresh errors:', err);
+          }
+        }
+        
+        setTimeout(() => {
+          fabPrimary.classList.remove('refreshing');
+          fabPrimary.disabled = false;
+        }, 600);
       });
     }
     
-    // Show/hide back to top based on scroll
+    // Update FAB icon based on scroll position
+    function updateFABIcon() {
+      if (!fabSecondary) return;
+      
+      if (window.scrollY > 300) {
+        // Show back to top icon
+        fabSecondary.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+            <polyline points="18 15 12 9 6 15"></polyline>
+          </svg>
+        `;
+        fabSecondary.classList.add('show');
+      } else {
+        // Show refresh icon
+        fabSecondary.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+        `;
+        fabSecondary.classList.remove('show');
+      }
+    }
+    
+    // Listen for scroll events
     let lastScrollY = 0;
     window.addEventListener('scroll', () => {
       const currentScrollY = window.scrollY;
-      
-      if (currentScrollY > 300) {
-        fabBackToTop?.classList.add('show');
-      } else {
-        fabBackToTop?.classList.remove('show');
-      }
-      
+      updateFABIcon();
       lastScrollY = currentScrollY;
     }, { passive: true });
+    
+    // Initialize FAB state on load
+    updateFABIcon();
   }
 })();
 </script>
