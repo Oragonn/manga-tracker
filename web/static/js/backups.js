@@ -293,16 +293,7 @@ document.addEventListener('DOMContentLoaded', () => {
           entries.forEach(entry => wrapper.appendChild(entry));
           group.appendChild(wrapper);
         }
-        
-        // Keep first group (Today) expanded, collapse others
-        if (index > 0) {
-          content.classList.add('collapsed');
-          header.classList.add('collapsed');
-          content.style.maxHeight = '0';
-        } else {
-          content.style.maxHeight = content.scrollHeight + 'px';
-        }
-      });
+              });
       
       observer.disconnect();
     });
