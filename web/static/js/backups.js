@@ -61,6 +61,9 @@ async function loadBackups() {
           <div class="date-group-header">📅 ${dateLabel}</div>
       `;
       
+      // CHANGED: Wrap backup entries in a content div for mobile collapsing
+      html += `<div class="date-group-content">`;
+      
       for (const backup of backups) {
         const ageText = backup.age_hours < 1 
           ? `${Math.floor(backup.age_hours * 60)} min ago`
@@ -93,7 +96,7 @@ async function loadBackups() {
         `;
       }
       
-      html += `</div>`;
+      html += `</div></div>`; // CHANGED: Close content wrapper and date-group
     }
     
     document.getElementById('backup-list').innerHTML = html || 
@@ -234,3 +237,79 @@ document.addEventListener('DOMContentLoaded', () => {
   // Auto-refresh every 60 seconds
   setInterval(loadBackups, 60000);
 });
+
+// Mobile collapsible date groups
+(function() {
+  function isMobile() {
+    return window.innerWidth <= 768;
+  }
+
+  if (isMobile()) {
+    console.log('[Mobile] Enabling collapsible date groups...');
+    
+    // Add click handlers to date group headers
+    document.addEventListener('click', (e) => {
+      const header = e.target.closest('.date-group-header');
+      if (!header) return;
+      
+      const content = header.nextElementSibling;
+      if (!content || !content.classList.contains('date-group-content')) return;
+      
+      // Toggle collapsed state
+      const isCollapsed = content.classList.contains('collapsed');
+      
+      if (isCollapsed) {
+        // Expand
+        content.classList.remove('collapsed');
+        header.classList.remove('collapsed');
+        content.style.maxHeight = content.scrollHeight + 'px';
+      } else {
+        // Collapse
+        content.classList.add('collapsed');
+        header.classList.add('collapsed');
+        content.style.maxHeight = '0';
+      }
+    });
+    
+    // Initialize collapsed state (keep Today expanded, collapse others)
+    const observer = new MutationObserver(() => {
+      const dateGroups = document.querySelectorAll('.date-group');
+      if (dateGroups.length === 0) return;
+      
+      dateGroups.forEach((group, index) => {
+        const header = group.querySelector('.date-group-header');
+        const content = group.querySelector('.date-group-content');
+        
+        if (!header || !content) return;
+        
+        // Wrap content if not already wrapped
+        if (!content.classList.contains('date-group-content')) {
+          const entries = Array.from(group.children).filter(el => 
+            el.classList.contains('backup-entry')
+          );
+          
+          const wrapper = document.createElement('div');
+          wrapper.className = 'date-group-content';
+          entries.forEach(entry => wrapper.appendChild(entry));
+          group.appendChild(wrapper);
+        }
+        
+        // Keep first group (Today) expanded, collapse others
+        if (index > 0) {
+          content.classList.add('collapsed');
+          header.classList.add('collapsed');
+          content.style.maxHeight = '0';
+        } else {
+          content.style.maxHeight = content.scrollHeight + 'px';
+        }
+      });
+      
+      observer.disconnect();
+    });
+    
+    observer.observe(document.getElementById('backup-list'), {
+      childList: true,
+      subtree: true
+    });
+  }
+})();

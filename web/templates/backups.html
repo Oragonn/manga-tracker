@@ -201,8 +201,146 @@
 
     /* Mobile styles */
     @media (max-width: 768px) {
+      .backups-container {
+        padding: 12px;
+        margin: 0;
+      }
+
       .backups-container-name {
         display: none; /* Hide header on mobile */
+      }
+
+      /* Compact status card for mobile */
+      .backup-status-card {
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+
+      .status-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .stat-item {
+        padding: 12px;
+        background: #1a2436;
+        border-radius: 8px;
+      }
+
+      .stat-label {
+        font-size: 11px;
+        color: #64748b;
+        margin-bottom: 4px;
+      }
+
+      .stat-value {
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      .usage-bar {
+        margin-top: 12px;
+      }
+
+      /* Hide desktop actions, use FAB instead */
+      .backup-actions {
+        display: none;
+      }
+
+      /* Compact backup list */
+      .backup-list-card {
+        padding: 16px;
+      }
+
+      .backup-list-card h2 {
+        font-size: 16px;
+        margin-bottom: 12px;
+      }
+
+      /* Collapsible date groups */
+      .date-group {
+        margin-bottom: 16px;
+      }
+
+      .date-group-header {
+        font-size: 14px;
+        padding: 10px 12px;
+        background: #1a2436;
+        border-radius: 8px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .date-group-header::after {
+        content: '▼';
+        font-size: 10px;
+        color: #64748b;
+        transition: transform 0.2s ease;
+      }
+
+      .date-group-header.collapsed::after {
+        transform: rotate(-90deg);
+      }
+
+      .date-group-content {
+        display: block;
+        overflow: hidden;
+        transition: max-height 0.3s ease;
+      }
+
+      .date-group-content.collapsed {
+        max-height: 0 !important;
+        margin: 0;
+      }
+
+      /* Mobile backup entries */
+      .backup-entry {
+        padding: 12px;
+        margin-bottom: 8px;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .backup-info {
+        width: 100%;
+      }
+
+      .backup-filename {
+        font-size: 12px;
+        word-break: break-all;
+      }
+
+      .backup-meta {
+        font-size: 12px;
+      }
+
+      .backup-entry-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .btn-backup {
+        padding: 10px 12px;
+        font-size: 13px;
+        width: 100%;
+        min-height: 44px;
+      }
+
+      /* Restore modal adjustments */
+      .modal-content {
+        width: 95%;
+        max-width: 400px;
+        margin: 20px;
+      }
+
+      #restore-details {
+        font-size: 13px;
       }
 
       .mobile-menu-overlay {
