@@ -221,6 +221,12 @@
         gap: 12px;
         margin-bottom: 12px;
       }
+      
+      /* ADDED: Reorder grid items on mobile */
+      .stat-item:nth-child(1) { order: 1; } /* Next Backup */
+      .stat-item:nth-child(2) { order: 2; } /* Last Backup */
+      .stat-item:nth-child(3) { order: 4; } /* Total Backups - moved to bottom right */
+      .stat-item:nth-child(4) { order: 3; } /* Disk Usage - moved to bottom left */
 
       .stat-item {
         padding: 12px;
@@ -251,6 +257,7 @@
       /* Compact backup list */
       .backup-list-card {
         padding: 16px;
+        padding-bottom: 0px;
       }
 
       .backup-list-card h2 {
@@ -408,6 +415,13 @@
       }
       
       .fab-secondary.show {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+      }
+      
+      /* ADDED: Show secondary FAB as create button when at top */
+      .fab-secondary.show-create {
         opacity: 1;
         visibility: visible;
         transform: translateY(0);
@@ -679,51 +693,104 @@
       fabContainer.style.display = 'flex';
     }
     
-    // Back to top FAB
+    // CHANGED: Combined FAB button behavior
     const fabBackToTop = document.getElementById('fab-back-to-top');
+    const fabRefresh = document.getElementById('fab-refresh');
+    
+    // Back to top click
     if (fabBackToTop) {
       fabBackToTop.addEventListener('click', () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     }
     
-    // Refresh FAB
-    const fabRefresh = document.getElementById('fab-refresh');
+    // Create backup / Refresh combined button
     if (fabRefresh) {
       fabRefresh.addEventListener('click', async () => {
-        // ADDED: Prevent double-click
-        if (fabRefresh.disabled || fabRefresh.classList.contains('refreshing')) return;
+        const currentScrollY = window.scrollY;
         
-        // ADDED: Disable button
-        fabRefresh.disabled = true;
-        
-        // CHANGED: Force animation restart by removing and re-adding class
-        fabRefresh.classList.remove('refreshing');
-        void fabRefresh.offsetWidth; // Trigger reflow
-        fabRefresh.classList.add('refreshing');
-        
-        await loadBackups(); // CHANGED: Call correct function for this page
-        
-        setTimeout(() => {
-          fabRefresh.classList.remove('refreshing');
-          fabRefresh.disabled = false; // ADDED: Re-enable button
-        }, 600);
+        if (currentScrollY > 300) {
+          // Scrolled down - do nothing (back to top button is shown)
+          return;
+        } else {
+          // At top - create backup
+          if (fabRefresh.disabled || fabRefresh.classList.contains('refreshing')) return;
+          
+          fabRefresh.disabled = true;
+          
+          // Change to loading state
+          const originalHTML = fabRefresh.innerHTML;
+          fabRefresh.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+          `;
+          fabRefresh.classList.add('refreshing');
+          
+          try {
+            const res = await fetch('/api/backups/create', { method: 'POST' });
+            const data = await res.json();
+            
+            if (data.success) {
+              // Show checkmark
+              fabRefresh.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+              `;
+              
+              setTimeout(() => {
+                fabRefresh.innerHTML = originalHTML;
+                fabRefresh.classList.remove('refreshing');
+                fabRefresh.disabled = false;
+                loadBackups();
+              }, 1500);
+            } else {
+              throw new Error('Backup failed');
+            }
+          } catch (err) {
+            console.error('Backup creation failed:', err);
+            // Show error
+            fabRefresh.innerHTML = `
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            `;
+            
+            setTimeout(() => {
+              fabRefresh.innerHTML = originalHTML;
+              fabRefresh.classList.remove('refreshing');
+              fabRefresh.disabled = false;
+            }, 1500);
+          }
+        }
       });
     }
     
-    // Show/hide back to top based on scroll
+    // CHANGED: Show/hide FAB buttons based on scroll
     let lastScrollY = 0;
     window.addEventListener('scroll', () => {
       const currentScrollY = window.scrollY;
       
       if (currentScrollY > 300) {
+        // Scrolled down - show back to top
         fabBackToTop?.classList.add('show');
+        fabRefresh?.classList.remove('show-create');
       } else {
+        // At top - show create backup button
         fabBackToTop?.classList.remove('show');
+        fabRefresh?.classList.add('show-create');
       }
       
       lastScrollY = currentScrollY;
     }, { passive: true });
+    
+    // ADDED: Initialize FAB state on load
+    const initialScrollY = window.scrollY;
+    if (initialScrollY <= 300) {
+      fabRefresh?.classList.add('show-create');
+    }
   }
 })();
 </script>

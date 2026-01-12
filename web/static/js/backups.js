@@ -23,8 +23,9 @@ async function loadBackups() {
     
     // Update status
     document.getElementById('total-backups').textContent = data.count;
+    // CHANGED: Show X MB / 35 MB format
     document.getElementById('disk-usage').textContent = 
-      `${data.total_size_mb.toFixed(1)} MB`;
+      `${data.total_size_mb.toFixed(1)} MB / 35 MB`;
     
     // Calculate usage percentage (assuming 35 MB target for 7 days)
     const usagePercent = Math.min((data.total_size_mb / 35) * 100, 100);
