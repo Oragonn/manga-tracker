@@ -88,17 +88,42 @@
     .main-content {
       flex: 1;
     }
+
     .error-entry {
       background: #1a2436;
       border: 1px solid #334155;
       border-radius: 8px;
       padding: 12px;
       margin-bottom: 12px;
+      /* ADDED: Prevent horizontal overflow on mobile */
+      max-width: 100%;
+      overflow: hidden;
+      word-wrap: break-word;
     }
     .error-time { color: #878F9C; font-size: 13px; }
-    .error-title { font-weight: bold; color: #e53e3e; }
-    .error-url { color: #678ec9; word-break: break-all; }
-    .error-message { color: #f56565; margin-top: 6px; white-space: pre-wrap; }
+    .error-title { 
+      font-weight: bold; 
+      color: #e53e3e;
+      /* ADDED: Break long titles */
+      word-break: break-word;
+      overflow-wrap: break-word;
+    }
+    .error-url { 
+      color: #678ec9; 
+      word-break: break-all;
+      /* ADDED: Ensure URLs don't overflow */
+      overflow-wrap: anywhere;
+      max-width: 100%;
+    }
+    .error-message { 
+      color: #f56565; 
+      margin-top: 6px; 
+      white-space: pre-wrap;
+      /* ADDED: Force text wrapping for long error messages */
+      word-break: break-word;
+      overflow-wrap: break-word;
+      max-width: 100%;
+    }
 
     h2 {
       color: white;
@@ -489,11 +514,12 @@
             if (mainContent && selector) {
               const h2 = mainContent.querySelector('h2'); // Keep the h2 on desktop
               
-              // FIXED: Remove ALL content after selector (errors + messages), except h2
-              const allChildren = Array.from(mainContent.children);
-              allChildren.forEach(child => {
-                if (child !== selector && child !== h2 && child.id !== 'mobile-date-selector') {
-                  child.remove();
+              // FIXED: Remove ALL error entries and ALL <p> tags
+              mainContent.querySelectorAll('.error-entry').forEach(el => el.remove());
+              mainContent.querySelectorAll('p').forEach(el => {
+                // Only remove if it's a direct child of main-content (not inside error-entry)
+                if (el.parentElement === mainContent) {
+                  el.remove();
                 }
               });
               
@@ -595,14 +621,15 @@
               
               if (res.ok && data.errors) {
                 const mainContent = document.querySelector('.main-content');
-                const selector = document.getElementById('mobile-date-selector');
+                const selectorEl = document.getElementById('mobile-date-selector');
                 const h2 = mainContent.querySelector('h2'); // Keep the h2 on desktop
                 
-                // FIXED: Remove ALL content after selector (except h2 for desktop)
-                const allChildren = Array.from(mainContent.children);
-                allChildren.forEach(child => {
-                  if (child !== selector && child !== h2 && child.id !== 'mobile-date-selector') {
-                    child.remove();
+                // FIXED: Remove ALL error entries and ALL <p> tags (except in error entries)
+                mainContent.querySelectorAll('.error-entry').forEach(el => el.remove());
+                mainContent.querySelectorAll('p').forEach(el => {
+                  // Only remove if it's a direct child of main-content (not inside error-entry)
+                  if (el.parentElement === mainContent) {
+                    el.remove();
                   }
                 });
                 
@@ -662,8 +689,14 @@
             
             if (res.ok && data.errors) {
               const mainContent = document.querySelector('.main-content');
-              const existingErrors = mainContent.querySelectorAll('.error-entry, p[style*="color: #94a3b8"]');
-              existingErrors.forEach(el => el.remove());
+              // FIXED: Remove ALL error entries and ALL <p> tags
+              mainContent.querySelectorAll('.error-entry').forEach(el => el.remove());
+              mainContent.querySelectorAll('p').forEach(el => {
+                // Only remove if it's a direct child of main-content (not inside error-entry)
+                if (el.parentElement === mainContent) {
+                  el.remove();
+                }
+              });
               
               if (data.errors.length > 0) {
                 data.errors.forEach(err => {
