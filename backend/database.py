@@ -345,6 +345,16 @@ def init_db():
 
     if "source_type" not in columns:
         cursor.execute("ALTER TABLE series ADD COLUMN source_type TEXT DEFAULT 'other'")
+    
+    if "created_at" not in columns:
+        cursor.execute("ALTER TABLE series ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+        # Backfill existing series with a reasonable timestamp (use last_check or now)
+        cursor.execute("""
+            UPDATE series 
+            SET created_at = COALESCE(last_check, CURRENT_TIMESTAMP)
+            WHERE created_at IS NULL
+        """)
+        print("[Database] Added and backfilled created_at column")
         
     # --- 3. Set default meta values ---
     cursor.execute("""
@@ -361,11 +371,14 @@ def init_db():
 
     release_db(conn)
 
-    # ✅ RUN MULTI-SOURCE MIGRATION
+# ✅ RUN MULTI-SOURCE MIGRATION
     migrate_to_multi_source()
 
     # Run backfill AFTER releasing DB lock
     backfill_searchable_text()
+    
+    # ✅ INITIALIZE STATS HISTORY TABLE
+    init_stats_history_table()
 
 def update_last_dashboard_visit():
     now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -568,3 +581,383 @@ def get_unread_reading_count():
     count = cursor.fetchone()[0]
     release_db(conn)
     return count
+
+# === HISTORICAL STATS TRACKING ===
+
+def init_stats_history_table():
+    """Create table for storing historical reading statistics."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS stats_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            period_type TEXT NOT NULL,  -- 'day', 'week', 'month', 'year'
+            period_start TEXT NOT NULL,  -- ISO format date
+            period_end TEXT NOT NULL,    -- ISO format date
+            series_added INTEGER DEFAULT 0,
+            chapters_read INTEGER DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(period_type, period_start)
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_stats_period ON stats_history(period_type, period_start)
+    """)
+    
+    release_db(conn)
+    print("[Database] Stats history table initialized")
+
+
+def save_period_stats(period_type, period_start, period_end, series_added, chapters_read):
+    """Save statistics for a completed period."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            INSERT OR REPLACE INTO stats_history 
+            (period_type, period_start, period_end, series_added, chapters_read)
+            VALUES (?, ?, ?, ?, ?)
+        """, (period_type, period_start, period_end, series_added, chapters_read))
+        
+        release_db(conn)
+        return True
+    except Exception as e:
+        print(f"[Database] Failed to save period stats: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False
+
+
+def get_stats_history(period_type=None, limit=100):
+    """Retrieve historical stats, optionally filtered by period type."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if period_type:
+        cursor.execute("""
+            SELECT period_type, period_start, period_end, series_added, chapters_read, created_at
+            FROM stats_history
+            WHERE period_type = ?
+            ORDER BY period_start DESC
+            LIMIT ?
+        """, (period_type, limit))
+    else:
+        cursor.execute("""
+            SELECT period_type, period_start, period_end, series_added, chapters_read, created_at
+            FROM stats_history
+            ORDER BY period_start DESC
+            LIMIT ?
+        """, (limit,))
+    
+    rows = cursor.fetchall()
+    release_db(conn)
+    
+    history = []
+    for row in rows:
+        history.append({
+            'period_type': row[0],
+            'period_start': row[1],
+            'period_end': row[2],
+            'series_added': row[3],
+            'chapters_read': row[4],
+            'created_at': row[5]
+        })
+    
+    return history
+
+
+def get_yearly_totals():
+    """Get total series added and chapters read for each year."""
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT 
+            substr(period_start, 1, 4) as year,
+            SUM(series_added) as total_series_added,
+            SUM(chapters_read) as total_chapters_read
+        FROM stats_history
+        WHERE period_type = 'year'
+        GROUP BY year
+        ORDER BY year DESC
+    """)
+    
+    rows = cursor.fetchall()
+    release_db(conn)
+    
+    yearly_totals = []
+    for row in rows:
+        yearly_totals.append({
+            'year': row[0],
+            'series_added': row[1],
+            'chapters_read': row[2]
+        })
+
+    return yearly_totals
+
+
+def update_current_period_stats():
+    """
+    Update stats for current day/week/month/year.
+    Call this whenever a series is added or chapters are read.
+    """
+    from datetime import datetime, timezone, timedelta
+    import json
+    
+    conn = None
+    try:
+        now = datetime.now(timezone.utc)
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # === TODAY ===
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        today_str = today_start.date().isoformat()
+        
+        # Count series added today (use DATE comparison for reliability)
+        cursor.execute("""
+            SELECT COUNT(*) FROM series 
+            WHERE DATE(created_at) = DATE(?)
+        """, (now.isoformat(),))
+        series_added_today = cursor.fetchone()[0] or 0
+        
+        # Count chapters read today
+        cursor.execute("""
+            SELECT old_value, new_value
+            FROM activity_log
+            WHERE action_type = 'progress'
+            AND timestamp >= ?
+        """, (today_start.isoformat(),))
+        
+        chapters_read_today = 0
+        for old_str, new_str in cursor.fetchall():
+            try:
+                old_val = json.loads(old_str) if old_str else {}
+                new_val = json.loads(new_str) if new_str else {}
+                old_ch = old_val.get('chapter', -1)
+                new_ch = new_val.get('chapter', -1)
+                
+                # FIXED: Handle "Not started" (-1) transitions
+                if new_ch >= 0:  # Only check if new chapter is valid
+                    if old_ch == -1:
+                        # Started reading: count from 0 to new_ch
+                        chapters_read_today += float(new_ch)
+                    elif old_ch >= 0:
+                        # Normal progress: count difference
+                        chapters_read_today += float(new_ch) - float(old_ch)
+            except:
+                continue
+        
+        chapters_read_today = round(chapters_read_today, 1)
+        
+        # Save today's stats
+        cursor.execute("""
+            INSERT OR REPLACE INTO stats_history 
+            (period_type, period_start, period_end, series_added, chapters_read)
+            VALUES (?, ?, ?, ?, ?)
+        """, ('day', today_str, today_str, series_added_today, chapters_read_today))
+        
+        # === THIS WEEK ===
+        week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        week_end = (week_start + timedelta(days=6)).replace(hour=23, minute=59, second=59, microsecond=999999)
+        week_str = week_start.date().isoformat()
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM series 
+            WHERE created_at >= ? AND created_at <= ?
+        """, (week_start.isoformat(), now.isoformat()))
+        series_added_week = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT old_value, new_value
+            FROM activity_log
+            WHERE action_type = 'progress'
+            AND timestamp >= ? AND timestamp <= ?
+        """, (week_start.isoformat(), now.isoformat()))
+        
+        chapters_read_week = 0
+        for old_str, new_str in cursor.fetchall():
+            try:
+                old_val = json.loads(old_str) if old_str else {}
+                new_val = json.loads(new_str) if new_str else {}
+                old_ch = old_val.get('chapter', -1)
+                new_ch = new_val.get('chapter', -1)
+                
+                # FIXED: Handle "Not started" (-1) transitions
+                if new_ch >= 0:
+                    if old_ch == -1:
+                        chapters_read_week += float(new_ch)
+                    elif old_ch >= 0:
+                        chapters_read_week += float(new_ch) - float(old_ch)
+            except:
+                continue
+        
+        chapters_read_week = round(chapters_read_week, 1)
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO stats_history 
+            (period_type, period_start, period_end, series_added, chapters_read)
+            VALUES (?, ?, ?, ?, ?)
+        """, ('week', week_str, week_end.date().isoformat(), series_added_week, chapters_read_week))
+        
+        # === THIS MONTH ===
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
+        month_str = month_start.date().isoformat()
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM series 
+            WHERE created_at >= ? AND created_at <= ?
+        """, (month_start.isoformat(), now.isoformat()))
+        series_added_month = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT old_value, new_value
+            FROM activity_log
+            WHERE action_type = 'progress'
+            AND timestamp >= ? AND timestamp <= ?
+        """, (month_start.isoformat(), now.isoformat()))
+        
+        chapters_read_month = 0
+        for old_str, new_str in cursor.fetchall():
+            try:
+                old_val = json.loads(old_str) if old_str else {}
+                new_val = json.loads(new_str) if new_str else {}
+                old_ch = old_val.get('chapter', -1)
+                new_ch = new_val.get('chapter', -1)
+                
+                # FIXED: Handle "Not started" (-1) transitions
+                if new_ch >= 0:
+                    if old_ch == -1:
+                        chapters_read_month += float(new_ch)
+                    elif old_ch >= 0:
+                        chapters_read_month += float(new_ch) - float(old_ch)
+            except:
+                continue
+        
+        chapters_read_month = round(chapters_read_month, 1)
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO stats_history 
+            (period_type, period_start, period_end, series_added, chapters_read)
+            VALUES (?, ?, ?, ?, ?)
+        """, ('month', month_str, month_end.date().isoformat(), series_added_month, chapters_read_month))
+        
+        # === THIS YEAR ===
+        year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        year_end = year_start.replace(year=year_start.year + 1) - timedelta(seconds=1)
+        year_str = year_start.date().isoformat()
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM series 
+            WHERE created_at >= ? AND created_at <= ?
+        """, (year_start.isoformat(), now.isoformat()))
+        series_added_year = cursor.fetchone()[0] or 0
+        
+        cursor.execute("""
+            SELECT old_value, new_value
+            FROM activity_log
+            WHERE action_type = 'progress'
+            AND timestamp >= ? AND timestamp <= ?
+        """, (year_start.isoformat(), now.isoformat()))
+        
+        chapters_read_year = 0
+        for old_str, new_str in cursor.fetchall():
+            try:
+                old_val = json.loads(old_str) if old_str else {}
+                new_val = json.loads(new_str) if new_str else {}
+                old_ch = old_val.get('chapter', -1)
+                new_ch = new_val.get('chapter', -1)
+                
+                # FIXED: Handle "Not started" (-1) transitions
+                if new_ch >= 0:
+                    if old_ch == -1:
+                        chapters_read_year += float(new_ch)
+                    elif old_ch >= 0:
+                        chapters_read_year += float(new_ch) - float(old_ch)
+            except:
+                continue
+        
+        chapters_read_year = round(chapters_read_year, 1)
+        
+        cursor.execute("""
+            INSERT OR REPLACE INTO stats_history 
+            (period_type, period_start, period_end, series_added, chapters_read)
+            VALUES (?, ?, ?, ?, ?)
+        """, ('year', year_str, year_end.date().isoformat(), series_added_year, chapters_read_year))
+        
+        print(f"[Stats] Updated current period stats: Today={series_added_today}s/{chapters_read_today}ch, Week={series_added_week}s/{chapters_read_week}ch, Month={series_added_month}s/{chapters_read_month}ch, Year={series_added_year}s/{chapters_read_year}ch")
+        
+    except Exception as e:
+        print(f"[Stats] Failed to update current period stats: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        if conn is not None:
+            try:
+                release_db(conn)
+            except Exception as release_err:
+                print(f"[Stats] Failed to release DB in update_current_period_stats: {release_err}")
+
+def cleanup_old_stats(keep_days=90, keep_years=True):
+    """
+    Clean up old statistics to prevent database bloat.
+    
+    Args:
+        keep_days: How many days of daily stats to keep (default: 90)
+        keep_years: If True, never delete yearly stats (default: True)
+    """
+    from datetime import datetime, timezone, timedelta
+    
+    conn = None
+    try:
+        now = datetime.now(timezone.utc)
+        cutoff_date = (now - timedelta(days=keep_days)).date().isoformat()
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Delete old daily stats (keep last 90 days)
+        cursor.execute("""
+            DELETE FROM stats_history 
+            WHERE period_type = 'day' 
+            AND period_start < ?
+        """, (cutoff_date,))
+        deleted_days = cursor.rowcount
+        
+        # Delete old weekly stats (keep last ~1 year = 52 weeks)
+        week_cutoff = (now - timedelta(days=365)).date().isoformat()
+        cursor.execute("""
+            DELETE FROM stats_history 
+            WHERE period_type = 'week' 
+            AND period_start < ?
+        """, (week_cutoff,))
+        deleted_weeks = cursor.rowcount
+        
+        # Delete old monthly stats (keep last 2 years = 24 months)
+        month_cutoff = (now - timedelta(days=730)).date().isoformat()
+        cursor.execute("""
+            DELETE FROM stats_history 
+            WHERE period_type = 'month' 
+            AND period_start < ?
+        """, (month_cutoff,))
+        deleted_months = cursor.rowcount
+        
+        # NEVER delete yearly stats (keep forever)
+        
+        release_db(conn)
+        print(f"[Stats Cleanup] Removed {deleted_days} old daily stats, {deleted_weeks} old weekly stats, {deleted_months} old monthly stats")
+        
+    except Exception as e:
+        print(f"[Stats Cleanup] Failed: {e}")
+        if conn:
+            try:
+                release_db(conn)
+            except:
+                pass
