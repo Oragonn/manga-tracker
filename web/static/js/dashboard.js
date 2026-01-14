@@ -49,10 +49,16 @@ const state = {
 	dir: 'asc',
 	type: [],
 	genre: [],
-	rating: [],
+	rating: [
+		{ name: 'mature', mode: 'exclude' },
+		{ name: 'explicit', mode: 'exclude' }
+	],
 	pubStatus: [],
-	readableOn: []  // NEW: Filter for source types (mangadex, kagane)
+	readableOn: []
 };
+
+// Track default excluded ratings to hide from count
+const DEFAULT_EXCLUDED_RATINGS = ['mature', 'explicit'];
 
 // ─── Bulk Selection State ────────────────────────────────────────
 const bulkState = {
@@ -1090,11 +1096,19 @@ async function loadPage() {
 	if (Array.isArray(state.type) && state.type.length > 0) {
 		url += `&type=${encodeURIComponent(state.type.join(','))}`;
 	}
+	// Handle genre and rating with include/exclude modes
 	if (Array.isArray(state.genre) && state.genre.length > 0) {
-		url += `&genre=${encodeURIComponent(state.genre.join(','))}`;
+		const genreNames = state.genre.map(g => g.name).join(',');
+		const genreModes = state.genre.map(g => g.mode).join(',');
+		url += `&genre=${encodeURIComponent(genreNames)}`;
+		url += `&genre_modes=${encodeURIComponent(genreModes)}`;
 	}
+	
 	if (Array.isArray(state.rating) && state.rating.length > 0) {
-		url += `&rating=${encodeURIComponent(state.rating.join(','))}`;
+		const ratingNames = state.rating.map(r => r.name).join(',');
+		const ratingModes = state.rating.map(r => r.mode).join(',');
+		url += `&rating=${encodeURIComponent(ratingNames)}`;
+		url += `&rating_modes=${encodeURIComponent(ratingModes)}`;
 	}
 	if (Array.isArray(state.pubStatus) && state.pubStatus.length > 0) {
 		url += `&pub_status=${encodeURIComponent(state.pubStatus.join(','))}`;
@@ -1152,14 +1166,10 @@ function setupStaticMultiSelect(trigger, menu, checkboxes, stateKey, labelMap = 
     if (!menu.classList.contains('hidden')) {
       closeAllMultiSelectMenus(menu);
       
-      // Only use fixed positioning for desktop
+	// Only set width for desktop (position handled by CSS)
       if (!isMobileDrawer) {
         const rect = trigger.getBoundingClientRect();
-        menu.style.position = 'fixed';
-        menu.style.left = rect.left + 'px';
-        menu.style.top = (rect.bottom + 4) + 'px';
         menu.style.width = rect.width + 'px';
-        menu.style.zIndex = '1001';
       }
     }
   });
@@ -1218,11 +1228,7 @@ function setupSingleSelect(trigger, menu, stateKey, labelMap, defaultValue) {
 		if (!menu.classList.contains('hidden')) {
 			closeAllMultiSelectMenus(menu);
 			const rect = trigger.getBoundingClientRect();
-			menu.style.position = 'fixed'; // Changed from absolute
-			menu.style.left = rect.left + 'px';
-			menu.style.top = (rect.bottom + 4) + 'px';
 			menu.style.width = rect.width + 'px';
-			menu.style.zIndex = '1001';
 		}
 	});
 	options.forEach(option => {
@@ -1322,11 +1328,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!genreMenu.classList.contains('hidden')) {
 			closeAllMultiSelectMenus(genreMenu);
 			const rect = genreTrigger.getBoundingClientRect();
-			genreMenu.style.position = 'fixed'; // Changed from absolute
-			genreMenu.style.left = rect.left + 'px';
-			genreMenu.style.top = (rect.bottom + 4) + 'px';
 			genreMenu.style.width = rect.width + 'px';
-			genreMenu.style.zIndex = '1001';
 			// Scroll to top when opening
 			const scrollContainer = genreMenu.querySelector('.combined-tags-list');
 			if (scrollContainer) {
@@ -1335,57 +1337,116 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 	
-	// Update trigger text based on both genres and ratings
 	function updateTagsTriggerText() {
 		const genreCount = state.genre.length;
-		const ratingCount = state.rating.length;
+		
+		// Count only non-default ratings
+		const nonDefaultRatings = state.rating.filter(r => {
+			// If it's a default excluded rating in exclude mode, don't count it
+			if (DEFAULT_EXCLUDED_RATINGS.includes(r.name) && r.mode === 'exclude') {
+				return false;
+			}
+			return true;
+		});
+		const ratingCount = nonDefaultRatings.length;
+		
 		const totalCount = genreCount + ratingCount;
 		
 		if (totalCount === 0) {
 			genreTrigger.textContent = 'Tags';
-		} else if (totalCount === 1) {
-			if (genreCount === 1) {
-				genreTrigger.textContent = state.genre[0];
-			} else {
-				const ratingMap = {
-					'safe': 'Safe',
-					'mild': 'Suggestive',
-					'mature': 'Mature',
-					'explicit': 'Explicit'
-				};
-				genreTrigger.textContent = ratingMap[state.rating[0]] || state.rating[0];
-			}
 		} else {
 			genreTrigger.textContent = `${totalCount} Selected`;
 		}
 	}
-	
+		
+	// ADDED: Tags mode toggle button
+	const tagsModeBtn = document.getElementById('btn-tags-mode');
+	if (tagsModeBtn) {
+		tagsModeBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			const currentMode = state.tagsMode;
+			const newMode = currentMode === 'include' ? 'exclude' : 'include';
+			state.tagsMode = newMode;
+			
+			// Update button appearance
+			tagsModeBtn.dataset.mode = newMode;
+			const icon = tagsModeBtn.querySelector('svg');
+			const text = tagsModeBtn.querySelector('span');
+			
+			if (newMode === 'exclude') {
+				// X icon for exclude
+				icon.innerHTML = '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>';
+				text.textContent = 'Exclude Mode';
+			} else {
+				// Checkmark icon for include
+				icon.innerHTML = '<path d="M20 6L9 17l-5-5"/>';
+				text.textContent = 'Include Mode';
+			}
+			
+			// Reload if there are active filters
+			if (state.genre.length > 0 || state.rating.length > 0) {
+				state.page = 1;
+				loadPage();
+			}
+			
+			// Update trigger text
+			updateTagsTriggerText();
+		});
+	}
+
 	// Clear All button (clears both genres and ratings)
 	clearAllBtn.addEventListener('click', () => {
 		state.genre = [];
 		state.rating = [];
 		state.page = 1;
+		
+		// Reset all checkboxes data-mode
+		genreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+			delete cb.dataset.mode;
+		});
+		ratingCheckboxes.forEach(cb => {
+			delete cb.dataset.mode;
+		});
+		
 		loadPage();
-		genreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-		ratingCheckboxes.forEach(cb => cb.checked = false);
 		updateTagsTriggerText();
 	});
 
-	// Setup rating checkboxes (OR logic)
+	// Setup rating checkboxes (3-state toggle: disabled → include → exclude → disabled)
 	ratingCheckboxes.forEach(cb => {
-		cb.checked = state.rating.includes(cb.value);
-		cb.addEventListener('change', () => {
-			if (cb.checked) {
-				if (!state.rating.includes(cb.value)) state.rating.push(cb.value);
-			} else {
-				state.rating = state.rating.filter(r => r !== cb.value);
+		// Initialize state
+		const existing = state.rating.find(r => r.name === cb.value);
+		if (existing) {
+			cb.dataset.mode = existing.mode;
+		}
+		
+		// 3-state click handler
+		cb.parentElement.addEventListener('click', (e) => {
+			e.preventDefault();
+			const current = state.rating.find(r => r.name === cb.value);
+			
+			// Remove current state
+			state.rating = state.rating.filter(r => r.name !== cb.value);
+			delete cb.dataset.mode;
+			
+			// Cycle: disabled → include → exclude → disabled
+			if (!current) {
+				// disabled → include
+				state.rating.push({ name: cb.value, mode: 'include' });
+				cb.dataset.mode = 'include';
+			} else if (current.mode === 'include') {
+				// include → exclude
+				state.rating.push({ name: cb.value, mode: 'exclude' });
+				cb.dataset.mode = 'exclude';
 			}
+			// else: exclude → disabled (already removed above)
+			
 			state.page = 1;
 			loadPage();
 			updateTagsTriggerText();
 		});
 	});
-	
+
 	// Load genres dynamically
 	loadGenres = async function() {
 		try {
@@ -1398,19 +1459,42 @@ document.addEventListener('DOMContentLoaded', () => {
 					const cb = document.createElement('input');
 					cb.type = 'checkbox';
 					cb.value = genre;
-					cb.checked = state.genre.includes(genre);
-					cb.addEventListener('change', () => {
-						if (cb.checked) {
-							if (!state.genre.includes(genre)) state.genre.push(genre);
-						} else {
-							state.genre = state.genre.filter(g => g !== genre);
+					
+					// Initialize state
+					const existing = state.genre.find(g => g.name === genre);
+					if (existing) {
+						cb.dataset.mode = existing.mode;
+					}
+					
+					label.appendChild(cb);
+					label.appendChild(document.createTextNode(genre));
+					
+					// 3-state click handler
+					label.addEventListener('click', (e) => {
+						e.preventDefault();
+						const current = state.genre.find(g => g.name === genre);
+						
+						// Remove current state
+						state.genre = state.genre.filter(g => g.name !== genre);
+						delete cb.dataset.mode;
+						
+						// Cycle: disabled → include → exclude → disabled
+						if (!current) {
+							// disabled → include
+							state.genre.push({ name: genre, mode: 'include' });
+							cb.dataset.mode = 'include';
+						} else if (current.mode === 'include') {
+							// include → exclude
+							state.genre.push({ name: genre, mode: 'exclude' });
+							cb.dataset.mode = 'exclude';
 						}
+						// else: exclude → disabled (already removed above)
+						
 						state.page = 1;
 						loadPage();
 						updateTagsTriggerText();
 					});
-					label.appendChild(cb);
-					label.appendChild(document.createTextNode(genre));
+					
 					genreListSection.appendChild(label);
 				});
 			}
@@ -1418,7 +1502,6 @@ document.addEventListener('DOMContentLoaded', () => {
 			console.error('Failed to load genres:', e);
 		}
 	};
-
 
 	// Publication Status
 	const pubStatusTrigger = document.getElementById('filter-pub-status-trigger');
@@ -1531,7 +1614,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 
-	// UPDATED: Reset with new readableOn field
+	// UPDATED: Reset with new readableOn field and tagsMode
 	document.getElementById('btn-reset-filters')?.addEventListener('click', () => {
 		state.status = 'reading';
 		state.sort = 'unread_first';
@@ -1540,8 +1623,19 @@ document.addEventListener('DOMContentLoaded', () => {
 		state.genre = [];
 		state.rating = [];
 		state.pubStatus = [];
-		state.readableOn = [];  // NEW
+		state.readableOn = [];
+		state.tagsMode = 'include';  // ADDED: Reset to include mode
 		state.page = 1;
+		
+		// ADDED: Reset tags mode button
+		const tagsModeBtn = document.getElementById('btn-tags-mode');
+		if (tagsModeBtn) {
+			tagsModeBtn.dataset.mode = 'include';
+			const icon = tagsModeBtn.querySelector('svg');
+			const text = tagsModeBtn.querySelector('span');
+			icon.innerHTML = '<path d="M20 6L9 17l-5-5"/>';
+			text.textContent = 'Include Mode';
+		}
 		if (searchInput) searchInput.value = '';
 		document.getElementById('filter-status-trigger').textContent = 'Reading';
 		document.getElementById('sort-order-trigger').textContent = 'Unread First';
@@ -2124,7 +2218,7 @@ function createFilterDrawer() {
           </div>
         </div>
 
-        <!-- Tags (Genres) -->
+		<!-- Tags (Genres) -->
         <div class="filter-section">
           <h3>Tags</h3>
           <div class="multi-select" id="mobile-filter-genre-container">
@@ -2132,6 +2226,16 @@ function createFilterDrawer() {
               Tags
             </button>
 			<div class="multi-select-menu hidden" id="mobile-filter-genre-menu">
+			<!-- ADDED: Mobile tags mode toggle -->
+			<div class="tags-mode-toggle">
+				<button class="btn-tags-mode" id="mobile-btn-tags-mode" data-mode="include">
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+					<path d="M20 6L9 17l-5-5"/>
+				</svg>
+				<span>Include Mode</span>
+				</button>
+			</div>
+			
 			<div class="combined-tags-list">
 				<div class="genre-list-section"></div>
 				<div style="border-top: 1px solid #334155; margin: 8px 0;"></div>
@@ -2235,58 +2339,73 @@ function createFilterDrawer() {
     }
   });
 
-  // Update trigger text based on both genres and ratings
-  function updateMobileTagsTriggerText() {
-    const genreCount = state.genre.length;
-    const ratingCount = state.rating.length;
-    const totalCount = genreCount + ratingCount;
-    
-    if (totalCount === 0) {
-      mobileGenreTrigger.textContent = 'Tags';
-    } else if (totalCount === 1) {
-      if (genreCount === 1) {
-        mobileGenreTrigger.textContent = state.genre[0];
-      } else {
-        const ratingMap = {
-          'safe': 'Safe',
-          'mild': 'Suggestive',
-          'mature': 'Mature',
-          'explicit': 'Explicit'
-        };
-        mobileGenreTrigger.textContent = ratingMap[state.rating[0]] || state.rating[0];
-      }
-    } else {
-      mobileGenreTrigger.textContent = `${totalCount} Selected`;
-    }
-  }
+	// Update trigger text based on both genres and ratings
+	function updateMobileTagsTriggerText() {
+		const genreCount = state.genre.length;
+		const ratingCount = state.rating.length;
+		const totalCount = genreCount + ratingCount;
+		
+		if (totalCount === 0) {
+		mobileGenreTrigger.textContent = 'Tags';
+		} else {
+		mobileGenreTrigger.textContent = `${totalCount} Selected`;
+		}
+	}
 
-  // Clear All button (clears both genres and ratings)
+	// Clear All button (clears both genres and ratings)
   mobileClearAllBtn.addEventListener('click', () => {
     state.genre = [];
     state.rating = [];
     state.page = 1;
+    
+    // Reset all checkboxes data-mode
+    mobileGenreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      delete cb.dataset.mode;
+    });
+    mobileRatingCheckboxes.forEach(cb => {
+      delete cb.dataset.mode;
+    });
+    
     loadPage();
-    mobileGenreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-    mobileRatingCheckboxes.forEach(cb => cb.checked = false);
     updateMobileTagsTriggerText();
   });
 
-  // Setup rating checkboxes (OR logic)
+	// Setup rating checkboxes (3-state toggle: disabled → include → exclude → disabled)
   mobileRatingCheckboxes.forEach(cb => {
-    cb.checked = state.rating.includes(cb.value);
-    cb.addEventListener('change', () => {
-      if (cb.checked) {
-        if (!state.rating.includes(cb.value)) state.rating.push(cb.value);
-      } else {
-        state.rating = state.rating.filter(r => r !== cb.value);
+    // Initialize state
+    const existing = state.rating.find(r => r.name === cb.value);
+    if (existing) {
+      cb.dataset.mode = existing.mode;
+    }
+    
+    // 3-state click handler
+    cb.parentElement.addEventListener('click', (e) => {
+      e.preventDefault();
+      const current = state.rating.find(r => r.name === cb.value);
+      
+      // Remove current state
+      state.rating = state.rating.filter(r => r.name !== cb.value);
+      delete cb.dataset.mode;
+      
+      // Cycle: disabled → include → exclude → disabled
+      if (!current) {
+        // disabled → include
+        state.rating.push({ name: cb.value, mode: 'include' });
+        cb.dataset.mode = 'include';
+      } else if (current.mode === 'include') {
+        // include → exclude
+        state.rating.push({ name: cb.value, mode: 'exclude' });
+        cb.dataset.mode = 'exclude';
       }
+      // else: exclude → disabled (already removed above)
+      
       state.page = 1;
       loadPage();
       updateMobileTagsTriggerText();
     });
   });
 
-  // Load genres dynamically (mobile version)
+// Load genres dynamically (mobile version)
   loadMobileGenres = async function() {
     try {
       const res = await fetch('/api/genres');
@@ -2298,19 +2417,42 @@ function createFilterDrawer() {
           const cb = document.createElement('input');
           cb.type = 'checkbox';
           cb.value = genre;
-          cb.checked = state.genre.includes(genre);
-          cb.addEventListener('change', () => {
-            if (cb.checked) {
-              if (!state.genre.includes(genre)) state.genre.push(genre);
-            } else {
-              state.genre = state.genre.filter(g => g !== genre);
+          
+          // Initialize state
+          const existing = state.genre.find(g => g.name === genre);
+          if (existing) {
+            cb.dataset.mode = existing.mode;
+          }
+          
+          label.appendChild(cb);
+          label.appendChild(document.createTextNode(genre));
+          
+          // 3-state click handler
+          label.addEventListener('click', (e) => {
+            e.preventDefault();
+            const current = state.genre.find(g => g.name === genre);
+            
+            // Remove current state
+            state.genre = state.genre.filter(g => g.name !== genre);
+            delete cb.dataset.mode;
+            
+            // Cycle: disabled → include → exclude → disabled
+            if (!current) {
+              // disabled → include
+              state.genre.push({ name: genre, mode: 'include' });
+              cb.dataset.mode = 'include';
+            } else if (current.mode === 'include') {
+              // include → exclude
+              state.genre.push({ name: genre, mode: 'exclude' });
+              cb.dataset.mode = 'exclude';
             }
+            // else: exclude → disabled (already removed above)
+            
             state.page = 1;
             loadPage();
             updateMobileTagsTriggerText();
           });
-          label.appendChild(cb);
-          label.appendChild(document.createTextNode(genre));
+          
           mobileGenreListSection.appendChild(label);
         });
       }
@@ -2508,7 +2650,28 @@ function resetMobileFilters() {
   state.rating = [];
   state.pubStatus = [];
   state.readableOn = [];
+  state.tagsMode = 'include';  // ADDED: Reset tags mode
   state.page = 1;
+  
+  // ADDED: Reset desktop tags mode button
+  const tagsModeBtn = document.getElementById('btn-tags-mode');
+  if (tagsModeBtn) {
+    tagsModeBtn.dataset.mode = 'include';
+    const icon = tagsModeBtn.querySelector('svg');
+    const text = tagsModeBtn.querySelector('span');
+    icon.innerHTML = '<path d="M20 6L9 17l-5-5"/>';
+    text.textContent = 'Include Mode';
+  }
+  
+  // ADDED: Reset mobile tags mode button
+  const mobileTagsBtn = document.getElementById('mobile-btn-tags-mode');  // CHANGED: Different variable name
+  if (mobileTagsBtn) {
+    mobileTagsBtn.dataset.mode = 'include';
+    const mobileIcon = mobileTagsBtn.querySelector('svg');
+    const mobileText = mobileTagsBtn.querySelector('span');
+    mobileIcon.innerHTML = '<path d="M20 6L9 17l-5-5"/>';
+    mobileText.textContent = 'Include Mode';
+  }
   
   // Reset ALL multi-select checkboxes in mobile drawer
   document.querySelectorAll(`

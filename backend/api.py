@@ -541,23 +541,51 @@ def api_series():
             where_parts.append(f"source_type IN ({placeholders})")
             params.extend(type_list)
 
-    # Genre filter (multi-select - AND logic)
+    # Genre and Rating filters with individual include/exclude modes
     genre_filter = request.args.get('genre', '').strip()
-    if genre_filter:
-        genre_list = [g.strip() for g in genre_filter.split(',') if g.strip()]
-        if genre_list:
-            for g in genre_list:
-                where_parts.append("genres LIKE ?")
-                params.append(f'%"{g}"%')
-
-    # Content Rating filter (multi-select - OR logic)
+    genre_modes_filter = request.args.get('genre_modes', '').strip()
     rating_filter = request.args.get('rating', '').strip()
-    if rating_filter:
-        rating_list = [r.strip() for r in rating_filter.split(',') if r.strip()]
-        if rating_list:
-            placeholders = ','.join(['?'] * len(rating_list))
+    rating_modes_filter = request.args.get('rating_modes', '').strip()
+    
+    # Parse genres with their modes
+    genre_list = [g.strip() for g in genre_filter.split(',') if g.strip()] if genre_filter else []
+    genre_modes = [m.strip() for m in genre_modes_filter.split(',') if m.strip()] if genre_modes_filter else []
+    
+    # Parse ratings with their modes
+    rating_list = [r.strip() for r in rating_filter.split(',') if r.strip()] if rating_filter else []
+    rating_modes = [m.strip() for m in rating_modes_filter.split(',') if m.strip()] if rating_modes_filter else []
+    
+    # Process genres
+    if genre_list and len(genre_list) == len(genre_modes):
+        include_genres = [genre_list[i] for i in range(len(genre_list)) if genre_modes[i] == 'include']
+        exclude_genres = [genre_list[i] for i in range(len(genre_list)) if genre_modes[i] == 'exclude']
+        
+        # Include genres - series must have ALL of these
+        for g in include_genres:
+            where_parts.append("genres LIKE ?")
+            params.append(f'%"{g}"%')
+        
+        # Exclude genres - series must NOT have ANY of these
+        for g in exclude_genres:
+            where_parts.append("genres NOT LIKE ?")
+            params.append(f'%"{g}"%')
+    
+    # Process ratings
+    if rating_list and len(rating_list) == len(rating_modes):
+        include_ratings = [rating_list[i] for i in range(len(rating_list)) if rating_modes[i] == 'include']
+        exclude_ratings = [rating_list[i] for i in range(len(rating_list)) if rating_modes[i] == 'exclude']
+        
+        # Include ratings - series can have ANY of these (OR logic)
+        if include_ratings:
+            placeholders = ','.join(['?'] * len(include_ratings))
             where_parts.append(f"content_rating IN ({placeholders})")
-            params.extend(rating_list)
+            params.extend(include_ratings)
+        
+        # Exclude ratings - series must NOT have ANY of these
+        if exclude_ratings:
+            placeholders = ','.join(['?'] * len(exclude_ratings))
+            where_parts.append(f"content_rating NOT IN ({placeholders})")
+            params.extend(exclude_ratings)
 
     # Publication Status filter (multi-select)
     pub_status_filter = request.args.get('pub_status', '').strip()

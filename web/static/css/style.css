@@ -330,7 +330,9 @@ html {
 
 .multi-select-menu,
 .single-select-menu {
-  position: fixed !important; /* Change from absolute to fixed */
+  position: absolute;
+  top: calc(100% + 4px); /* 4px gap below the trigger */
+  left: 0;
   z-index: 1001;
   background: #141b2f;
   border: 1px solid #334155;
@@ -395,6 +397,94 @@ html {
   display: flex;
   flex-direction: column;
   padding: 0;
+}
+
+/* Hide the tag-state-indicator spans (we'll use data-mode on checkboxes instead) */
+.tag-state-indicator {
+  display: none;
+}
+
+/* Style ALL checkboxes in multi-select menus with custom appearance */
+.multi-select-menu input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  border: 2px solid #64748b;
+  margin-right: 8px;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  background: transparent;
+}
+
+/* Normal checked state (for Type, Publication Status, Readable On) - gray with checkmark */
+.multi-select-menu input[type="checkbox"]:checked {
+  background: #64748b;
+  border-color: #64748b;
+}
+
+.multi-select-menu input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 1;
+}
+
+/* TAGS ONLY: Include state - gray with checkmark (overrides :checked for tags) */
+.genre-list-section input[type="checkbox"][data-mode="include"],
+.rating-section input[type="checkbox"][data-mode="include"] {
+  background: #64748b;
+  border-color: #64748b;
+}
+
+.genre-list-section input[type="checkbox"][data-mode="include"]::after,
+.rating-section input[type="checkbox"][data-mode="include"]::after {
+  content: '✓';
+  position: absolute;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 1;
+}
+
+/* TAGS ONLY: Exclude state - red with X */
+.genre-list-section input[type="checkbox"][data-mode="exclude"],
+.rating-section input[type="checkbox"][data-mode="exclude"] {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+
+.genre-list-section input[type="checkbox"][data-mode="exclude"]::after,
+.rating-section input[type="checkbox"][data-mode="exclude"]::after {
+  content: '✕';
+  position: absolute;
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 1;
+}
+
+/* Remove old btn-tags-mode styles if they exist */
+.btn-tags-mode {
+  display: none !important;
+}
+
+.tags-mode-toggle {
+  display: none !important;
 }
 
 #filter-genre-menu .combined-tags-list {
