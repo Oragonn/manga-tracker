@@ -106,18 +106,7 @@ def _extract_season_and_chapter(title):
         except (ValueError, TypeError):
             pass
     
-    # Not parseable
-    if not _is_expected_special(original_title):
-        try:
-            from ..error_logger import log_error
-            log_error(
-                source_url="kagane:parse",
-                error_message=f"Unparseable chapter title: '{original_title}' (cleaned: '{title_clean}')",
-                series_title="Chapter Parser"
-            )
-        except:
-            pass
-    
+    # Not parseable - but this is normal for special chapters, so don't log
     return (season_number, None)
 
 def get_series_info(series_id):

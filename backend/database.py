@@ -432,78 +432,95 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
     conn = get_db()
     cursor = conn.cursor()
     
-    # Ensure table has required columns (for backward compatibility)
-    cursor.execute("PRAGMA table_info(series)")
-    columns = {row[1] for row in cursor.fetchall()}
-    
-    alt_titles_json = json.dumps(alt_titles, ensure_ascii=False) if alt_titles else None
-    genres_json = json.dumps(genres, ensure_ascii=False) if genres else None
-    
-    # Build searchable text from all title fields
-    all_titles = [title, title_en, title_romaji, title_native]
-    if alt_titles:
-        if isinstance(alt_titles, dict):
-            all_titles.extend(alt_titles.values())
-        elif isinstance(alt_titles, list):
-            all_titles.extend(alt_titles)
+    try:
+        # Ensure table has required columns (for backward compatibility)
+        cursor.execute("PRAGMA table_info(series)")
+        columns = {row[1] for row in cursor.fetchall()}
+        
+        alt_titles_json = json.dumps(alt_titles, ensure_ascii=False) if alt_titles else None
+        genres_json = json.dumps(genres, ensure_ascii=False) if genres else None
+        
+        # Build searchable text from all title fields
+        all_titles = [title, title_en, title_romaji, title_native]
+        if alt_titles:
+            if isinstance(alt_titles, dict):
+                all_titles.extend(alt_titles.values())
+            elif isinstance(alt_titles, list):
+                all_titles.extend(alt_titles)
+            else:
+                all_titles.append(str(alt_titles))
+
+        searchable_parts = []
+        for t in all_titles:
+            if t and isinstance(t, str):
+                searchable_parts.append(t)
+        searchable_text = normalize_for_search(" ".join(searchable_parts))
+
+        # Build column list and values dynamically
+        cols = [
+            "title", "title_en", "title_romaji", "title_native",
+            "source_url", "cover_url", "banner_url", "anilist_id",
+            "status", "source_status", "alt_titles", "searchable_text"
+        ]
+        vals = [
+            title, title_en, title_romaji, title_native,
+            source_url, cover_url, banner_url, anilist_id,
+            status, source_status, alt_titles_json, searchable_text
+        ]
+        
+        # Add optional fields if columns exist
+        if "genres" in columns:
+            cols.append("genres")
+            vals.append(genres_json)
+        if "content_rating" in columns:
+            cols.append("content_rating")
+            vals.append(content_rating)
+        if "source_type" in columns:
+            cols.append("source_type")
+            vals.append(source_type)
+        
+        placeholders = ", ".join(["?"] * len(cols))
+        col_names = ", ".join(cols)
+        
+        cursor.execute(f"""
+            INSERT INTO series ({col_names})
+            VALUES ({placeholders})
+        """, vals)
+        
+        series_id = cursor.lastrowid
+        
+        # *** FIX: Create primary source entry ***
+        # Detect source type from URL
+        if 'mangadex.org' in source_url:
+            detected_source_type = 'mangadex'
+        elif 'kagane.org' in source_url:
+            detected_source_type = 'kagane'
         else:
-            all_titles.append(str(alt_titles))
-
-    searchable_parts = []
-    for t in all_titles:
-        if t and isinstance(t, str):
-            searchable_parts.append(t)
-    searchable_text = normalize_for_search(" ".join(searchable_parts))
-
-    # Build column list and values dynamically
-    cols = [
-        "title", "title_en", "title_romaji", "title_native",
-        "source_url", "cover_url", "banner_url", "anilist_id",
-        "status", "source_status", "alt_titles", "searchable_text"
-    ]
-    vals = [
-        title, title_en, title_romaji, title_native,
-        source_url, cover_url, banner_url, anilist_id,
-        status, source_status, alt_titles_json, searchable_text
-    ]
-    
-    # Add optional fields if columns exist
-    if "genres" in columns:
-        cols.append("genres")
-        vals.append(genres_json)
-    if "content_rating" in columns:
-        cols.append("content_rating")
-        vals.append(content_rating)
-    if "source_type" in columns:
-        cols.append("source_type")
-        vals.append(source_type)
-    
-    placeholders = ", ".join(["?"] * len(cols))
-    col_names = ", ".join(cols)
-    
-    cursor.execute(f"""
-        INSERT INTO series ({col_names})
-        VALUES ({placeholders})
-    """, vals)
-    
-    series_id = cursor.lastrowid
-    
-    # *** FIX: Create primary source entry ***
-    # Detect source type from URL
-    if 'mangadex.org' in source_url:
-        detected_source_type = 'mangadex'
-    elif 'kagane.org' in source_url:
-        detected_source_type = 'kagane'
-    else:
-        detected_source_type = 'unknown'
-    
-    cursor.execute("""
-        INSERT INTO series_sources (series_id, source_url, source_type, is_primary)
-        VALUES (?, ?, ?, 1)
-    """, (series_id, source_url, detected_source_type))
-    
-    release_db(conn)
-    return series_id
+            detected_source_type = 'unknown'
+        
+        cursor.execute("""
+            INSERT INTO series_sources (series_id, source_url, source_type, is_primary)
+            VALUES (?, ?, ?, 1)
+        """, (series_id, source_url, detected_source_type))
+        
+        release_db(conn)
+        return series_id
+        
+    except sqlite3.IntegrityError as e:
+        # CRITICAL: Release the lock before re-raising
+        try:
+            release_db(conn)
+        except:
+            pass
+        # Re-raise so caller can handle it
+        raise
+    except Exception as e:
+        # CRITICAL: Release the lock on ANY error
+        try:
+            release_db(conn)
+        except:
+            pass
+        raise
 
 def delete_series(series_id):
     """

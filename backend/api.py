@@ -62,23 +62,8 @@ def _add_worker():
                     task_processed = True
                     continue
 
-                # === EARLY DUPLICATE CHECK ===
-                conn_check = get_db()
-                cursor_check = conn_check.cursor()
-                cursor_check.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
-                existing = cursor_check.fetchone()
-                release_db(conn_check)
-
-                if existing:
-                    series_id, existing_title = existing
-                    error_msg = f"Duplicate add attempt: already tracking '{existing_title}'"
-                    print(f"[Add Queue] {error_msg}")
-                    from .error_logger import log_error
-                    log_error(url, error_msg, series_title=existing_title)
-                    result = {'id': series_id, 'success': True, 'duplicate': True}
-                    task_processed = True
-                    continue
-                # === END DUPLICATE CHECK ===
+                # === NO EARLY DUPLICATE CHECK - Let database handle it atomically ===
+                # Duplicates will be caught by IntegrityError and logged there
 
                 if is_mangadex:
                     manga_id = extract_manga_id(url)
@@ -94,7 +79,7 @@ def _add_worker():
                             )
                             result = {'id': series_id, 'success': True}
 
-                            # ✅ Add logging with correct variable access
+                            # Add logging
                             try:
                                 log_activity(
                                     action_type='added',
@@ -108,19 +93,63 @@ def _add_worker():
                                             'is_primary': True
                                         }],
                                         'status': user_status,
-                                        'cover_url': cover_url,
-                                        'source_type': info.get('source_type', 'other') if info else 'other'
+                                        'cover_url': None,
+                                        'source_type': 'other'
                                     }
                                 )
                             except Exception as log_err:
-                                print(f"[Add Queue] Logging failed: {log_err}")
+                                pass
                             task_processed = True
                         except sqlite3.IntegrityError as e:
-                            if "source_url" in str(e):
-                                result = {'error': 'This series is already in your tracker.'}
+                            error_str = str(e).lower()
+                            if "source_url" in error_str or "unique" in error_str:
+                                # Race condition or duplicate: fetch existing series
+                                conn_dup = get_db()
+                                cursor_dup = conn_dup.cursor()
+                                cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                existing = cursor_dup.fetchone()
+                                release_db(conn_dup)
+                                
+                                if existing:
+                                    series_id, existing_title = existing
+                                    error_msg = f"Duplicate series: '{existing_title}' is already in your tracker"
+                                    try:
+                                        from .error_logger import log_error
+                                        log_error(url, error_msg, series_title=existing_title)
+                                    except Exception as log_err:
+                                        import traceback
+                                        traceback.print_exc()
+                                    
+                                    result = {'id': series_id, 'success': True, 'duplicate': True}
+                                else:
+                                    error_msg = 'This series is already in your tracker (unable to retrieve details)'
+                                    
+                                    # Log to logs/ folder
+                                    try:
+                                        from .error_logger import log_error
+                                        log_error(url, error_msg, series_title="Unknown Series")
+                                    except Exception as log_err:
+                                        pass
+                                    
+                                    result = {'error': error_msg}
+                                task_processed = True
                             else:
+                                error_msg = f'Database integrity error: {str(e)}'
+                                
+                                # Log to logs/ folder
+                                try:
+                                    from .error_logger import log_error
+                                    log_error(url, error_msg, series_title=data.get('title', 'Unknown'))
+                                except Exception as log_err:
+                                    pass
+                                # Log to error page
+                                try:
+                                    from .error_logger import log_error
+                                    log_error(url, error_msg, series_title=data.get('title', 'Unknown'))
+                                except Exception as log_err:
+                                    pass
                                 result = {'error': 'Database integrity error.'}
-                            task_processed = True
+                                task_processed = True
                         except Exception as e:
                             result = {'error': str(e)}
                             task_processed = True
@@ -132,7 +161,6 @@ def _add_worker():
                             cover_url = info['cover_url']
                             mangadex_status = info['status']
                             alt_titles = info['alt_titles']
-                            # Extract AniList-enriched fields:
                             title_en = info.get('title_en')
                             title_romaji = info.get('title_romaji')
                             title_native = info.get('title_native')
@@ -205,7 +233,7 @@ def _add_worker():
                             release_db(conn)
                             result = {'id': series_id, 'success': True}
                             
-                            # *** FIX: Correct logging for MangaDex with proper source_type ***
+                            # Logging
                             try:
                                 log_activity(
                                     action_type='added',
@@ -224,22 +252,51 @@ def _add_worker():
                                     }
                                 )
                             except Exception as log_err:
-                                print(f"[Add Queue] Logging failed: {log_err}")
-                            
-                            # ADDED: Update current period stats
+                                pass
+                            # Update stats
                             try:
                                 from .database import update_current_period_stats
                                 update_current_period_stats()
                             except Exception as stats_err:
-                                print(f"[Add Queue] Stats update failed: {stats_err}")
-
+                                pass
                             task_processed = True
                         except sqlite3.IntegrityError as e:
-                            if "source_url" in str(e):
-                                result = {'error': 'This series is already in your tracker.'}
+                            error_str = str(e).lower()
+                            if "source_url" in error_str or "unique" in error_str:
+                                # Race condition: fetch existing series
+                                conn_dup = get_db()
+                                cursor_dup = conn_dup.cursor()
+                                cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                existing = cursor_dup.fetchone()
+                                release_db(conn_dup)
+                                
+                                if existing:
+                                    series_id, existing_title = existing
+                                    error_msg = f"Duplicate series: '{existing_title}' is already in your tracker"
+                                    
+                                    # Log to logs/ folder
+                                    try:
+                                        from .error_logger import log_error
+                                        log_error(url, error_msg, series_title=existing_title)
+                                    except Exception as log_err:
+                                        import traceback
+                                        traceback.print_exc()
+                                    
+                                    result = {'id': series_id, 'success': True, 'duplicate': True}
+                                else:
+                                    error_msg = 'This series is already in your tracker (unable to retrieve details)'
+                                    
+                                    # Log to logs/ folder
+                                    try:
+                                        from .error_logger import log_error
+                                        log_error(url, error_msg, series_title="Unknown Series")
+                                    except Exception as log_err:
+                                        pass
+                                    result = {'error': error_msg}
+                                task_processed = True
                             else:
                                 result = {'error': 'Database integrity error.'}
-                            task_processed = True
+                                task_processed = True
                         except Exception as e:
                             result = {'error': str(e)}
                             task_processed = True
@@ -311,7 +368,7 @@ def _add_worker():
                                 release_db(conn)
                                 result = {'id': series_id, 'success': True}
 
-                                # ✅ Add logging for Kagane (this was completely missing!)
+                                # Logging
                                 try:
                                     log_activity(
                                         action_type='added',
@@ -330,36 +387,64 @@ def _add_worker():
                                         }
                                     )
                                 except Exception as log_err:
-                                    print(f"[Add Queue] Logging failed: {log_err}")
-                                
-                                # ADDED: Update current period stats
+                                    pass
+                                # Update stats
                                 try:
                                     from .database import update_current_period_stats
                                     update_current_period_stats()
                                 except Exception as stats_err:
-                                    print(f"[Add Queue] Stats update failed: {stats_err}")
-                                
+                                    pass
                                 task_processed = True
                             except sqlite3.IntegrityError as e:
-                                if "source_url" in str(e):
-                                    result = {'error': 'This series is already in your tracker.'}
+                                error_str = str(e).lower()
+                                if "source_url" in error_str or "unique" in error_str:
+                                    # Race condition: fetch existing series
+                                    conn_dup = get_db()
+                                    cursor_dup = conn_dup.cursor()
+                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                    existing = cursor_dup.fetchone()
+                                    release_db(conn_dup)
+                                    
+                                    if existing:
+                                        series_id, existing_title = existing
+                                        error_msg = f"Duplicate series: '{existing_title}' is already in your tracker"
+                                        
+                                        # Log to logs/ folder
+                                        try:
+                                            from .error_logger import log_error
+                                            log_error(url, error_msg, series_title=existing_title)
+                                        except Exception as log_err:
+                                            import traceback
+                                            traceback.print_exc()
+                                        
+                                        result = {'id': series_id, 'success': True, 'duplicate': True}
+                                    else:
+                                        error_msg = 'This series is already in your tracker (unable to retrieve details)'
+                                        
+                                        # Log to logs/ folder
+                                        try:
+                                            from .error_logger import log_error
+                                            log_error(url, error_msg, series_title="Unknown Series")
+                                        except Exception as log_err:
+                                            pass
+                                        result = {'error': error_msg}
+                                    task_processed = True
                                 else:
                                     result = {'error': 'Database integrity error.'}
-                                task_processed = True
+                                    task_processed = True
                             except Exception as e:
                                 result = {'error': str(e)}
                                 task_processed = True
 
             except Exception as e:
                 error_msg = str(e)
-                print(f"[Add Queue] Task crashed: {error_msg}")
                 result = {'error': error_msg}
                 try:
                     from .error_logger import log_error
                     title_guess = data.get('title') or "Unknown"
                     log_error(url, error_msg, series_title=title_guess)
                 except:
-                    pass  # never crash the logger
+                    pass
 
             finally:
                 # Always return a result to unblock UI
@@ -373,11 +458,7 @@ def _add_worker():
             continue
         except Exception as e:
             # CRITICAL: Worker must never die
-            print(f"[Add Worker] Recovered from outer crash: {e}")
             time.sleep(1)
-
-
-
 
 # Start background worker
 _worker_thread = threading.Thread(target=_add_worker, daemon=True)

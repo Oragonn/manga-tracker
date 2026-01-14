@@ -417,7 +417,6 @@ async function addNewSource() {
 		if (res.ok) {
 			hideAddSourceForm();
 			await loadSeriesSources(currentSeriesIdForEdit);
-			alert('✅ Source added! Fetching chapters...');
 		} else {
 			const data = await res.json();
 			alert('Failed to add source: ' + (data.error || 'Unknown error'));
@@ -3754,7 +3753,7 @@ async function addMobileNewSource() {
   }
   
   if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.org/')) {
-    alert('Only MangaDex and Kagane sources are supported');
+    alert('This source is not supported');
     return;
   }
   
@@ -3768,7 +3767,6 @@ async function addMobileNewSource() {
     if (res.ok) {
       hideMobileAddSourceForm();
       await loadMobileSeriesSources(seriesId);
-      alert('✅ Source added! Fetching chapters...');
     } else {
       const data = await res.json();
       alert('Failed to add source: ' + (data.error || 'Unknown error'));
