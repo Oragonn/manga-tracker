@@ -5,8 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Error Log</title>
   <link rel="stylesheet" href="/static/css/style.css" />
+  <!-- ADDED: Notification system -->
+  <script src="/static/js/notifications.js"></script>
     <script>
     document.addEventListener('DOMContentLoaded', () => {
+      initNotifications();
     // Handle date link clicks
     document.querySelectorAll('.sidebar a[href^="/logs/"]').forEach(link => {
         link.addEventListener('click', async (e) => {

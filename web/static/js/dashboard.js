@@ -101,18 +101,56 @@ function toggleCardSelection(seriesId) {
 }
 
 // ─── Core Functions ──────────────────────────────────────────
-function saveChapter(seriesId, chapter) {
-	return fetch(`/api/series/${seriesId}`, {
-		method: 'PATCH',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ current_chapter: chapter })
-	});
+function saveChapter(seriesId, chapter, oldChapter = null) {
+  return fetch(`/api/series/${seriesId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_chapter: chapter })
+  }).then(res => {
+    // ADDED: Show notification on successful chapter update
+    if (res.ok) {
+      // Find series title and old chapter from card if not provided
+      const card = document.querySelector(`.series-card[data-series-id="${seriesId}"]`);
+      const seriesTitle = card?.querySelector('.card-title')?.textContent || 'Series';
+      
+      // Get old chapter if not provided
+      if (oldChapter === null) {
+        // Try to find it from state.allSeries
+        const series = state.allSeries?.find(s => s.id === seriesId);
+        oldChapter = series?.current_chapter ?? null;
+      }
+      
+      // Format chapter text
+      const formatChapter = (ch) => ch === -1 ? 'Not started' : `Ch.${ch}`;
+      const newChapterText = formatChapter(chapter);
+      
+      // Show notification with or without old chapter
+      if (oldChapter !== null && oldChapter !== chapter) {
+        const oldChapterText = formatChapter(oldChapter);
+        showNotification(`${seriesTitle} updated from ${oldChapterText} to ${newChapterText}`, 'read');
+      } else {
+        showNotification(`${seriesTitle} updated to ${newChapterText}`, 'read');
+      }
+    }
+    return res;
+  });
 }
 
 let currentSeriesIdForEdit = null;
+// Store original values for comparison
+let originalSeriesValues = null;
 
 function openEditModal(series) {
 	currentSeriesIdForEdit = series.id;
+	
+	// Store original values including current chapter
+	originalSeriesValues = {
+		title: series.title || '',
+		cover_url: series.cover_url || '',
+		status: series.status || 'plan_to_read',
+		current_chapter: series.current_chapter
+	};
+	
 	document.getElementById('edit-series-id').value = series.id;
 	document.getElementById('edit-title').value = series.title || '';
 	document.getElementById('edit-cover-url').value = series.cover_url || '';
@@ -356,6 +394,9 @@ async function saveSourceChanges(seriesId) {
 		});
 
 		if (res.ok) {
+			// ADDED: Show notification for primary source change
+			const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
+			showNotification(`Primary source changed for ${seriesTitle}`, 'edit');
 			pendingSourceChanges.hasChanges = false;
 			pendingSourceChanges.originalPrimaryId = pendingSourceChanges.primarySourceId;
 		} else {
@@ -378,6 +419,9 @@ async function removeSource(seriesId, sourceId) {
 		});
 
 		if (res.ok) {
+			// ADDED: Show notification for source removed
+			const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
+			showNotification(`Source removed from ${seriesTitle}`, 'delete');
 			await loadSeriesSources(seriesId);
 		} else {
 			const data = await res.json();
@@ -413,6 +457,16 @@ async function addNewSource() {
 		return;
 	}
 
+	// Check if source already exists in the UI
+	const existingSources = document.querySelectorAll('.source-item');
+	for (const sourceItem of existingSources) {
+		const existingUrl = sourceItem.querySelector('.source-url')?.textContent?.trim();
+		if (existingUrl === url) {
+			showNotification('Source already exists', 'error');
+			return;
+		}
+	}
+
 	try {
 		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources`, {
 			method: 'POST',
@@ -421,15 +475,27 @@ async function addNewSource() {
 		});
 
 		if (res.ok) {
+			// ADDED: Show notification for source added
+			const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
+			showNotification(`Source added to ${seriesTitle}`, 'added');
 			hideAddSourceForm();
 			await loadSeriesSources(currentSeriesIdForEdit);
 		} else {
-			const data = await res.json();
-			alert('Failed to add source: ' + (data.error || 'Unknown error'));
+			const data = await res.json().catch(() => ({}));
+			const errorMsg = data.error || 'Unknown error';
+			
+			// Since backend doesn't give specific errors, provide helpful message
+			if (res.status === 500) {
+				showNotification('Failed to add source - please check if it already exists or try again', 'error');
+			} else if (errorMsg.toLowerCase().includes('already exists') || errorMsg.toLowerCase().includes('duplicate')) {
+				showNotification('Source already exists', 'error');
+			} else {
+				showNotification(errorMsg, 'error');
+			}
 		}
 	} catch (err) {
 		console.error('Failed to add source:', err);
-		alert('Error: ' + err.message);
+		showNotification('Network error - please try again', 'error');
 	}
 }
 
@@ -849,10 +915,10 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 
 	btnAccept.addEventListener('click', () => {
 		if (card.pendingIndex === -1) {
-			saveChapter(series.id, -1).then(() => loadPage());
+			saveChapter(series.id, -1, series.current_chapter).then(() => loadPage());
 		} else {
 			const ch = card.sortedChapters[card.pendingIndex];
-			saveChapter(series.id, ch.chapter_number).then(() => loadPage());
+			saveChapter(series.id, ch.chapter_number, series.current_chapter).then(() => loadPage());
 		}
 	});
 	btnSet.addEventListener('click', () => openEditModal(series));
@@ -1596,7 +1662,45 @@ document.addEventListener('DOMContentLoaded', () => {
 			});
 
 			if (res.ok) {
+				const seriesTitle = updates.title || 'Series';
+				
+				// Only show notifications for actual changes (compare with original values)
+				if (originalSeriesValues) {
+					// Check chapter change
+					if (updates.current_chapter !== originalSeriesValues.current_chapter) {
+						const formatChapter = (ch) => ch === -1 ? 'Not started' : `Ch.${ch}`;
+						const oldChapterText = formatChapter(originalSeriesValues.current_chapter);
+						const newChapterText = formatChapter(updates.current_chapter);
+						showNotification(`${seriesTitle} updated from ${oldChapterText} to ${newChapterText}`, 'read');
+					}
+					
+					// Check status change
+					if (updates.status !== originalSeriesValues.status) {
+						const statusMap = {
+							'reading': 'Reading',
+							'plan_to_read': 'Plan to Read',
+							'on_hold': 'On Hold',
+							'dropped': 'Dropped',
+							'completed': 'Completed'
+						};
+						const statusText = statusMap[updates.status] || updates.status;
+						showNotification(`${seriesTitle} marked as ${statusText}`, 'edit');
+					}
+					
+					// Check title change
+					if (updates.title !== originalSeriesValues.title) {
+						showNotification(`${seriesTitle} updated`, 'edit');
+					}
+					
+					// Check cover change
+					if (updates.cover_url !== originalSeriesValues.cover_url) {
+						showNotification(`${seriesTitle} cover image updated`, 'edit');
+					}
+				}
+				
 				editModal.classList.add('hidden');
+
+
 				document.body.style.overflow = ''; // ADDED
 				loadPage();
 			} else {
@@ -1732,7 +1836,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			});
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({}));
-				throw new Error(err.error || 'Failed to start add task');
+				const errorMsg = err.error || 'Unknown error';
+				showNotification(`Failed to add series: ${errorMsg}`, 'error');
+				isAdding = false;
+				loadPage();
+				return; // Don't throw, just return
 			}
 			const { task_id } = await res.json();
 			document.getElementById('add-series-modal').classList.add('hidden');
@@ -1753,12 +1861,26 @@ document.addEventListener('DOMContentLoaded', () => {
 						setTimeout(poll, 1000);
 					} else {
 						if (!statusData.success) {
-							alert('Failed: ' + (statusData.error || 'Unknown error'));
+							// ADDED: Show error notification
+							showNotification('Failed to add series: ' + (statusData.error || 'Unknown error'), 'error');
+						} else if (statusData.duplicate) {
+							// ADDED: Show duplicate notification
+							showNotification('Series already exists in your library', 'error');
 						} else {
+							// Success - series was added
+							const status = statusData.series?.status || document.getElementById('new-series-status')?.value || 'plan_to_read';
+							const statusMap = {
+								'reading': 'Reading',
+								'plan_to_read': 'Plan to Read',
+								'on_hold': 'On Hold',
+								'dropped': 'Dropped',
+								'completed': 'Completed'
+							};			
+							const statusText = statusMap[status] || status;
+							showNotification(`Series added to ${statusText}`, 'added');
 							loadGenres();
 						}
 						loadPage();
-						isAdding = false;
 					}
 				} catch (e) {
 					if (attempt >= maxAttempts - 1) {
@@ -1770,7 +1892,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			};
 			poll();
 		} catch (e) {
-			alert('Error: ' + e.message);
+			showNotification('Connection error - please try again', 'error');
 			isAdding = false;
 			loadPage();
 		} finally {
@@ -1805,6 +1927,10 @@ document.addEventListener('DOMContentLoaded', () => {
 				headers: { 'Content-Type': 'application/json' }
 			});
 			if (res.ok) {
+				// ADDED: Show notification for deletion
+				const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
+				showNotification(`${seriesTitle} deleted`, 'delete');
+				
 				editModal.classList.add('hidden');
 				document.body.style.overflow = '';
 				document.body.style.position = '';
@@ -1824,7 +1950,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Reset to Not Started
 	document.getElementById('btn-reset-not-started')?.addEventListener('click', () => {
 		if (currentSeriesIdForEdit) {
-			saveChapter(currentSeriesIdForEdit, -1).then(() => {
+			const currentSeries = state.allSeries?.find(s => s.id === currentSeriesIdForEdit);
+			saveChapter(currentSeriesIdForEdit, -1, currentSeries?.current_chapter).then(() => {
 				editModal.classList.add('hidden');
 				document.body.style.overflow = '';
 				document.body.style.position = '';
@@ -1907,6 +2034,9 @@ document.addEventListener('DOMContentLoaded', () => {
 				console.error(`Failed to update series ${id}:`, e);
 			}
 		}
+		// ADDED: Show notification for bulk read
+		const count = ids.length;
+		showNotification(`${count} series marked as read`, 'read');
 		exitBulkMode();
 		loadPage();
 	});
@@ -1943,6 +2073,17 @@ document.addEventListener('DOMContentLoaded', () => {
 					console.error(`Failed to update series ${id}:`, e);
 				}
 			}
+			// ADDED: Show notification for bulk status change
+			const count = ids.length;
+			const statusMap = {
+			'reading': 'Reading',
+			'plan_to_read': 'Plan to Read',
+			'on_hold': 'On Hold',
+			'dropped': 'Dropped',
+			'completed': 'Completed'
+			};
+			const statusText = statusMap[newStatus] || newStatus;
+			showNotification(`${count} series status changed to ${statusText}`, 'edit');
 			exitBulkMode();
 			loadPage();
 		});
@@ -1997,6 +2138,9 @@ document.addEventListener('DOMContentLoaded', () => {
 				console.error(`Failed to delete series ${id}:`, e);
 			}
 		}
+		// ADDED: Show notification for bulk delete
+		const count = ids.length;
+		showNotification(`${count} series deleted`, 'delete');
 		exitBulkMode();
 		loadPage();
 		loadGenres();
@@ -3592,8 +3736,8 @@ async function closeBottomSheet(keepScrollLocked = false) {
   if (mobileState.currentSeries && mobileState.pendingChapter !== null && 
       mobileState.pendingChapter !== mobileState.currentSeries.current_chapter) {
     try {
-      await saveChapter(mobileState.currentSeries.id, mobileState.pendingChapter);
-      loadPage(); // Reload to reflect changes
+		await saveChapter(mobileState.currentSeries.id, mobileState.pendingChapter, mobileState.currentSeries.current_chapter);      
+		loadPage(); // Reload to reflect changes
     } catch (err) {
       console.error('Failed to save chapter:', err);
       alert('Failed to save chapter');
@@ -4068,8 +4212,8 @@ document.getElementById('mobile-btn-edit-cancel')?.addEventListener('click', () 
 
 document.getElementById('mobile-btn-reset-not-started')?.addEventListener('click', () => {
   const seriesId = document.getElementById('mobile-edit-series-id').value;
-  if (seriesId) {
-    saveChapter(seriesId, -1).then(() => {
+  if (seriesId && mobileState.currentSeries) {
+    saveChapter(seriesId, -1, mobileState.currentSeries.current_chapter).then(() => {
       document.getElementById('mobile-edit-modal').classList.add('hidden');
       // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
       document.body.style.overflow = '';

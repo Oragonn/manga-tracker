@@ -5,7 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Statistics - Manga Tracker</title>
   <link rel="stylesheet" href="/static/css/style.css" />
-  <style>
+  <!-- ADDED: Notification system -->
+  <script src="/static/js/notifications.js"></script>  <style>
     .stats-container {
       max-width: 1200px;
       margin: 30px auto;
@@ -674,6 +675,7 @@ function renderBreakdown(title, data, total) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  initNotifications();
   loadStats();
   
   document.getElementById('btn-refresh-stats').addEventListener('click', async () => {

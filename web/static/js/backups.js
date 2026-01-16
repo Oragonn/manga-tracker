@@ -158,6 +158,8 @@ async function createBackupNow() {
     const data = await res.json();
     
     if (data.success) {
+      // ADDED: Show notification
+      showNotification('Backup created successfully', 'backup');
       btn.textContent = '✅ Created!';
       setTimeout(() => {
         btn.textContent = '➕ Create Backup Now';
@@ -217,7 +219,8 @@ document.getElementById('confirm-restore-btn')?.addEventListener('click', async 
     const data = await res.json();
     
     if (data.success) {
-      alert('✅ Database restored successfully! Please restart the application.');
+      // ADDED: Show notification
+      showNotification('Database restored from backup', 'backup');
       closeRestoreModal();
     } else {
       alert('❌ Restore failed: ' + (data.error || 'Unknown error'));
@@ -233,6 +236,7 @@ document.getElementById('confirm-restore-btn')?.addEventListener('click', async 
 
 // Load backups on page load
 document.addEventListener('DOMContentLoaded', () => {
+  initNotifications();
   loadBackups();
   
   // Auto-refresh every 60 seconds

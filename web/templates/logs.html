@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Activity Log - Manga Tracker</title>
   <link rel="stylesheet" href="/static/css/style.css" />
+  <!-- ADDED: Notification system -->
+  <script src="/static/js/notifications.js"></script>
   <style>
     
     .logs-container {
@@ -570,12 +572,34 @@ function getLogDetails(log) {
 async function undoAction(logId, bulkId) {
   if (!confirm('Undo this action?')) return;
   
+  // Get series name from DOM BEFORE making the API call (before reload)
+  let seriesNameFromDOM = null;
+  if (!bulkId) {
+    // Find the log entry by searching for the undo button
+    const undoButton = event.target;
+    const logEntry = undoButton.closest('.log-entry');
+    const titleElement = logEntry?.querySelector('.log-title');
+    seriesNameFromDOM = titleElement?.textContent?.trim() || null;
+  }
+  
   try {
     const url = bulkId ? `/api/logs/undo-bulk/${bulkId}` : `/api/logs/undo/${logId}`;
     const res = await fetch(url, { method: 'POST' });
     
     if (res.ok) {
-      loadLogs();
+      const data = await res.json();
+      
+      if (bulkId) {
+        // Bulk undo
+        const count = data.restored_count || 'Multiple';
+        showNotification(`Restored ${count} series`, 'undo');
+      } else {
+        // Single undo - try backend response first, then use DOM value
+        const seriesName = data.series?.title || data.title || data.series_title || seriesNameFromDOM || 'Series';
+        showNotification(`Restored ${seriesName}`, 'undo');
+      }
+      
+      loadLogs();    
     } else {
       alert('Failed to undo action');
     }
@@ -585,6 +609,7 @@ async function undoAction(logId, bulkId) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  initNotifications();
   loadLogs();
   
   document.getElementById('filter-type').addEventListener('change', (e) => {

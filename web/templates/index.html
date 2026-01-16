@@ -7,6 +7,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
   <link rel="stylesheet" href="/static/css/style.css" />
+  <!-- ADDED: Notification system -->
+  <script src="/static/js/notifications.js"></script>
 </head>
 <body>
 
@@ -601,7 +603,14 @@
   </svg>
 </button>
 
-  <script src="/static/js/dashboard.js"></script>  
+<script src="/static/js/dashboard.js"></script>
+  <!-- ADDED: Initialize notifications -->
+  <script>
+  // Initialize notification system on page load
+  document.addEventListener('DOMContentLoaded', () => {
+    initNotifications();
+  });
+  </script>
   <script>
   // Mobile detection and setup
 (function() {
