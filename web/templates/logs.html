@@ -352,10 +352,7 @@
   <div class="mobile-menu-header">
     <h2>Menu</h2>
     <button class="hamburger-btn" id="mobile-menu-close">
-      <svg class="icon-close" viewBox="0 0 24 24">
-        <line x1="18" y1="6" x2="6" y2="18"></line>
-        <line x1="6" y1="6" x2="18" y2="18"></line>
-      </svg>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" class="h-5 w-5 text-gray-400 hover_text-gray-500"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 0 1 1.414 0L10 8.586l4.293-4.293a1 1 0 1 1 1.414 1.414L11.414 10l4.293 4.293a1 1 0 0 1-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 0 1-1.414-1.414L8.586 10 4.293 5.707a1 1 0 0 1 0-1.414" clip-rule="evenodd"/></svg>    
     </button>
   </div>
   <div class="mobile-menu-links">
@@ -404,6 +401,10 @@
         <path d="m21 21-4.35-4.35"></path>
       </svg>
       <input type="text" id="search-logs" placeholder="Search series..." />
+      <!-- ADDED: Clear button -->
+      <button class="search-clear-btn" id="logs-search-clear-btn" title="Clear search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" class="h-5 w-5 text-gray-400 hover_text-gray-500"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 0 1 1.414 0L10 8.586l4.293-4.293a1 1 0 1 1 1.414 1.414L11.414 10l4.293 4.293a1 1 0 0 1-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 0 1-1.414-1.414L8.586 10 4.293 5.707a1 1 0 0 1 0-1.414" clip-rule="evenodd"/></svg>
+      </button>
     </div>
   </div>
 
@@ -596,15 +597,34 @@ document.addEventListener('DOMContentLoaded', () => {
     loadLogs();
   });
   
+  // CHANGED: Search functionality with clear button
+  const searchLogsInput = document.getElementById('search-logs');
+  const logsClearBtn = document.getElementById('logs-search-clear-btn');
   let searchTimeout;
-  document.getElementById('search-logs').addEventListener('input', (e) => {
+
+  searchLogsInput.addEventListener('input', (e) => {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
       currentFilters.search = e.target.value.trim();
       loadLogs();
     }, 300);
+    
+    // ADDED: Show/hide clear button
+    if (e.target.value.trim()) {
+      logsClearBtn?.classList.add('show');
+    } else {
+      logsClearBtn?.classList.remove('show');
+    }
   });
-});
+  // ADDED: Clear button handler
+  if (logsClearBtn) {
+    logsClearBtn.addEventListener('click', () => {
+      searchLogsInput.value = '';
+      logsClearBtn.classList.remove('show');
+      currentFilters.search = '';
+      loadLogs();
+    });
+}});
 
 // Mobile menu functionality
 (function() {

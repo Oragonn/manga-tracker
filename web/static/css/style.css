@@ -248,7 +248,7 @@ html {
 .control-search input {
   width: 100%;
   height: 46px;
-  padding: 0 18px 0 50px;
+  padding: 0 44px 0 50px; /* CHANGED: Added right padding for clear button */
   font-size: 15px;
   background: #1a2436;
   border: 1px solid #334155;
@@ -266,6 +266,39 @@ html {
   width: 16px;
   height: 16px;
   pointer-events: none;
+}
+
+/* ADDED: Clear button styling */
+.search-clear-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+  display: none; /* Hidden by default */
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.search-clear-btn:hover {
+  color: #cbd5e1;
+  background: #1e2c40;
+}
+
+.search-clear-btn svg {
+  width: 20px;
+  height: 20px;
+  pointer-events: none;
+}
+
+.search-clear-btn.show {
+  display: flex;
 }
 
 /* ================================

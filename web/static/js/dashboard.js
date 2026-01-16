@@ -1518,14 +1518,33 @@ document.addEventListener('DOMContentLoaded', () => {
 	loadGenres();
 
 	if (searchInput) {
-		let searchTimeout;
-		searchInput.addEventListener('input', () => {
-			clearTimeout(searchTimeout);
-			searchTimeout = setTimeout(() => {
-				state.page = 1;
-				loadPage();
-			}, 300);
+	let searchTimeout;
+	const clearBtn = document.getElementById('search-clear-btn'); // ADDED
+	
+	searchInput.addEventListener('input', () => {
+		clearTimeout(searchTimeout);
+		searchTimeout = setTimeout(() => {
+		state.page = 1;
+		loadPage();
+		}, 300);
+		
+		// ADDED: Show/hide clear button
+		if (searchInput.value.trim()) {
+		clearBtn?.classList.add('show');
+		} else {
+		clearBtn?.classList.remove('show');
+		}
+	});
+	
+	// ADDED: Clear button handler
+	if (clearBtn) {
+		clearBtn.addEventListener('click', () => {
+		searchInput.value = '';
+		clearBtn.classList.remove('show');
+		state.page = 1;
+		loadPage();
 		});
+	}
 	}
 
 	// Modals
@@ -2525,28 +2544,59 @@ function setupMobileControlPanel() {
     loadPage();
   });
 
-  // Search input
-  const searchContainer = document.createElement('div');
-  searchContainer.className = 'control-search';
-  searchContainer.style.flex = '1';
-  searchContainer.innerHTML = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="11" cy="11" r="8"></circle>
-      <path d="m21 21-4.35-4.35"></path>
-    </svg>
-    <input type="text" id="mobile-search-input" placeholder="Search..." />
-  `;
+	// Search input
+	const searchContainer = document.createElement('div');
+	searchContainer.className = 'control-search';
+	searchContainer.style.flex = '1';
+	searchContainer.innerHTML = `
+	<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+		<circle cx="11" cy="11" r="8"></circle>
+		<path d="m21 21-4.35-4.35"></path>
+	</svg>
+	<input type="text" id="mobile-search-input" placeholder="Search..." />
+	<!-- ADDED: Clear button for mobile search -->
+	<button class="search-clear-btn" id="mobile-search-clear-btn" title="Clear search">
+		<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" class="h-5 w-5 text-gray-400 hover_text-gray-500"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 0 1 1.414 0L10 8.586l4.293-4.293a1 1 0 1 1 1.414 1.414L11.414 10l4.293 4.293a1 1 0 0 1-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 0 1-1.414-1.414L8.586 10 4.293 5.707a1 1 0 0 1 0-1.414" clip-rule="evenodd"/></svg>
+	</button>
+	`;
 
-  // Setup search functionality
-  const searchInput = searchContainer.querySelector('input');
-  let searchTimeout;
-  searchInput.addEventListener('input', () => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => {
-      state.page = 1;
-      loadPage();
-    }, 300);
-  });
+	// Setup search functionality
+	const searchInput = searchContainer.querySelector('input');
+	const mobileClearBtn = searchContainer.querySelector('.search-clear-btn'); // ADDED
+	let searchTimeout;
+
+	searchInput.addEventListener('input', () => {
+	clearTimeout(searchTimeout);
+	searchTimeout = setTimeout(() => {
+		state.page = 1;
+		loadPage();
+	}, 300);
+	
+	// ADDED: Show/hide clear button
+	if (searchInput.value.trim()) {
+		mobileClearBtn?.classList.add('show');
+	} else {
+		mobileClearBtn?.classList.remove('show');
+	}
+	});
+
+	// ADDED: Mobile clear button handler
+	if (mobileClearBtn) {
+	mobileClearBtn.addEventListener('click', () => {
+		searchInput.value = '';
+		mobileClearBtn.classList.remove('show');
+		
+		// ADDED: Also clear desktop search to keep them synced
+		const desktopSearch = document.getElementById('search-input');
+		if (desktopSearch) {
+		desktopSearch.value = '';
+		document.getElementById('search-clear-btn')?.classList.remove('show');
+		}
+		
+		state.page = 1;
+		loadPage();
+	});
+	}
 
   // Add elements to mobile row
   mobileRow2.appendChild(filterBtn);
