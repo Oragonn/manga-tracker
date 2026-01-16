@@ -1617,7 +1617,7 @@ html {
 .notification-content {
   padding: 16px;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
 }
 
@@ -1665,6 +1665,15 @@ html {
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.4;
+}
+
+.notification-series-name {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .notification-close {

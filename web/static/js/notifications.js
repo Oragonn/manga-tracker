@@ -33,12 +33,45 @@ function initNotifications() {
 }
 
 /**
+ * Format notification message to wrap series names for proper truncation
+ * @param {string} message - The raw message
+ * @returns {string} - HTML formatted message
+ */
+function formatNotificationMessage(message) {
+  // Match patterns like "SeriesName updated from..." or "SeriesName marked as..."
+  const patterns = [
+    /^(.+?) (updated from .+)$/,
+    /^(.+?) (updated to .+)$/,
+    /^(.+?) (marked as .+)$/,
+    /^(.+?) (added to .+)$/,
+    /^(.+?) (deleted)$/,
+    /^(.+?) (cover image updated)$/,
+    /^(.+?) (updated)$/,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match) {
+      const seriesName = match[1];
+      const action = match[2];
+      return `<span class="notification-series-name">${seriesName}</span> ${action}`;
+    }
+  }
+  
+  // Return as-is if no pattern matches
+  return message;
+}
+
+/**
  * Show a notification
  * @param {string} message - The message to display
  * @param {string} type - The type of notification (delete, edit, read, error, added, undo, backup)
  * @param {number} duration - How long to show (ms), default 4000
  */
+
 function showNotification(message, type = 'added', duration = 4000) {
+  // Format message to separate series name from action for better truncation
+  message = formatNotificationMessage(message);
   if (!notificationContainer) {
     initNotifications();
   }
