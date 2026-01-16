@@ -257,7 +257,7 @@ html {
   outline: none;
 }
 
-.control-search svg {
+.control-search > svg {
   position: absolute;
   left: 18px;
   top: 50%;
@@ -276,7 +276,7 @@ html {
   transform: translateY(-50%);
   background: none;
   border: none;
-  color: #64748b;
+  color: #9ca3af;
   cursor: pointer;
   padding: 4px;
   display: none; /* Hidden by default */
@@ -287,8 +287,11 @@ html {
 }
 
 .search-clear-btn:hover {
-  color: #cbd5e1;
-  background: #1e2c40;
+  color: #6b7280; /* CHANGED: Hover color */
+}
+
+.search-clear-btn:active {
+  color: #6b7280; /* ADDED: Active/click color for mobile */
 }
 
 .search-clear-btn svg {
