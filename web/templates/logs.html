@@ -601,10 +601,10 @@ async function undoAction(logId, bulkId) {
       
       loadLogs();    
     } else {
-      alert('Failed to undo action');
+      showNotification('Failed to undo action', 'error');
     }
   } catch (err) {
-    alert('Error: ' + err.message);
+    showNotification('Error: ' + err.message, 'error');
   }
 }
 
