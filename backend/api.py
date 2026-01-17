@@ -839,6 +839,13 @@ def api_delete_series(series_id):
             except Exception as log_err:
                 print(f"[Delete] Logging failed: {log_err}")
         
+        # ADDED: Update current period stats after deletion
+        try:
+            from .database import update_current_period_stats
+            update_current_period_stats()
+        except Exception as stats_err:
+            print(f"[Delete] Stats update failed: {stats_err}")
+        
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

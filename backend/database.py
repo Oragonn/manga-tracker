@@ -2,7 +2,7 @@
 import sqlite3
 import os
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta  # ADDED: timedelta
 from threading import Lock
 import glob
 import re
@@ -531,17 +531,29 @@ def delete_series(series_id):
         conn = get_db()
         cursor = conn.cursor()
         
-        # Verify series exists
-        cursor.execute("SELECT id FROM series WHERE id = ?", (series_id,))
-        if not cursor.fetchone():
+        # CHANGED: Get series info BEFORE deleting for stats tracking
+        cursor.execute("SELECT created_at FROM series WHERE id = ?", (series_id,))
+        series_data = cursor.fetchone()
+        
+        if not series_data:
             release_db(conn)
             return False
+        
+        created_at = series_data[0]
         
         # Delete series (chapters will be auto-deleted via CASCADE)
         cursor.execute("DELETE FROM series WHERE id = ?", (series_id,))
         deleted = cursor.rowcount > 0
         
         release_db(conn)
+        
+        # ADDED: Update stats to reflect deletion
+        if deleted and created_at:
+            try:
+                adjust_stats_for_deletion(created_at)
+            except Exception as stats_err:
+                print(f"[Database] Failed to adjust stats for deletion: {stats_err}")
+        
         return deleted
     except Exception as e:
         print(f"[Database] Delete series {series_id} failed: {e}")
@@ -760,14 +772,17 @@ def update_current_period_stats():
                 old_ch = old_val.get('chapter', -1)
                 new_ch = new_val.get('chapter', -1)
                 
-                # FIXED: Handle "Not started" (-1) transitions
-                if new_ch >= 0:  # Only check if new chapter is valid
+                # CHANGED: Handle both forward and backward progress
+                if new_ch >= 0:  # New chapter is valid
                     if old_ch == -1:
                         # Started reading: count from 0 to new_ch
                         chapters_read_today += float(new_ch)
                     elif old_ch >= 0:
-                        # Normal progress: count difference
+                        # Normal progress: count difference (can be negative if unread)
                         chapters_read_today += float(new_ch) - float(old_ch)
+                elif new_ch == -1 and old_ch >= 0:
+                    # ADDED: Reset to "Not started" - subtract all read chapters
+                    chapters_read_today -= float(old_ch)
             except:
                 continue
         
@@ -806,12 +821,15 @@ def update_current_period_stats():
                 old_ch = old_val.get('chapter', -1)
                 new_ch = new_val.get('chapter', -1)
                 
-                # FIXED: Handle "Not started" (-1) transitions
+                # CHANGED: Handle both forward and backward progress
                 if new_ch >= 0:
                     if old_ch == -1:
                         chapters_read_week += float(new_ch)
                     elif old_ch >= 0:
                         chapters_read_week += float(new_ch) - float(old_ch)
+                elif new_ch == -1 and old_ch >= 0:
+                    # ADDED: Reset to "Not started" - subtract all read chapters
+                    chapters_read_week -= float(old_ch)
             except:
                 continue
         
@@ -849,12 +867,15 @@ def update_current_period_stats():
                 old_ch = old_val.get('chapter', -1)
                 new_ch = new_val.get('chapter', -1)
                 
-                # FIXED: Handle "Not started" (-1) transitions
+                # CHANGED: Handle both forward and backward progress
                 if new_ch >= 0:
                     if old_ch == -1:
                         chapters_read_month += float(new_ch)
                     elif old_ch >= 0:
                         chapters_read_month += float(new_ch) - float(old_ch)
+                elif new_ch == -1 and old_ch >= 0:
+                    # ADDED: Reset to "Not started" - subtract all read chapters
+                    chapters_read_month -= float(old_ch)
             except:
                 continue
         
@@ -892,12 +913,15 @@ def update_current_period_stats():
                 old_ch = old_val.get('chapter', -1)
                 new_ch = new_val.get('chapter', -1)
                 
-                # FIXED: Handle "Not started" (-1) transitions
+                # CHANGED: Handle both forward and backward progress
                 if new_ch >= 0:
                     if old_ch == -1:
                         chapters_read_year += float(new_ch)
                     elif old_ch >= 0:
                         chapters_read_year += float(new_ch) - float(old_ch)
+                elif new_ch == -1 and old_ch >= 0:
+                    # ADDED: Reset to "Not started" - subtract all read chapters
+                    chapters_read_year -= float(old_ch)
             except:
                 continue
         
@@ -921,6 +945,78 @@ def update_current_period_stats():
                 release_db(conn)
             except Exception as release_err:
                 print(f"[Stats] Failed to release DB in update_current_period_stats: {release_err}")
+
+def adjust_stats_for_deletion(created_at_str):
+    """
+    Adjust stats when a series is deleted.
+    Decrements series_added for the period when it was originally added.
+    """
+    from datetime import datetime, timezone
+    import json
+    
+    conn = None
+    try:
+        # Parse created_at to determine which period to adjust
+        created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        
+        conn = get_db()
+        cursor = conn.cursor()
+        
+        # Determine if deletion affects current periods
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        # Adjust TODAY if series was added today
+        if created_at >= today_start:
+            today_str = today_start.date().isoformat()
+            cursor.execute("""
+                UPDATE stats_history 
+                SET series_added = MAX(0, series_added - 1)
+                WHERE period_type = 'day' AND period_start = ?
+            """, (today_str,))
+        
+        # Adjust WEEK if series was added this week
+        if created_at >= week_start:
+            week_str = week_start.date().isoformat()
+            cursor.execute("""
+                UPDATE stats_history 
+                SET series_added = MAX(0, series_added - 1)
+                WHERE period_type = 'week' AND period_start = ?
+            """, (week_str,))
+        
+        # Adjust MONTH if series was added this month
+        if created_at >= month_start:
+            month_str = month_start.date().isoformat()
+            cursor.execute("""
+                UPDATE stats_history 
+                SET series_added = MAX(0, series_added - 1)
+                WHERE period_type = 'month' AND period_start = ?
+            """, (month_str,))
+        
+        # Adjust YEAR if series was added this year
+        if created_at >= year_start:
+            year_str = year_start.date().isoformat()
+            cursor.execute("""
+                UPDATE stats_history 
+                SET series_added = MAX(0, series_added - 1)
+                WHERE period_type = 'year' AND period_start = ?
+            """, (year_str,))
+        
+        print(f"[Stats] Adjusted stats for deleted series (created: {created_at.date()})")
+        
+    except Exception as e:
+        print(f"[Stats] Failed to adjust stats for deletion: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        if conn is not None:
+            try:
+                release_db(conn)
+            except Exception as release_err:
+                print(f"[Stats] Failed to release DB in adjust_stats_for_deletion: {release_err}")
 
 def cleanup_old_stats(keep_days=90, keep_years=True):
     """
