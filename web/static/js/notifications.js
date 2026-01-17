@@ -49,11 +49,26 @@ function formatNotificationMessage(message) {
     /^(.+?) (updated)$/,
   ];
   
+  // Generic words that should NOT be highlighted
+  const genericWords = ['series', 'serie', 'backup', 'source'];
+  
   for (const pattern of patterns) {
     const match = message.match(pattern);
     if (match) {
       const seriesName = match[1];
       const action = match[2];
+      
+      // Check if this is a generic word (case-insensitive)
+      if (genericWords.includes(seriesName.toLowerCase())) {
+        // Don't highlight generic words - return message as-is
+        return message;
+      }
+      
+      // Also check for patterns like "3 series" or "5 serie"
+      if (/^\d+\s+(series|serie|backup|source)$/i.test(seriesName)) {
+        return message;
+      }
+      
       return `<span class="notification-series-name">${seriesName}</span> ${action}`;
     }
   }

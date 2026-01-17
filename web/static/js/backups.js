@@ -223,12 +223,12 @@ document.getElementById('confirm-restore-btn')?.addEventListener('click', async 
       showNotification('Database restored from backup', 'backup');
       closeRestoreModal();
     } else {
-      alert('❌ Restore failed: ' + (data.error || 'Unknown error'));
+      showNotification('Restore failed: ' + (data.error || 'Unknown error'), 'error');
       btn.textContent = 'Yes, Restore Database';
       btn.disabled = false;
     }
   } catch (err) {
-    alert('❌ Network error: ' + err.message);
+    showNotification('Network error: ' + err.message, 'error');
     btn.textContent = 'Yes, Restore Database';
     btn.disabled = false;
   }

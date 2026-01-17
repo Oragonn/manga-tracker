@@ -394,13 +394,13 @@ async function saveSourceChanges(seriesId) {
 		});
 
 		if (res.ok) {
-			// ADDED: Show notification for primary source change
-			const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
-			showNotification(`Primary source changed for ${seriesTitle}`, 'edit');
-			pendingSourceChanges.hasChanges = false;
-			pendingSourceChanges.originalPrimaryId = pendingSourceChanges.primarySourceId;
+		// ADDED: Show notification for source removed
+		const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
+		showNotification(`Source removed from ${seriesTitle}`, 'delete');
+		await loadSeriesSources(seriesId);
 		} else {
-			throw new Error('Failed to save primary source');
+		const data = await res.json();
+		showNotification('Failed to remove source: ' + (data.error || 'Unknown error'), 'error'); // CHANGED
 		}
 	} catch (err) {
 		console.error('Failed to save source changes:', err);
@@ -425,11 +425,11 @@ async function removeSource(seriesId, sourceId) {
 			await loadSeriesSources(seriesId);
 		} else {
 			const data = await res.json();
-			alert('Failed to remove source: ' + (data.error || 'Unknown error'));
+			showNotification('Failed to remove source: ' + (data.error || 'Unknown error'), 'error'); // CHANGED
 		}
 	} catch (err) {
 		console.error('Failed to remove source:', err);
-		alert('Error: ' + err.message);
+		showNotification('Error: ' + err.message, 'error');
 	}
 }
 
@@ -1668,33 +1668,33 @@ document.addEventListener('DOMContentLoaded', () => {
 				if (originalSeriesValues) {
 					// Check chapter change
 					if (updates.current_chapter !== originalSeriesValues.current_chapter) {
-						const formatChapter = (ch) => ch === -1 ? 'Not started' : `Ch.${ch}`;
-						const oldChapterText = formatChapter(originalSeriesValues.current_chapter);
-						const newChapterText = formatChapter(updates.current_chapter);
-						showNotification(`${seriesTitle} updated from ${oldChapterText} to ${newChapterText}`, 'read');
+					const formatChapter = (ch) => ch === -1 ? 'Not started' : `Ch.${ch}`;
+					const oldChapterText = formatChapter(originalSeriesValues.current_chapter);
+					const newChapterText = formatChapter(updates.current_chapter);
+					showNotification(`${seriesTitle} updated from ${oldChapterText} to ${newChapterText}`, 'read');
 					}
 					
 					// Check status change
 					if (updates.status !== originalSeriesValues.status) {
-						const statusMap = {
-							'reading': 'Reading',
-							'plan_to_read': 'Plan to Read',
-							'on_hold': 'On Hold',
-							'dropped': 'Dropped',
-							'completed': 'Completed'
-						};
-						const statusText = statusMap[updates.status] || updates.status;
-						showNotification(`${seriesTitle} marked as ${statusText}`, 'edit');
+					const statusMap = {
+						'reading': 'Reading',
+						'plan_to_read': 'Plan to Read',
+						'on_hold': 'On Hold',
+						'dropped': 'Dropped',
+						'completed': 'Completed'
+					};
+					const statusText = statusMap[updates.status] || updates.status;
+					showNotification(`${seriesTitle} marked as ${statusText}`, 'edit');
 					}
 					
 					// Check title change
 					if (updates.title !== originalSeriesValues.title) {
-						showNotification(`${seriesTitle} updated`, 'edit');
+					showNotification(`${seriesTitle} updated`, 'edit');
 					}
 					
 					// Check cover change
 					if (updates.cover_url !== originalSeriesValues.cover_url) {
-						showNotification(`${seriesTitle} cover image updated`, 'edit');
+					showNotification(`${seriesTitle} cover image updated`, 'edit');
 					}
 				}
 				
@@ -1705,11 +1705,11 @@ document.addEventListener('DOMContentLoaded', () => {
 				loadPage();
 			} else {
 				const err = await res.json().catch(() => ({}));
-				alert('Save failed: ' + (err.error || 'Unknown error'));
+				showNotification('Save failed: ' + (err.error || 'Unknown error'), 'error'); // CHANGED
 			}
 		} catch (e) {
 			console.error('Save error:', e);
-			alert('Network error: ' + e.message);
+			showNotification('Network error: ' + e.message, 'error');
 		}
 	});
 
@@ -1940,10 +1940,10 @@ document.addEventListener('DOMContentLoaded', () => {
 				loadPage();
 				loadGenres();
 			} else {
-				alert('Failed to delete series');
+				showNotification('Failed to delete series', 'error'); // CHANGED
 			}
 		} catch (e) {
-			alert('Network error: ' + e.message);
+			showNotification('Network error: ' + e.message, 'error');
 		}
 	});
 
@@ -3158,17 +3158,20 @@ function createBottomSheet() {
 			});
 			
 			if (res.ok) {
+				// ADDED: Show notification
+				showNotification(`${series.title} deleted`, 'delete');
+				
 				closeBottomSheet();
 				loadPage();
-				if (typeof loadGenres === 'function') {
-				loadGenres();
+			if (typeof loadGenres === 'function') {
+					loadGenres();
 				}
 			} else {
-				alert('Failed to delete series');
+				showNotification('Failed to delete series', 'error'); // CHANGED
 			}
 			} catch (err) {
 			console.error('Delete error:', err);
-			alert('Error: ' + err.message);
+			showNotification('Error: ' + err.message, 'error'); 
 			}
 		}
 		break;
@@ -3787,6 +3790,9 @@ let mobilePendingSourceChanges = {
 };
 
 async function openMobileEditModal(series) {
+  // ADDED: Store series in mobileState for notifications
+  mobileState.currentSeries = series;
+  
   const modal = document.getElementById('mobile-edit-modal');
   document.getElementById('mobile-edit-series-id').value = series.id;
   document.getElementById('mobile-edit-status').value = series.status || 'plan_to_read';
@@ -4079,14 +4085,33 @@ async function removeMobileSource(seriesId, sourceId) {
     });
     
     if (res.ok) {
+      // Get series title - use same approach as saveMobileEditModal
+      let series = null;
+      
+      // Try mobileState.currentSeries first
+      if (mobileState.currentSeries && mobileState.currentSeries.id == seriesId) {
+        series = mobileState.currentSeries;
+      }
+      
+      // Fallback: Fetch from API to get accurate series data
+      if (!series) {
+        const tempRes = await fetch(`/api/series?page=1&per_page=9999`);
+        const tempData = await tempRes.json();
+        series = tempData.items.find(s => s.id == seriesId);
+      }
+      
+      const seriesTitle = series?.title || 'Series';
+      showNotification(`Source removed from ${seriesTitle}`, 'delete');
+      
       await loadMobileSeriesSources(seriesId);
     } else {
       const data = await res.json();
-      alert('Failed to remove source: ' + (data.error || 'Unknown error'));
+      showNotification('Failed to remove source: ' + (data.error || 'Unknown error'), 'error'); // CHANGED
+
     }
   } catch (err) {
     console.error('Failed to remove source:', err);
-    alert('Error: ' + err.message);
+    showNotification('Error: ' + err.message, 'error');
   }
 }
 
@@ -4114,6 +4139,16 @@ async function addMobileNewSource() {
     return;
   }
   
+  // Check if source already exists in the UI
+  const existingSources = document.querySelectorAll('#mobile-sources-list .source-item');
+  for (const sourceItem of existingSources) {
+    const existingUrl = sourceItem.querySelector('.source-url')?.textContent?.trim();
+    if (existingUrl === url) {
+      showNotification('Source already exists', 'error');
+      return;
+    }
+  }
+  
   try {
     const res = await fetch(`/api/series/${seriesId}/sources`, {
       method: 'POST',
@@ -4121,16 +4156,43 @@ async function addMobileNewSource() {
       body: JSON.stringify({ source_url: url })
     });
     
-    if (res.ok) {
+if (res.ok) {
+      // Get series title - use same approach as saveMobileEditModal
+      let series = null;
+      
+      // Try mobileState.currentSeries first
+      if (mobileState.currentSeries && mobileState.currentSeries.id == seriesId) {
+        series = mobileState.currentSeries;
+      }
+      
+      // Fallback: Fetch from API to get accurate series data
+      if (!series) {
+        const tempRes = await fetch(`/api/series?page=1&per_page=9999`);
+        const tempData = await tempRes.json();
+        series = tempData.items.find(s => s.id == seriesId);
+      }
+      
+      const seriesTitle = series?.title || 'Series';
+      showNotification(`Source added to ${seriesTitle}`, 'added');
+      
       hideMobileAddSourceForm();
       await loadMobileSeriesSources(seriesId);
+
     } else {
-      const data = await res.json();
-      alert('Failed to add source: ' + (data.error || 'Unknown error'));
+      const data = await res.json().catch(() => ({}));
+      const errorMsg = data.error || 'Unknown error';
+      
+      if (res.status === 500) {
+        showNotification('Failed to add source - please check if it already exists or try again', 'error');
+      } else if (errorMsg.toLowerCase().includes('already exists') || errorMsg.toLowerCase().includes('duplicate')) {
+        showNotification('Source already exists', 'error');
+      } else {
+        showNotification(errorMsg, 'error');
+      }
     }
   } catch (err) {
     console.error('Failed to add source:', err);
-    alert('Error: ' + err.message);
+    showNotification('Network error - please try again', 'error');
   }
 }
 
@@ -4159,39 +4221,92 @@ document.getElementById('mobile-btn-edit-save')?.addEventListener('click', async
   };
   
   try {
+    // FIXED: Fetch specific series by ID to get accurate current values
+    // Don't use page list API as it may be filtered by status
+    let series = null;
+    
+    // First try to get from mobileState if it has fresh data
+    if (mobileState.currentSeries && mobileState.currentSeries.id == seriesId) {
+      series = mobileState.currentSeries;
+    }
+    
+    // Fallback: Fetch ALL series without status filter to find this one
+    if (!series) {
+      const tempRes = await fetch(`/api/series?page=1&per_page=9999&status=all`);
+      const tempData = await tempRes.json();
+      series = tempData.items.find(s => s.id == seriesId);
+    }
+    
+    const seriesTitle = series?.title || 'Series';
+    const originalStatus = series?.status;
+    const originalChapter = series?.current_chapter;
+    
+    // ADDED: Save source changes first and show notification
     if (mobilePendingSourceChanges.hasChanges) {
       const res = await fetch(`/api/series/${seriesId}/sources/${mobilePendingSourceChanges.primarySourceId}/primary`, {
         method: 'POST'
       });
       
       if (res.ok) {
+        showNotification(`Primary source changed for ${seriesTitle}`, 'edit');
         mobilePendingSourceChanges.hasChanges = false;
         mobilePendingSourceChanges.originalPrimaryId = mobilePendingSourceChanges.primarySourceId;
       }
     }
     
-    const res = await fetch(`/api/series/${seriesId}`, {
+	const res = await fetch(`/api/series/${seriesId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates)
     });
     
-    if (res.ok) {
-      document.getElementById('mobile-edit-modal').classList.add('hidden');
-      // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
-      document.body.style.overflow = '';
-      document.body.style.position = '';
-      document.body.style.width = '';
-      document.body.style.top = '';
-      window.scrollTo(0, mobileState.scrollY || 0);
-      loadPage();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      alert('Save failed: ' + (err.error || 'Unknown error'));
-    }
+	if (res.ok) {
+		// ADDED: Show notifications ONLY for actual changes
+		let hasChanges = false;
+		
+		// Check status change
+		if (originalStatus !== undefined && updates.status !== originalStatus) {
+			const statusMap = {
+			'reading': 'Reading',
+			'plan_to_read': 'Plan to Read',
+			'on_hold': 'On Hold',
+			'dropped': 'Dropped',
+			'completed': 'Completed'
+			};
+			const statusText = statusMap[updates.status] || updates.status;
+			showNotification(`${seriesTitle} marked as ${statusText}`, 'edit');
+			hasChanges = true;
+		}
+		
+		// Check chapter change
+		if (originalChapter !== undefined && updates.current_chapter !== originalChapter) {
+			const formatChapter = (ch) => ch === -1 ? 'Not started' : `Ch.${ch}`;
+			const oldChapterText = formatChapter(originalChapter);
+			const newChapterText = formatChapter(updates.current_chapter);
+			showNotification(`${seriesTitle} updated from ${oldChapterText} to ${newChapterText}`, 'read');
+			hasChanges = true;
+		}
+		
+		// ADDED: Update mobileState.currentSeries with new values to prevent stale data
+		if (mobileState.currentSeries && mobileState.currentSeries.id == seriesId) {
+			mobileState.currentSeries.status = updates.status;
+			mobileState.currentSeries.current_chapter = updates.current_chapter;
+		}
+		
+		document.getElementById('mobile-edit-modal').classList.add('hidden');
+		document.body.style.overflow = '';
+		document.body.style.position = '';
+		document.body.style.width = '';
+		document.body.style.top = '';
+		window.scrollTo(0, mobileState.scrollY || 0);
+		loadPage();
+	} else {
+		const err = await res.json().catch(() => ({}));
+		showNotification('Save failed: ' + (err.error || 'Unknown error'), 'error'); // CHANGED
+	}
   } catch (e) {
     console.error('Save error:', e);
-    alert('Network error: ' + e.message);
+    showNotification('Network error: ' + e.message, 'error'); // CHANGED
   }
 });
 
@@ -4291,6 +4406,26 @@ document.getElementById('mobile-btn-settings-save')?.addEventListener('click', a
   };
   
   try {
+    // CHANGED: Fetch current series data to get accurate original values
+    let series = null;
+    
+    if (state.allSeries) {
+      series = state.allSeries.find(s => s.id == seriesId);
+    }
+    
+    if (!series && mobileState.currentSeries && mobileState.currentSeries.id == seriesId) {
+      series = mobileState.currentSeries;
+    }
+    
+    if (!series) {
+      const tempRes = await fetch(`/api/series?page=1&per_page=9999`);
+      const tempData = await tempRes.json();
+      series = tempData.items.find(s => s.id == seriesId);
+    }
+    
+    const originalTitle = series?.title || '';
+    const originalCover = series?.cover_url || '';
+    
     const res = await fetch(`/api/series/${seriesId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -4298,28 +4433,39 @@ document.getElementById('mobile-btn-settings-save')?.addEventListener('click', a
     });
     
 	if (res.ok) {
-      const savedScrollY = mobileState.scrollY || 0; // CHANGED: Save before clearing
-      document.getElementById('mobile-settings-modal').classList.add('hidden');
-      
-      // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
-      document.body.style.overflow = '';
-      document.body.style.position = '';
-      document.body.style.width = '';
-      document.body.style.top = '';
-      
-      // CHANGED: Restore scroll after unlocking
-      setTimeout(() => {
-        window.scrollTo(0, savedScrollY);
-      }, 0);
-      
-      loadPage();
-    } else {
-      const err = await res.json().catch(() => ({}));
-      alert('Save failed: ' + (err.error || 'Unknown error'));
-    }
+		// CHANGED: Show notifications ONLY for actual changes
+		const seriesTitle = updates.title || originalTitle || 'Series';
+		
+		// Check title change - only if actually different
+		if (originalTitle && updates.title && updates.title !== originalTitle) {
+			showNotification(`${seriesTitle} updated`, 'edit');
+		}
+		
+		// Check cover change - only if actually different
+		if (updates.cover_url !== originalCover) {
+			showNotification(`${seriesTitle} cover image updated`, 'edit');
+		}
+		
+		const savedScrollY = mobileState.scrollY || 0;
+		document.getElementById('mobile-settings-modal').classList.add('hidden');
+		
+		document.body.style.overflow = '';
+		document.body.style.position = '';
+		document.body.style.width = '';
+		document.body.style.top = '';
+		
+		setTimeout(() => {
+			window.scrollTo(0, savedScrollY);
+		}, 0);
+		
+		loadPage();
+	} else {
+		const err = await res.json().catch(() => ({}));
+		showNotification('Save failed: ' + (err.error || 'Unknown error'), 'error'); // CHANGED
+	}  
   } catch (e) {
     console.error('Save error:', e);
-    alert('Network error: ' + e.message);
+    showNotification('Network error: ' + e.message, 'error');
   }
 });
 
@@ -4377,29 +4523,30 @@ document.getElementById('mobile-btn-delete-series')?.addEventListener('click', a
     });
     
 	if (res.ok) {
-		const savedScrollY = mobileState.scrollY || 0; // CHANGED: Save before clearing
+		// ADDED: Show notification
+		showNotification(`${title} deleted`, 'delete');
+	
+		const savedScrollY = mobileState.scrollY || 0;
 		document.getElementById('mobile-settings-modal').classList.add('hidden');
-		
-		// FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
+	
 		document.body.style.overflow = '';
 		document.body.style.position = '';
 		document.body.style.width = '';
 		document.body.style.top = '';
-		
-		// CHANGED: Restore scroll after unlocking
+	
 		setTimeout(() => {
 			window.scrollTo(0, savedScrollY);
 		}, 0);
-		
+	
 		loadPage();
 		if (typeof loadGenres === 'function') {
 			loadGenres();
 		}
-    } else {
-      alert('Failed to delete series');
-    }
+	} else {
+		showNotification('Failed to delete series', 'error'); // CHANGED
+	}
   } catch (e) {
-    alert('Network error: ' + e.message);
+    showNotification('Network error: ' + e.message, 'error');
   }
 });
 

@@ -1717,6 +1717,18 @@ html {
     min-width: 0;
     max-width: 100%;
   }
+  
+  /* ADDED: Remove line clamp on mobile to prevent ellipsis */
+  .notification-message p {
+    display: block;
+    -webkit-line-clamp: unset;
+    -webkit-box-orient: unset;
+    line-clamp: unset;
+    overflow: visible;
+    text-overflow: unset;
+    white-space: normal;
+    max-height: none;
+  }
 }
 
 /* ================================

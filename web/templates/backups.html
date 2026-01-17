@@ -715,6 +715,10 @@
           const data = await res.json();
           
           if (data.success) {
+            // ADDED: Show notification with filename
+            const filename = data.filename || data.backup_filename || 'backup';
+            showNotification(`Backup created successfully: ${filename}`, 'backup');
+            
             // Show checkmark briefly
             const originalHTML = fabPrimary.innerHTML;
             fabPrimary.innerHTML = `
@@ -734,7 +738,7 @@
           }
         } catch (err) {
           console.error('Backup creation failed:', err);
-          alert('Failed to create backup');
+          showNotification('Failed to create backup', 'error');
           fabPrimary.classList.remove('refreshing');
           fabPrimary.disabled = false;
         }
