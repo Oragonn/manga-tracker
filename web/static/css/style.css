@@ -597,6 +597,7 @@ html {
   grid-template-columns: repeat(auto-fill, minmax(221px, 1fr));
   gap: 20px;
   justify-content: center;
+  margin-top: 16px !important;
   margin: 30px auto 0; /* Add top margin to prevent overlap */
   max-width: 1185px;
   min-height: 200px; /* Ensure minimum height when empty */
@@ -620,8 +621,96 @@ html {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  transition: all 0.2s;
+  transition: all 0.2s, opacity 0.3s ease;
   position: relative;
+}
+
+/* Skeleton loading card */
+.skeleton-card {
+  background: #141b2f;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.skeleton-cover {
+  width: 221px;
+  height: 331px;
+  background: linear-gradient(90deg, #1a2436 25%, #243447 50%, #1a2436 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-content {
+  padding: 12px;
+}
+
+.skeleton-line {
+  height: 14px;
+  background: linear-gradient(90deg, #1a2436 25%, #243447 50%, #1a2436 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.skeleton-line.title {
+  width: 80%;
+  height: 18px;
+  margin-bottom: 8px;
+}
+
+.skeleton-line.subtitle {
+  width: 60%;
+}
+
+.skeleton-line.buttons {
+  width: 100%;
+  height: 28px;
+  margin-bottom: 8px;
+}
+
+.skeleton-line.btn-bottom {
+  width: 100%;
+  height: 40px;
+  margin-bottom: 0;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Fade-in animation for loaded cards */
+.series-card.fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Lazy loading states */
+.series-cover.loading {
+  background: linear-gradient(90deg, #1a2436 25%, #243447 50%, #1a2436 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.series-cover.loaded {
+  animation: none;
 }
 
 .series-card:hover {
@@ -865,12 +954,11 @@ html {
   display: flex;
   justify-content: center;
   min-width: 0;
-  padding: 1.5rem 0;
 }
 
 #pagination,
 #pagination-bottom {
-  margin-top: 30px; /* Add space above pagination */
+  margin-top: 16px; /* Add space above pagination */
 }
 
 .pagination-kenmei nav {
@@ -892,6 +980,12 @@ html {
   border-left: 1px solid #334155;
   min-width: 2.5rem;
   height: 2.25rem;
+}
+
+.pagination-kenmei a.loading {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: not-allowed;
 }
 
 .pagination-kenmei a:first-child,
@@ -1901,6 +1995,7 @@ html {
   #pagination-bottom {
     padding-left: 12px;
     padding-right: 12px;
+    margin-top: 0px !important;
   }
 
   /* Both rows should be flex containers */
@@ -2220,7 +2315,10 @@ html {
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
     padding: 12px;
-    margin-top: 0;
+    padding-top: 0px !important;
+    padding-bottom: 0px !important;
+    margin-top: 0px !important;
+    margin-bottom: 0px !important;
   }
 
   .series-card {

@@ -661,11 +661,68 @@ def api_series():
     """
     cursor.execute(query, params + [per_page, offset])
     rows = cursor.fetchall()
+    
+    # Convert rows to dictionaries
+    items = [dict(row) for row in rows]
+    
+    # Fetch chapters for all series in this page
+    if items:
+        series_ids = [item['id'] for item in items]
+        placeholders = ','.join(['?'] * len(series_ids))
+        
+        # Check which columns exist in chapters table
+        cursor.execute("PRAGMA table_info(chapters)")
+        cols = {row[1] for row in cursor.fetchall()}
+        
+        # Build SELECT fields based on available columns
+        select_fields = ["series_id", "chapter_number", "chapter_url"]
+        if "volume" in cols:
+            select_fields.append("volume")
+        else:
+            select_fields.append("NULL as volume")
+        if "raw_chapter" in cols:
+            select_fields.append("raw_chapter")
+        else:
+            select_fields.append("NULL as raw_chapter")
+        if "is_oneshot" in cols:
+            select_fields.append("is_oneshot")
+        else:
+            select_fields.append("CASE WHEN chapter_number = 0.0 THEN 1 ELSE 0 END as is_oneshot")
+        
+        # Fetch all chapters for these series
+        chapters_query = f"""
+            SELECT {', '.join(select_fields)}
+            FROM chapters 
+            WHERE series_id IN ({placeholders})
+            ORDER BY series_id, chapter_number ASC
+        """
+        cursor.execute(chapters_query, series_ids)
+        chapter_rows = cursor.fetchall()
+        
+        # Group chapters by series_id
+        chapters_by_series = {}
+        for row in chapter_rows:
+            series_id = row[0]
+            chapter = {
+                'chapter_number': row[1],
+                'chapter_url': row[2],
+                'volume': row[3],
+                'raw_chapter': row[4],
+                'is_oneshot': bool(row[5])
+            }
+            if series_id not in chapters_by_series:
+                chapters_by_series[series_id] = []
+            chapters_by_series[series_id].append(chapter)
+        
+        # Add chapters to each series item
+        for item in items:
+            item['chapters'] = chapters_by_series.get(item['id'], [])
+    
     release_db(conn)
 
     total_pages = (total + per_page - 1) // per_page
     return jsonify({
-        'items': [dict(row) for row in rows],
+        'items': items,
         'total_pages': total_pages,
         'current_page': page
     })

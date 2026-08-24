@@ -54,8 +54,14 @@ const state = {
 		{ name: 'explicit', mode: 'exclude' }
 	],
 	pubStatus: [],
-	readableOn: []
+	readableOn: [],
+	allSeries: [], // Store fetched series
+	hasLoadedOnce: false, // Track if initial load completed
+	lastPage: undefined // Track page changes for scroll behavior
 };
+
+// Loading state to prevent multiple simultaneous loads
+let isLoadingPage = false;
 
 // Track default excluded ratings to hide from count
 const DEFAULT_EXCLUDED_RATINGS = ['mature', 'explicit'];
@@ -499,12 +505,53 @@ async function addNewSource() {
 	}
 }
 
+// ─── Skeleton Card Creation ──────────────────────────────────────
+function createSkeletonCard() {
+	const skeleton = document.createElement('div');
+	skeleton.className = 'skeleton-card';
+	skeleton.innerHTML = `
+		<div class="skeleton-cover"></div>
+		<div class="skeleton-content">
+			<div class="skeleton-line title"></div>
+			<div class="skeleton-line subtitle"></div>
+			<div class="skeleton-line buttons"></div>
+			<div class="skeleton-line btn-bottom"></div>
+		</div>
+	`;
+	return skeleton;
+}
+
+// ─── Lazy Loading Image Observer ─────────────────────────────────
+const imageObserver = new IntersectionObserver((entries) => {
+	entries.forEach(entry => {
+		if (entry.isIntersecting) {
+			const img = entry.target;
+			const src = img.dataset.src;
+			if (src) {
+				img.classList.add('loading');
+				img.src = src;
+				img.onload = () => {
+					img.classList.remove('loading');
+					img.classList.add('loaded');
+				};
+				img.onerror = () => {
+					img.classList.remove('loading');
+					img.src = '/static/placeholder.png';
+				};
+				imageObserver.unobserve(img);
+			}
+		}
+	});
+}, {
+	rootMargin: '50px' // Start loading 50px before entering viewport
+});
+
 // ─── Card Rendering ──────────────────────────────────────────
-function renderSeriesCard(series) {
+function renderSeriesCard(series, chapters = null) {
 	const initialCurrent = parseFloat(series.current_chapter);
 	const isNotStarted = (initialCurrent === -1);
 	const card = document.createElement('div');
-	card.className = 'series-card';
+	card.className = 'series-card fade-in';
 	card.dataset.seriesId = series.id;
 	let releaseText = '';
 	if (series.latest_release) {
@@ -517,6 +564,7 @@ function renderSeriesCard(series) {
 		else releaseText = 'Just now';
 	}
 	const cleanCoverUrl = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
+	const placeholderUrl = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 221 331"%3E%3Crect fill="%231a2436" width="221" height="331"/%3E%3C/svg%3E';
 	card.innerHTML = `
 <div class="series-cover-container">
 <div class="series-checkbox">
@@ -524,7 +572,7 @@ function renderSeriesCard(series) {
 <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
 </svg>
 </div>
-<img class="series-cover" src="${cleanCoverUrl}" onerror="this.src='/static/placeholder.png'">
+<img class="series-cover loading" src="${placeholderUrl}" data-src="${cleanCoverUrl}" loading="lazy" onerror="this.src='/static/placeholder.png'">
 ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span></div>` : ''}
 </div>
@@ -618,12 +666,19 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 
 	(async () => {
 		try {
-			const res = await fetch(`/api/series/${series.id}/chapters`);
-			let chapters = res.ok ? await res.json() : [];
-			const hasAnyNullVolume = chapters.some(ch => ch.volume == null || ch.volume === '');
+			// Use provided chapters or fetch if not available
+			let chaptersData;
+			if (chapters !== null) {
+				chaptersData = chapters;
+			} else {
+				const res = await fetch(`/api/series/${series.id}/chapters`);
+				chaptersData = res.ok ? await res.json() : [];
+			}
+			
+			const hasAnyNullVolume = chaptersData.some(ch => ch.volume == null || ch.volume === '');
 			const useVolumeSorting = !hasAnyNullVolume;
 			const comparator = makeChapterComparator(useVolumeSorting);
-			const sortedChapters = [...chapters].sort(comparator);
+			const sortedChapters = [...chaptersData].sort(comparator);
 			card.sortedChapters = sortedChapters;
 			card.useVolumeSorting = useVolumeSorting;
 			let pendingIndex = -1;
@@ -1004,6 +1059,12 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 		}
 	});
 	
+	// Setup lazy loading for cover image
+	const coverImg = card.querySelector('.series-cover');
+	if (coverImg && coverImg.dataset.src) {
+		imageObserver.observe(coverImg);
+	}
+	
 	return card;
 }
 
@@ -1032,8 +1093,10 @@ function renderPagination(current, total, status, sort) {
 			prevBtn.classList.add('cursor-not-allowed', 'opacity-50');
 		} else {
 			prevBtn.addEventListener('click', () => {
-				state.page = current - 1;
-				loadPage();
+				if (!isLoadingPage) {
+					state.page = current - 1;
+					loadPage();
+				}
 			});
 		}
 		const prevSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1077,8 +1140,10 @@ function renderPagination(current, total, status, sort) {
 					pageBtn.classList.add('page__current');
 				} else {
 					pageBtn.addEventListener('click', () => {
-						state.page = page;
-						loadPage();
+						if (!isLoadingPage) {
+							state.page = page;
+							loadPage();
+						}
 					});
 				}
 				nav.appendChild(pageBtn);
@@ -1091,8 +1156,10 @@ function renderPagination(current, total, status, sort) {
 			nextBtn.classList.add('cursor-not-allowed', 'opacity-50');
 		} else {
 			nextBtn.addEventListener('click', () => {
-				state.page = current + 1;
-				loadPage();
+				if (!isLoadingPage) {
+					state.page = current + 1;
+					loadPage();
+				}
 			});
 		}
 		const nextSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1137,6 +1204,10 @@ async function updateUnreadErrorCount() {
 
 // ─── Load Page (Main Logic) ───────────────────────────────────
 async function loadPage() {
+	// Prevent concurrent loads
+	if (isLoadingPage) return;
+	isLoadingPage = true;
+	
 	const { page, status, sort, dir, type, genre, rating, pubStatus, readableOn } = state;
 
 	// FIX: Check both desktop and mobile search inputs
@@ -1155,6 +1226,24 @@ async function loadPage() {
 			loadPage();
 		};
 	}
+	
+	// Show skeleton cards immediately
+	const seriesGrid = document.getElementById('series-grid');
+	const isInitialLoad = !state.hasLoadedOnce;
+	const skeletonCount = isInitialLoad ? 12 : 6;
+	
+	// Clear grid and show skeletons
+	seriesGrid.innerHTML = '';
+	for (let i = 0; i < skeletonCount; i++) {
+		seriesGrid.appendChild(createSkeletonCard());
+	}
+	
+	// Scroll to top smoothly on pagination
+	if (state.page !== state.lastPage && state.lastPage !== undefined) {
+		window.scrollTo({ top: 0, behavior: 'smooth' });
+	}
+	state.lastPage = state.page;
+	
 	let url = `/api/series?page=${page}&per_page=50&status=${encodeURIComponent(status)}&sort=${encodeURIComponent(sort)}&dir=${encodeURIComponent(dir)}`;
 	if (searchQuery) {
 		url += `&search=${encodeURIComponent(searchQuery)}`;
@@ -1183,17 +1272,52 @@ async function loadPage() {
 	if (Array.isArray(state.readableOn) && state.readableOn.length > 0) {
 		url += `&readable_on=${encodeURIComponent(state.readableOn.join(','))}`;
 	}
+	
 	try {
+		// Fetch data (preload)
 		const res = await fetch(url);
 		if (!res.ok) throw new Error('Failed to load series');
 		const data = await res.json();
-		const seriesGrid = document.getElementById('series-grid');
-		seriesGrid.innerHTML = data.items.length === 0 ? '<p>No series found.</p>' : '';
-		data.items.forEach(series => seriesGrid.appendChild(renderSeriesCard(series)));
+		
+		// Store all series for reference
+		state.allSeries = data.items;
+		state.hasLoadedOnce = true;
+		
+		// Clear grid and render new cards with stagger effect
+		seriesGrid.innerHTML = '';
+		
+		if (data.items.length === 0) {
+			seriesGrid.innerHTML = '<p>No series found.</p>';
+		} else {
+			// Render cards with chapters included, with slight stagger for visual polish
+			data.items.forEach((series, index) => {
+				const chapters = series.chapters || [];
+				const card = renderSeriesCard(series, chapters);
+				card.style.animationDelay = `${index * 0.03}s`;
+				seriesGrid.appendChild(card);
+			});
+		}
+		
 		renderPagination(data.current_page, data.total_pages, status, sort);
 	} catch (err) {
-		document.getElementById('series-grid').innerHTML = `<p>Error: ${err.message}</p>`;
+		seriesGrid.innerHTML = `
+			<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: #ef4444;">
+				<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin: 0 auto 16px; display: block;">
+					<circle cx="12" cy="12" r="10"></circle>
+					<line x1="12" y1="8" x2="12" y2="12"></line>
+					<line x1="12" y1="16" x2="12.01" y2="16"></line>
+				</svg>
+				<p style="font-size: 18px; font-weight: 600; margin-bottom: 8px; color: white;">Failed to load series</p>
+				<p style="font-size: 14px; color: #94a3b8; margin-bottom: 16px;">${err.message}</p>
+				<button onclick="loadPage()" style="padding: 10px 20px; background: #1665f4; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
+					Retry
+				</button>
+			</div>
+		`;
 		console.error(err);
+	} finally {
+		// Always reset loading state
+		isLoadingPage = false;
 	}
 }
 
@@ -1789,6 +1913,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Refresh
 	document.getElementById('btn-refresh')?.addEventListener('click', async () => {
+	if (isLoadingPage) return; // Prevent refresh during load
+	
 	const btn = document.getElementById('btn-refresh');
 	
 	// Add refreshing class to trigger animation
