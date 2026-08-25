@@ -1,373 +1,49 @@
-# 📚 **Manga Tracker – Complete Project Summary (Updated January 12, 2026)**
+# 📚 **Manga Tracker – Complete Project Summary (Updated August 25, 2026)**
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application that monitors 1,300+ series across multiple sources (MangaDex, Kagane) with manual chapter control, automated checking, bulk operations, activity logging, automated backups, multi-source support per series, comprehensive statistics dashboard, and **full mobile UI support across all pages**.
+A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane) with manual chapter control, automated background checking, bulk operations, activity logging with undo, automated hourly backups, multi-source support per series, a statistics dashboard with historical trends, toast notifications, and full mobile UI across all pages.
+
+This file is meant to be handed to a fresh chat/assistant to resume work without re-exploring the whole codebase. It describes **current state**, not a changelog — check `git log` for history.
 
 ---
-
-## 📊 **System Statistics**
-
-### **Current Scale**
-- **Series tracked**: 1,300+
-- **Database size**: ~15-20 MB (uncompressed)
-- **Backups**: ~35 MB for 7 days (168 backups)
-- **Error logs**: <10 MB for 7 days
-- **Activity logs**: ~5 MB for 14 days
-
-### **Performance**
-- **Page load**: <500ms (50 series per page)
-- **Add series**: 2-5 seconds (MangaDex), 3-7 seconds (Kagane)
-- **Background check**: 1-2 seconds per series
-- **Backup creation**: 1-2 seconds
-- **Database query**: <100ms average
-- **Multi-source merge**: <1 second (2-3 sources)
-- **Stats calculation**: <200ms for 1,300+ series
-
----
-
-## 🔧 **Configuration**
-
-### **Scheduler Intervals**
-```python
-intervals = {
-    'reading': 1800,        # 30 minutes
-    'plan_to_read': 10800,  # 3 hours
-    'on_hold': 86400,       # 24 hours
-    'dropped': 604800,      # 7 days
-    'completed': 604800     # 7 days
-}
-```
-
-### **Backup Settings**
-```python
-BackupManager(
-    backup_interval_hours=1,  # Hourly
-    retention_days=7          # 7 days
-)
-```
-
-### **Log Retention**
-- **Error logs**: 7 days
-- **Activity logs**: 14 days (with 7-day undo window)
-- **Backups**: 7 days
-
-### **Mobile Breakpoint**
-```css
-@media (max-width: 768px) {
-  /* Mobile styles */
-}
-```
-
----
-
-## 🎯 **Success Metrics**
-
-✅ All 1,300+ series tracked successfully
-✅ Zero data loss with backup system
-✅ Multi-source support prevents missing chapters
-✅ Season-aware parsing handles complex numbering
-✅ Bulk operations save hours of manual work
-✅ Activity log provides confidence to experiment
-✅ Error tracking catches issues proactively
-✅ UI remains responsive under load
-✅ Statistics dashboard provides accurate reading insights
-✅ **Full mobile support with touch-optimized UI across ALL pages**
-✅ **Smooth animations and transitions throughout**
-✅ **Consistent UX across desktop and mobile**
-✅ **Bottom sheet with comprehensive settings menu**
-✅ **Scroll locking for modals and drawers**
-✅ **Direct-open dropdowns on mobile (no hover delays)**
-
----
-
-## 🔄 **Recent Updates (January 2026)**
-
-### **Mobile UI Implementation (Current - January 12, 2026)**
-
-#### **Dashboard Mobile UI (Complete)**
-- ✅ Complete responsive design for phones (≤768px)
-- ✅ Fixed mobile header with hamburger menu
-- ✅ Reorganized control panel for mobile (2 rows)
-- ✅ Right-side filter drawer with all desktop filters
-- ✅ Combined Tags menu (genres + content rating)
-- ✅ Removed "Plan to Read" from Publication Status filter
-- ✅ Mobile search functionality (synced with desktop)
-- ✅ 2-column series grid with optimized cards
-- ✅ Title overlay on cover (max 2 lines)
-- ✅ Removed last-release display on mobile
-- ✅ Removed card-info section below cover
-- ✅ Long-press bulk selection (500ms trigger)
-- ✅ Scroll detection to prevent false triggers
-- ✅ FAB buttons (add, refresh, back-to-top)
-- ✅ Refresh rotation animation + disable state
-- ✅ Bulk edit FAB menu with X icon toggle
-- ✅ Scroll lock when bulk menu open (fixed for edit menu)
-- ✅ Dark overlay (70% opacity) for bulk menu
-- ✅ 3 action FABs (Read, Edit, Delete)
-- ✅ Staggered fade-in animations (50ms delay)
-- ✅ FAB text labels (left side, no background)
-- ✅ Back-to-top in bulk mode (when scrolled)
-- ✅ Proper FAB centering and sizing
-- ✅ Darker disabled state for refresh FAB
-- ✅ Fixed bulk deselection on edit button click
-
-#### **Bottom Sheet Enhancements (January 4-5, 2026)**
-- ✅ Fixed scroll locking for series settings modal on mobile
-- ✅ Disabled body scrolling when bottom sheet is open
-- ✅ Fixed sheet-metadata and sheet-actions layout
-- ✅ Added comprehensive settings menu in bottom sheet
-- ✅ Three-dot menu (⋮) in bottom sheet header
-- ✅ Sheet-settings-menu with action buttons:
-  - **Go to Source** - Opens primary source URL (fixed functionality)
-  - **Copy Series URL** - Copies source to clipboard
-  - **Delete Series** - Removes series with confirmation
-- ✅ Fixed menu placement and positioning
-- ✅ Improved touch/drag interaction for bottom sheet
-- ✅ Fixed primary source display (removed duplicate "Primary" label bug)
-
-#### **Stats Page Mobile UI (January 6, 2026)**
-- ✅ Full mobile responsive layout
-- ✅ Header with hamburger menu and title
-- ✅ Refresh FAB button (bottom-right)
-- ✅ Single-column grid for all stat cards
-- ✅ Optimized card spacing and padding
-- ✅ Touch-friendly interactive elements
-- ✅ Fixed UI inconsistencies
-
-#### **Activity Log Mobile UI (January 6, 2026)**
-- ✅ Full mobile responsive layout
-- ✅ Header with hamburger menu and title
-- ✅ Refresh FAB button (bottom-right)
-- ✅ Mobile-optimized filter controls
-- ✅ Stacked filter dropdowns
-- ✅ Touch-friendly undo buttons
-- ✅ Improved timestamp display
-- ✅ Single-column activity log layout
-
-#### **Backups Page Mobile UI (January 12, 2026)**
-- ✅ Full mobile responsive layout
-- ✅ Header with hamburger menu and title
-- ✅ Refresh FAB button (bottom-right)
-- ✅ All dropdowns open directly on mobile (no hover states)
-- ✅ Mobile-optimized backup cards
-- ✅ Touch-friendly download/restore buttons
-- ✅ Improved status section layout
-- ✅ Single-column backup list
-- ✅ Optimized spacing for mobile screens
-- ✅ Fixed dropdown menu interactions
-
-#### **Errors Page Mobile UI (January 12, 2026)**
-- ✅ Full mobile responsive layout
-- ✅ Header with hamburger menu and title
-- ✅ Refresh FAB button (bottom-right)
-- ✅ Mobile-optimized error log viewer
-- ✅ Touch-friendly date navigation
-- ✅ Single-column error display
-- ✅ Improved readability on small screens
-
-#### **Cross-Page Mobile Improvements (January 6, 2026)**
-- ✅ Consistent header with hamburger menu on ALL pages
-- ✅ Unified navigation drawer across entire app
-- ✅ Refresh FAB on Stats, Activity Log, Backups, and Errors pages
-- ✅ Consistent mobile breakpoints (≤768px)
-- ✅ Safe area support for all pages
-- ✅ Scroll lock fixes across modals and drawers
-
-### **Statistics Dashboard Fixes** (Previous)
-- ✅ Fixed Content Rating, Reading Status, and Content Type lines overlapping in distribution breakdowns
-- ✅ Fixed Chapters Read stat to correctly calculate +x/-x changes instead of only +1
-- ✅ Replaced Reading Streak with Series Added Today and Chapters Read Today metrics
-
-### **UI/UX Improvements** (Previous)
-- ✅ Hold-to-repeat for +/- buttons (300ms start, 50ms repeat)
-- ✅ Fixed manual chapter change functionality
-- ✅ Fixed +/- buttons not unlocking confirm button
-- ✅ Updated SVG icons for Progress and Status in activity log
-- ✅ Available Chapters sort option added
-- ✅ Improved dropdown UI (no text wrapping, fixed widths/spacing)
-- ✅ Refresh button rotation animation when clicked
-- ✅ Activity log hover tooltips showing full DD/MM/YYYY HH:MM timestamp
-- ✅ Confirm button disabled when no changes made in series settings
-- ✅ "Not started" properly displayed for chapter value -1 in activity log
-- ✅ Fixed pagination margin/padding showing when only 1 page exists
-- ✅ Combined Tags and Content Rating into single dropdown menu
-- ✅ Added "Readable On" filter dropdown (MangaDex/Kagane)
-
-### **Middle-Click Navigation Support** (Previous)
-- ✅ Search Google button: Middle-click opens in background tab
-- ✅ Go to Source button: Middle-click opens in background tab
-- ✅ Continue button: Middle-click opens in background tab
-- ✅ Uses `auxclick` event for proper browser behavior
-- ✅ Left-click maintains normal behavior (opens and switches to tab)
-
-### **Multi-Source Support** (December 2024)
-- ✅ Multiple sources per series (MangaDex + Kagane)
-- ✅ User-controlled source management
-- ✅ Drag-and-drop source reordering
-- ✅ Automated chapter merging
-- ✅ Metadata merging (alt titles, genres)
-- ✅ Activity logging for source changes
-
-### **Season-Aware Parsing** (December 2024)
-- ✅ Detects season markers in chapter titles
-- ✅ Calculates offsets for continuous numbering
-- ✅ Handles multi-season series (S1, S2, S3...)
-- ✅ Preserves all chapters (no data loss)
-- ✅ Supports all season format variants
-
-### **Activity Log System** (December 2024)
-- ✅ Logs all user actions (add/delete/edit/progress/status)
-- ✅ Undo within 7 days
-- ✅ Bulk operation undo
-- ✅ Auto-cleanup after 14 days
-- ✅ Fixed: Bulk delete undo with manually re-added series
-
-### **Database Backup System** (December 2024)
-- ✅ Automated hourly backups
-- ✅ 7-day retention with auto-cleanup
-- ✅ gzip compression (~70% space savings)
-- ✅ Web UI for backup management
-- ✅ Manual backup/restore via UI
-- ✅ Safety backups before restore
-
----
-
-## 🚀 **Future Enhancements**
-
-### **Priority To-Do:**
-- 📋 Reading statistics trends over time
-- 📋 Fix Kagane way of detecting if a series is manga/manhwa/manhua/other
-- 📋 Reading history timeline
-- 📋 Time-based comparison (this month vs last month)
-- 📋 Genre preferences chart (radar/spider chart)
-- 📋 Series completion timeline
-- 📋 Reading heatmap (days active)
-
-### **Mobile UI Polish (Completed):**
-- ✅ Bottom sheet enhancements (scroll locking, settings menu, fixed layouts)
-- ✅ All pages mobile responsive (Stats, Logs, Backups, Errors)
-- ✅ Direct-open dropdowns on mobile (no hover states)
-- ✅ Fixed primary source display bug
-
-### **Priority Completed**
-- ✅ Multi-source support
-- ✅ Season-aware parsing
-- ✅ Source management UI
-- ✅ Middle-click navigation support
-- ✅ Hold-to-repeat chapter navigation
-- ✅ Available Chapters sort
-- ✅ Comprehensive statistics dashboard
-- ✅ Fixed statistics display issues (line overlap, chapters read calculation)
-- ✅ Today's activity metrics (series added, chapters read)
-- ✅ **Complete mobile UI implementation across ALL pages**
-- ✅ **Bottom sheet with three-dot menu and actions**
-- ✅ **Scroll locking for all modals and drawers**
-- ✅ **Direct-open dropdowns on mobile**
-
----
-
-## 📝 **Next Chat Reference**
-
-When resuming work on this project, provide:
-1. This updated project summary document
-2. Any specific issues or feature requests
-3. Console/error logs if debugging
-4. Screenshots for UI issues (especially mobile)
-
-The assistant will have full context to continue development! 🚀
-
----
-
-## 💡 **Code Format Request Template**
-
-When asking another AI assistant to help with this project, use this format:
-
-**For Code Changes:**
-```
-Please provide code updates in this format:
-1. Show the EXACT code section to find (with context lines)
-2. Show the NEW code to replace it with
-3. Explain what changed and why
-4. Use clear markers like "// ADDED:", "// CHANGED:", "// REMOVED:"
-
-Example:
-"Find this in style.css (around line 2500):
-```css
-.fab-bulk-action {
-  opacity: 0;
-}
-```
-
-Replace with:
-```css
-.fab-bulk-action {
-  opacity: 0;
-  /* ADDED: Label styling */
-  position: relative;
-}
-
-.fab-bulk-action::before {
-  content: attr(data-label);
-  /* ... */
-}
-```
-"
-```
-
-**This format is called:**
-- "Inline diff format" or "contextual code replacement"
-- "Before/After code blocks with context"
-- "Targeted code replacement instructions"
-
-**Alternative names:**
-- "Patch format" (for developers)
-- "Code diff format"
-- "Specific line replacement format"
-
-**Key elements:**
-1. **Context** (show surrounding code to locate the change)
-2. **Clear markers** (FIND THIS / REPLACE WITH)
-3. **Annotations** (// ADDED, // CHANGED, // REMOVED comments)
-4. **Explanation** (why the change was made)
-
-This makes it easy to implement changes without confusion about WHERE to make them!
 
 ## 🏗️ **Architecture**
 
 ### **Tech Stack**
-- **Backend**: Python 3.9+, Flask, SQLite (WAL mode)
-- **Frontend**: Vanilla JavaScript, Custom CSS (no frameworks)
+- **Backend**: Python 3.9+, Flask, SQLite (WAL mode), APScheduler (background jobs)
+- **Frontend**: Vanilla JavaScript, custom CSS (no frameworks/build step)
 - **Special**: Selenium for Kagane (Cloudflare bypass)
 - **Integrations**: MangaDex API, Kagane scraper, AniList enrichment
-- **Mobile**: Responsive design with touch-optimized UI
+- **Browser extension**: `extension/` (background.js) — lightweight companion, not actively documented here
 
 ### **File Structure**
 ```
 manga-tracker/
 ├── backend/
-│   ├── api.py                    # Flask routes & queue-based adding
-│   ├── database.py               # SQLite operations with global lock
-│   ├── scheduler.py              # Background chapter checking
-│   ├── main.py                   # Additional routes (errors, logs, backups, stats)
+│   ├── api.py                    # Flask routes, queue-based series adding, stats endpoints (~1400+ lines)
+│   ├── database.py               # SQLite operations, global lock, stats history aggregation
+│   ├── scheduler.py              # Background chapter checking (adaptive intervals)
+│   ├── main.py                   # App entrypoint / extra routes (errors, logs, backups, stats)
 │   ├── error_logger.py           # 7-day rotating error logs
 │   ├── activity_logger.py        # 14-day activity log with undo
-│   ├── backup_manager.py         # Hourly database backups
+│   ├── backup_manager.py         # Hourly database backups, gzip, retention
 │   ├── selenium_kagane.py        # Singleton Selenium client
 │   └── trackers/
 │       ├── mangadex.py           # MangaDex API integration
 │       ├── kagane.py             # Kagane scraper (Selenium-based, season-aware)
-│       └── anilist.py            # AniList enrichment (covers, titles)
+│       └── anilist.py            # AniList enrichment (covers, titles, genres)
 ├── data/
 │   ├── tracker.db                # Main SQLite database
-│   └── last_errors_visit.txt    # Error badge tracking
+│   └── last_errors_visit.txt     # Error badge tracking
 ├── logs/                         # Error logs (7-day rotation)
 ├── backups/                      # Database backups (7-day retention)
 ├── web/
 │   ├── static/
-│   │   ├── css/style.css         # Clean, organized CSS (~3000+ lines with mobile)
+│   │   ├── css/style.css         # ~3170 lines, includes mobile breakpoints
 │   │   └── js/
-│   │       ├── dashboard.js      # Main dashboard logic + mobile UI
+│   │       ├── dashboard.js      # ~5230 lines — main dashboard logic + mobile UI
+│   │       ├── notifications.js  # Toast notification system (shared across all pages)
 │   │       └── backups.js        # Backup management UI
 │   └── templates/
 │       ├── index.html            # Main dashboard
@@ -375,16 +51,24 @@ manga-tracker/
 │       ├── logs.html             # Activity log viewer
 │       ├── backups.html          # Backup management
 │       └── stats.html            # Statistics dashboard
+├── extension/                    # Companion browser extension
 └── requirements.txt
 ```
+
+### **Starting the app**
+```
+venv\Scripts\Activate.ps1
+python -m backend.main
+```
+Flask binds to `0.0.0.0:8080` (fixed Aug 2026 — used to be hardcoded to a specific LAN IP, which broke whenever the host machine's IP changed). Runs with `debug=True, use_reloader=False`.
 
 ---
 
 ## 🗄️ **Database Schema**
 
-### **Core Tables**
+Tables: `series`, `series_sources`, `chapters`, `activity_log`, `meta`, `stats_history`, `sqlite_sequence`.
 
-#### `series` - Main series tracking
+#### `series` — Main series tracking
 ```sql
 CREATE TABLE series (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -409,28 +93,25 @@ CREATE TABLE series (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     genres TEXT,                                   -- JSON array
     content_rating TEXT DEFAULT 'unknown',         -- safe/mild/mature/explicit
-    searchable_text TEXT                           -- Normalized search index
+    searchable_text TEXT                            -- Normalized search index
 );
 ```
 
-#### `series_sources` - Multi-source support
+#### `series_sources` — Multi-source support
 ```sql
 CREATE TABLE series_sources (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     series_id INTEGER NOT NULL,
     source_url TEXT NOT NULL UNIQUE,
     source_type TEXT NOT NULL,                     -- 'mangadex', 'kagane', etc
-    is_primary BOOLEAN DEFAULT 0,                  -- Which source is "main"
+    is_primary BOOLEAN DEFAULT 0,
     last_check DATETIME,
     added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
 );
-CREATE INDEX idx_sources_series ON series_sources(series_id);
-CREATE INDEX idx_sources_primary ON series_sources(series_id, is_primary);
-CREATE UNIQUE INDEX idx_sources_url ON series_sources(source_url);
 ```
 
-#### `chapters` - Chapter history per series
+#### `chapters` — Chapter history per series
 ```sql
 CREATE TABLE chapters (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -446,688 +127,125 @@ CREATE TABLE chapters (
 );
 ```
 
-#### `activity_log` - User action history with undo
+#### `activity_log` — User action history with undo
 ```sql
 CREATE TABLE activity_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
     action_type TEXT NOT NULL,                     -- 'added', 'deleted', 'progress', 'status', 'edited'
-    series_id INTEGER,                              -- NULL if deleted
+    series_id INTEGER,
     series_title TEXT,
     old_value TEXT,                                 -- JSON: before state
     new_value TEXT,                                 -- JSON: after state
     is_bulk BOOLEAN DEFAULT 0,
-    bulk_id TEXT,                                   -- Groups bulk operations
+    bulk_id TEXT,
     can_undo BOOLEAN DEFAULT 1,
     FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE SET NULL
 );
-CREATE INDEX idx_activity_timestamp ON activity_log(timestamp);
-CREATE INDEX idx_activity_type ON activity_log(action_type);
-CREATE INDEX idx_activity_bulk ON activity_log(bulk_id);
 ```
 
-#### `meta` - Application metadata
+#### `stats_history` — Historical stats snapshots (added ~Jan 2026)
+```sql
+CREATE TABLE stats_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_type TEXT NOT NULL,   -- 'day', 'week', 'month', 'year'
+    period_start TEXT NOT NULL,  -- ISO format date
+    period_end TEXT NOT NULL,
+    series_added INTEGER DEFAULT 0,
+    chapters_read INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(period_type, period_start)
+);
+```
+Retention: day rows kept 90 days, week rows 52 weeks, month rows 24 months, year rows kept forever. Chapters-read/series-added deltas correctly handle decrements now (e.g. unreading a chapter or deleting a series subtracts, it doesn't just always add).
+
+#### `meta` — Application metadata
 ```sql
 CREATE TABLE meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
--- Keys: 'last_dashboard_visit', 'schema_version'
+-- Keys: 'last_dashboard_visit', 'schema_version', etc.
 ```
 
 ---
 
-## 🎨 **User Interface**
+## ⚙️ **Core Features (current state)**
 
-### **Navigation Header** (All Pages)
-```
-[Errors] [Dashboard] [Activity Log] [Backups] [Stats] [Discovery]
-     ↑          ↑            ↑           ↑        ↑         ↑
-  Badge if   Main UI    Undo logs    Manage   Stats    External
-  new errors            within 7d    backups  page     link
-```
+1. **Multi-source tracking** — multiple sources per series (MangaDex + Kagane), user-controlled linking (never auto-linked), drag-and-drop primary source selection, automated chapter/metadata merging, AniList enrichment.
 
-### **Desktop Dashboard (`/`) - Main Interface**
+2. **Manual chapter control** — +/− with hold-to-repeat (300ms delay, 50ms repeat), volume-aware sorting, season-aware parsing for Kagane, confirm button disabled until an actual change is made.
 
-#### **Control Panel (2 rows)**
+3. **Background scheduler (APScheduler)** — adaptive check intervals:
+   ```python
+   intervals = {
+       'reading': 1800,        # 30 minutes
+       'plan_to_read': 10800,  # 3 hours
+       'on_hold': 86400,       # 24 hours
+       'dropped': 604800,      # 7 days
+       'completed': 604800     # 7 days
+   }
+   ```
 
-**Row 1:**
-```
-[Status ▾] [Sort ▾] [↕] [↻] [🔔] [Search...]
-```
-- Status filter (reading/plan/hold/dropped/completed)
-- Sort options (unread first/title/release/added/chapters/available chapters)
-- Sort direction toggle
-- Reset filters
-- Source alerts (placeholder for future)
-- Search series
+4. **Bulk operations** — select multiple series, mark as read, change status, delete, all logged to activity log with grouped undo.
 
-**Row 2:**
-```
-[Type ▾] [Tags ▾] [Pub Status ▾] [Readable On ▾] | [Actions...]
-```
-- Content type (manga/manhwa/manhua/other)
-- Tags dropdown (combined genre tags + content rating in same menu)
-- Publication status (ongoing/completed/etc)
-- Readable On filter (MangaDex/Kagane)
-- Action buttons (Refresh/Add OR Bulk: Read/Edit/Delete)
+5. **Activity log with undo** — 7-day undo window, 14-day retention, hover tooltips with full timestamp, bulk-safe (won't break if you manually re-add a deleted series before undoing).
 
-#### **Series Cards** (221px × 331px covers)
-- **Hover**: Checkbox appears (top-right)
-- **Click**: Select for bulk operations
-- **Selected**: Yellow border (#eab308)
-- **Badge**: Red unread count (top-left)
-- **Metadata**: Last release time (bottom-left)
-- **6 action buttons**: Settings, Google Search, Source, −, +, ✓
-- **Continue button**: Links to next unread chapter
-- **Middle-click support**: All navigation buttons (Search, Source, Continue) support middle-click to open in background tab
-- **Hold-to-repeat**: +/- buttons repeat when held (starts after 300ms, repeats every 50ms)
+6. **Database backups** — hourly, gzip compressed, 7-day retention (~35 MB typical), manual backup/restore via `/backups` UI, safety backup taken before any restore.
 
-#### **Bulk Mode**
-- First selection → enters bulk mode
-- Buttons switch: `[Refresh] [+Add]` → `[Read] [Edit] [Delete]`
-- All operations exit bulk mode after completion
+7. **Statistics dashboard (`/stats`)** — hero stats, reading progress, content/status/rating distribution, time-based activity (today/week/month/year, backed by `stats_history`), source/genre preferences. Chapters-read and series-added deltas are now accurate (fixed a bug where undo/unread/delete didn't properly decrement the counters).
 
-#### **Series Settings Modal**
-Accessible via gear icon on each card. Contains sections:
+8. **Advanced filtering** — multi-select content type, combined Tags dropdown (genres + content rating, with an **exclude** mode per tag — Mature/Explicit are excluded by default), Publication Status, Readable On (MangaDex/Kagane), text search (title/alt titles/romaji/native, clearable via an inline × button), sort with direction toggle.
 
-**1. Sources Management**
-- View all sources for a series
-- Drag-and-drop to reorder (top = primary)
-- Add new sources (MangaDex, Kagane)
-- Remove secondary sources
-- Primary source used for "Go to Source" button
-- Metadata merging: Alt titles and genres from all sources combined
+9. **Toast notification system** (`notifications.js`, added Jan 2026) — replaced essentially all `alert()`/`confirm()` popups across every page with top-right toast notifications (auto-dismiss 4s, manual close, contextual icons, only fires when a value actually changed). Used for series edits, bulk ops, source management, activity log undo, backup operations, and error states. Desktop and mobile both covered.
 
-**2. Basic Info**
-- Edit title
-- Edit cover URL
+10. **Error logging** — 7-day rotating logs, "New" badge in nav, per-date viewing. Duplicate series-add attempts and DB-locking edge cases are now logged instead of silently failing (fixed Jan 2026 — duplicate detection moved to rely on the DB's UNIQUE constraint instead of a racy pre-check, and the DB lock is now released in all exception paths).
 
-**3. Reading Progress**
-- Change status (reading/plan/hold/dropped/completed)
-- Set current chapter (dropdown with all chapters)
-- Reset to "Not started"
-- Manual "Check Now" button
-- Confirm button disabled when no changes made
+11. **Performance** — series cards render with skeleton loading placeholders while data loads, and cover images lazy-load (added Aug 2026), improving perceived load time on large libraries. Pagination handling and error display around series loading were also tightened up.
 
-**4. Actions**
-- Delete series (red button, left side)
-- Cancel/Save (right side)
+12. **Mobile UI** — full responsive design (≤768px) across every page: hamburger nav drawer, right-side filter drawer, bottom sheet for quick series actions (Go to Source / Copy URL / Delete), 2-column card grid, long-press bulk selection, FAB buttons (add/refresh/back-to-top), bulk-edit FAB menu, safe-area support, 44px touch targets. Consistent header + refresh FAB on Dashboard, Stats, Activity Log, Backups, and Errors.
 
----
-
-## 📱 **Mobile UI (≤768px)**
-
-### **Mobile Header**
-```
-[☰ Menu]  Manga Tracker  [        ]
-```
-- Hamburger menu (left drawer)
-- Centered title
-- Auto-hide on scroll down (past 300px)
-- Sticky positioning with safe area support
-- **Consistent across ALL pages** (Dashboard, Stats, Logs, Backups, Errors)
-
-### **Mobile Menu (Left Drawer)**
-- Slide from left
-- Links: Dashboard, Discovery, Stats, Activity Log, Errors, Backups
-- Dark overlay backdrop
-- Swipe/tap outside to close
-
-### **Mobile Control Panel**
-**Sticky below header (2 rows):**
-
-**Row 1:**
-```
-[Status ▾ - flexible width] [Sort ▾ - 180px fixed]
-```
-
-**Row 2:**
-```
-[Filter 🔍] [Sort ↕] [Search - flexible width]
-```
-- Filter button → opens right drawer
-- Sort direction toggle
-- Search input (synced with desktop)
-
-### **Filter Drawer (Right Side)**
-- Slide from right
-- All filters from desktop in vertical layout:
-  - Content Type (multi-select)
-  - Tags (genres + content rating combined, scrollable)
-  - Publication Status (multi-select, **without "Plan to Read"**)
-  - Readable On (MangaDex/Kagane)
-- Reset All Filters button at bottom
-- Dark overlay backdrop
-
-### **Series Grid (2 columns)**
-- **Card Layout**:
-  - 2/3 aspect ratio covers
-  - Unread badge (top-left)
-  - **No** last-release time display
-  - **Title overlay** at bottom of cover (gradient background)
-    - Max 2 lines with ellipsis
-  - **No** card-info section below cover
-  - **No** action buttons visible
-
-### **Card Interaction (Mobile)**
-- **Short tap** (not in bulk mode): Opens bottom sheet
-- **Long press** (500ms): Enters bulk mode + selects card
-- **Tap** (in bulk mode): Toggle selection
-- **Selected cards**: Yellow border (#eab308)
-- **No checkbox** displayed (hidden completely)
-- **Scroll detection**: Movement >10px cancels long-press
-
-### **Bottom Sheet**
-Opens on card tap (when not in bulk mode):
-- **Header**: Series title + Three-dot menu (⋮)
-- **Settings Menu** (accessible via ⋮):
-  - **Go to Source** - Opens primary source URL in new tab
-  - **Copy Series URL** - Copies primary source URL to clipboard
-  - **Delete Series** - Deletes series with confirmation dialog
-  - Menu appears as overlay with proper positioning
-  - Touch-friendly button sizing (44px minimum)
-- **Progress section**:
-  - Current chapter display
-  - Chapter + button (increment)
-  - Progress bar
-  - Metadata (updated time, chapters behind)
-- **Action buttons**:
-  - Search Ch.X (Google search)
-  - Continue (primary button)
-- **Swipe down** to close
-- **Scroll locking**: Body scroll disabled when sheet is open
-- **Sheet metadata and actions**: Fixed layout and positioning
-- Settings menu button opens full series settings modal
-
-### **Bulk Edit Mode (Mobile)**
-When bulk mode is active:
-
-**UI Changes:**
-- Normal FAB buttons hidden
-- Bulk edit FAB (edit icon) appears bottom-right
-- Back-to-top button moves up (when scrolled >300px)
-
-**Bulk Edit Menu:**
-- Tap edit FAB → transforms to X icon
-- Dark overlay (70% opacity)
-- **Scroll locked** when menu open (fixed for edit menu)
-- 3 action FABs appear above (bottom to top):
-  1. **Delete** (bottom) - with label "Delete"
-  2. **Edit** (middle) - with label "Edit"  
-  3. **Read** (top) - with label "Set chapter to last read"
-- Labels appear to the **left** of FABs
-- Staggered fade-in animation (50ms delay each)
-- Tap X or overlay to close menu
-
-**FAB Button Labels:**
-- White text, no background
-- 14px font, 500 weight
-- Positioned with `right: calc(100%)` from button
-- Fade in/out with buttons
-- No box shadow or background
-
-### **Floating Action Buttons (FABs)**
-**Normal Mode (bottom-right stack):**
-- **Secondary FAB** (38px, gray #334155):
-  - Scroll >300px: Up arrow (back to top)
-  - Scroll <300px: Refresh icon
-  - Disabled when refreshing (darker gray #1f2937)
-  - Rotation animation on refresh (0.6s)
-- **Primary FAB** (50px, gray #334155):
-  - Plus icon (add series)
-
-**Bulk Mode:**
-- Normal FABs hidden
-- Bulk edit FAB (50px) replaces them
-- Edit icon → X icon when menu open
-- Action FABs (38px each) appear above when menu open
-
-### **Safe Area Support**
-- Header: `padding-top: env(safe-area-inset-top)`
-- FABs: `bottom: calc(16px + env(safe-area-inset-bottom))`
-- Bottom sheet: `padding-bottom: env(safe-area-inset-bottom)`
-
-### **Scroll Behavior**
-- Header hides on scroll down (>300px)
-- Header shows when scrolling up or near top (<50px)
-- FAB icon changes at 300px threshold
-- Back-to-top shows in bulk mode when scrolled
-- Smooth scroll animations
-
-### **Touch Optimizations**
-- All interactive elements: min-height 44px (iOS guideline)
-- Tap highlights disabled (`-webkit-tap-highlight-color: transparent`)
-- User-select disabled on cards
-- Pull-to-refresh disabled (iOS)
-- Swipe gestures for drawers and bottom sheet
-
----
-
-## **Statistics Dashboard (`/stats`)**
-
-Comprehensive statistics page with 5 main sections:
-
-#### **Row 1: Hero Stats** (Big Numbers)
-- Total Series
-- Total Chapters
-- Chapters Read
-- Completion Rate %
-
-#### **Row 2: Reading Progress**
-- Series Caught Up (read all available)
-- Series In Progress (started but not caught up)
-- Total Unread Chapters
-- Average Unread per Series
-
-#### **Row 3: Distribution** (Breakdown Charts)
-- Content Type Distribution (Manga/Manhwa/Manhua/Other)
-  - Color-coded bars with percentages
-- Reading Status Distribution (Reading/Plan/Completed/Dropped/Hold)
-  - Color-coded progress bars
-- Content Rating Distribution (Safe/Suggestive/Mature/Explicit)
-  - Visual breakdown with percentages
-
-#### **Row 4: Time-Based Activity**
-- Series Added (Today/Week/Month/Year)
-- Chapters Read (Today/Week/Month/Year)
-
-#### **Row 5: Preferences & Sources**
-- Series per Source (MangaDex/Kagane counts)
-- Most Used Source
-- Multi-Source Series Count
-- Most Common Genre
-- Average Chapters per Series
-- Most Read Content Type
-
-**Features:**
-- Real-time data from database
-- Refresh button to update stats
-- Responsive grid layout
-- Color-coded categories
-- Hover effects on all cards
-- Percentage bars with smooth animations
-- Fixed line overlap in distribution breakdowns
-- **Mobile UI** (≤768px):
-  - Header with hamburger menu and "Statistics" title
-  - Refresh FAB button (bottom-right)
-  - Single-column grid layout
-  - Touch-optimized cards
-  - Improved spacing and readability
-
----
-
-### **Activity Log (`/logs`)**
-```
-[Type Filter ▾] [Time Filter ▾] [Search...]
-
-📖 Read chapter: Solo Leveling
-   Ch.45 → Ch.50
-   1 hour ago (hover for full date/time)              [Undo]
-
-✏️ Changed status: Reading → On Hold (3 series)
-   10 minutes ago                                      [Undo]
-
-🗑️ Deleted 5 series
-   • Series A
-   • Series B
-   • ... and 3 more
-   2 minutes ago                                       [Undo]
-```
-- **Features**: Filter by type/time, search, undo within 7 days
-- **Bulk operations**: Grouped with single undo button
-- **Auto-cleanup**: Logs deleted after 14 days
-- **Hover tooltips**: Show full DD/MM/YYYY HH:MM timestamp on "X ago" text
-- **Display improvements**: "Not started" shown for chapter value -1
-- **Updated icons**: New SVG icons for Progress and Status change actions
-- **Mobile UI** (≤768px):
-  - Header with hamburger menu and "Activity Log" title
-  - Refresh FAB button (bottom-right)
-  - Stacked filter controls (Type/Time/Search)
-  - Touch-optimized undo buttons
-  - Single-column layout
-  - Improved spacing and readability
-
-### **Backups (`/backups`)**
-```
-📦 Backup Status
-• Next backup in: 23 minutes
-• Last backup: 2 minutes ago
-• Total backups: 168
-• Disk usage: 34.2 MB / ~35 MB (7 days)
-
-[↻ Refresh] [➕ Create Backup Now]
-
-🗂️ Available Backups
-
-📅 Today, 6:00 PM
-tracker_backup_20241213_180000.db.gz
-Size: 2.34 MB  •  2 minutes ago
-[⬇️ Download] [↻ Restore]
-
-📅 Today, 5:00 PM
-tracker_backup_20241213_170000.db.gz
-Size: 2.32 MB  •  1 hour ago
-[⬇️ Download] [↻ Restore]
-```
-- **Features**: View all backups, manual creation, download, restore with warnings
-- **Automated**: Hourly backups, 7-day retention, ~35 MB total
-- **Safety**: Creates safety backup before restore
-- **Mobile UI** (≤768px):
-  - Header with hamburger menu and "Backups" title
-  - Refresh FAB button (bottom-right)
-  - All dropdowns open directly (no hover states)
-  - Mobile-optimized backup cards
-  - Touch-friendly action buttons (Download/Restore)
-  - Single-column backup list
-  - Improved status section layout
-  - Optimized spacing for small screens
-
-### **Errors (`/errors`)**
-- View error logs by date
-- French timestamp display (Paris timezone)
-- "New" badge for unread errors
-- 7-day rotation
-- **Mobile UI** (≤768px):
-  - Header with hamburger menu and "Errors" title
-  - Refresh FAB button (bottom-right)
-  - Mobile-optimized error log viewer
-  - Touch-friendly date navigation
-  - Single-column error display
-  - Improved readability on small screens
-
----
-
-## ⚙️ **Core Features**
-
-### ✅ **Implemented**
-
-1. **Multi-Source Tracking**
-   - Multiple sources per series (MangaDex + Kagane simultaneously)
-   - User-controlled source management (add/remove/reorder)
-   - Primary source designation
-   - Automated chapter merging from all sources
-   - Metadata merging (alt titles, genres combined)
-   - AniList enrichment (covers, titles, genres)
-   - Content rating and type classification
-
-2. **Manual Chapter Control**
-   - Increment (+), decrement (−), confirm (✓) buttons
-   - Hold-to-repeat: Starts after 300ms, repeats every 50ms (20 times/second)
-   - Volume-aware sorting for manga with volumes
-   - Oneshot handling
-   - Season-aware parsing for Kagane (handles S2 resets)
-   - Confirm button disabled when no changes made
-   - Fixed: Manual chapter changes now work correctly
-
-3. **Background Scheduler**
-   - Adaptive checking intervals based on status
-   - Reading: 30 min, Plan to read: 3h, On hold: 24h, etc.
-   - Multi-source chapter scanning
-   - Intelligent chapter merging (deduplication by number, keeps most recent)
-   - Season offset calculation for multi-season series
-   - Graceful error handling and retry logic
-
-4. **Bulk Operations**
-   - Select multiple series
-   - Mark as read (catch up to latest)
-   - Change status (reading/plan/hold/etc)
-   - Delete multiple series
-   - Activity logging for all bulk actions
-
-5. **Activity Log with Undo**
-   - Logs: add, delete, progress, status, edits
-   - Undo within 7 days
-   - Bulk operation undo (single button)
-   - Auto-cleanup after 14 days
-   - Source change tracking
-   - Hover tooltips showing full timestamp
-   - Proper display of "Not started" for chapter -1
-   - Updated icons for Progress and Status changes
-
-6. **Database Backups**
-   - Automated hourly backups
-   - 7-day retention (~35 MB storage)
-   - gzip compression (~70% space savings)
-   - Manual backup/restore via web UI
-   - Safety backups before restore
-
-7. **Statistics Dashboard**
-   - Core stats: Total series, chapters, completion rate
-   - Reading progress tracking
-   - Content type/status/rating breakdowns (fixed line overlap display)
-   - Time-based activity metrics (Today/Week/Month/Year)
-   - Source usage statistics
-   - Genre preferences
-   - Real-time data with refresh capability
-   - Fixed: Chapters Read stat now accurately calculates +x/-x instead of just +1
-
-8. **Advanced Filtering**
-   - Multi-select: Content type, genres, rating, pub status
-   - "Readable On" filter (MangaDex/Kagane sources)
-   - Combined Tags dropdown (genres + content rating in same menu)
-   - Text search across all titles (including alt titles)
-   - Sorting with direction control (including Available Chapters sort)
-   - Persistent filters (no URL params)
-   - Fixed: Dropdown UI improvements (no text wrapping, proper widths)
-
-9. **Error Logging**
-   - 7-day rotating logs
-   - French timestamp display
-   - "New" badge in navigation
-   - Per-date viewing
-
-10. **Mobile UI** (Complete Responsive Design)
-    - **Touch-optimized interface** for phones (≤768px)
-    - **Left drawer menu** for navigation
-    - **Right drawer** for filters (all desktop filters available)
-    - **Bottom sheet** for quick series actions
-      - Three-dot menu with Go to Source, Copy URL, Delete
-      - Scroll locking when sheet is open
-      - Fixed metadata and actions layout
-    - **2-column series grid** with optimized card layout
-    - **Long-press selection** for bulk mode (500ms trigger)
-    - **FAB buttons** for primary actions (add, refresh, back-to-top)
-    - **Bulk edit menu** with floating action buttons
-    - **Labeled FAB actions** (Set chapter to last read, Edit, Delete)
-    - **Auto-hiding header** on scroll
-    - **Scroll lock** when modals/drawers open (fixed for edit menu and settings)
-    - **Safe area support** for iPhone notch/home indicator
-    - **Pull-to-refresh disabled** (prevents conflicts)
-    - **44px minimum tap targets** (iOS guidelines)
-    - **Smooth animations** for all interactions
-    - **Staggered FAB animations** (bottom-to-top cascade)
-    - **Consistent mobile UI across ALL pages**:
-      - Dashboard with full feature set
-      - Stats page with single-column cards
-      - Activity Log with stacked filters
-      - Backups with direct-open dropdowns
-      - Errors with optimized log viewer
-      - All pages have hamburger menu + refresh FAB
-
-11. **UI Polish**
-    - Back to top button
-    - Smooth scrolling
-    - Custom scrollbars
-    - Responsive design
-    - Confirmation modals for destructive actions
-    - Drag-and-drop source reordering
-    - Refresh button rotation animation
-    - Middle-click support on navigation buttons (Search Google, Go to Source, Continue)
-    - Fixed pagination margin/padding when only 1 page
-    - Hold-to-repeat for +/- buttons (300ms start delay, 50ms repeat)
+13. **UI polish (desktop)** — back-to-top FAB (now on **every** page, not just the dashboard, as of Aug 2026), dropdown trigger arrows are SVG chevrons that rotate 180° when their menu is open (replaced a tiny "▾" text glyph), pagination buttons have real contrast against the page background (previously nearly invisible — `#0f172a` pill with visible border, muted-but-legible disabled arrows), disabled buttons (e.g. Refresh mid-refresh) now visibly dim instead of just blocking clicks, Tags dropdown menu is 1.6× the trigger's width so long tag names aren't clipped (still left-aligned to the button), middle-click support on Search/Source/Continue buttons, drag-and-drop source reordering.
 
 ---
 
 ## 🔧 **Multi-Source Architecture**
 
-### **Overview**
-A single series can track chapters from multiple sources simultaneously (e.g., MangaDex + Kagane). This is **user-controlled** - the system never auto-links sources.
+A single series can track chapters from multiple sources simultaneously (e.g. MangaDex + Kagane). This is **user-controlled** — the system never auto-links sources, since same-name series aren't always the same work.
 
-### **Why User-Controlled?**
-- Series with same name ≠ always same series
-- Example: "Solo Leveling" could be:
-  - Solo Leveling (manhwa)
-  - Solo Leveling (light novel)
-  - Solo Leveling (different translations)
-- User must confirm which sources belong together
-
-### **Database Design**
-Uses a separate `series_sources` table:
-```sql
-series (1) → (N) series_sources
-- Each series can have unlimited sources
-- One source is marked as "primary"
-- Legacy source_url column kept for backward compatibility
-```
-
-### **User Workflows**
-
-#### **Adding a Second Source**
-1. Open series settings (gear icon)
-2. Click "Add Another Source" button
-3. Paste URL (MangaDex or Kagane)
-4. System validates URL type
-5. Click "Add" → fetches chapters
-6. Chapters merged with existing sources
-7. Alt titles and genres merged automatically
-
-#### **Reordering Sources (Primary Selection)**
-1. Open series settings → Sources section
-2. Drag-and-drop sources to reorder
-3. Top source = primary source
-4. Used for "Go to Source" button on card
-5. Changes saved on modal close
-
-#### **Removing a Source**
-1. Open series settings → Sources section
-2. Click trash icon next to non-primary source
-3. Confirm deletion
-4. Source removed, chapters remain
-5. Cannot remove last source or primary (must reorder first)
-
-### **Chapter Merging Logic**
-When a series has multiple sources:
-
-```python
-def merge_chapters_from_sources(series_id):
-    """Merge chapters from all sources."""
-    sources = get_sources_for_series(series_id)
-    all_chapters = []
-    
-    for source in sources:
-        chapters = fetch_chapters(source.url)
-        for ch in chapters:
-            ch['source_id'] = source.id
-            ch['source_type'] = source.source_type
-        all_chapters.extend(chapters)
-    
-    # Deduplicate by chapter number (keep most recent)
-    unique_chapters = {}
-    for ch in all_chapters:
-        ch_num = ch['chapter_number']
-        if ch_num not in unique_chapters or ch['release_date'] > unique_chapters[ch_num]['release_date']:
-            unique_chapters[ch_num] = ch
-    
-    return sorted(unique_chapters.values(), key=lambda x: x['chapter_number'])
-```
-
-**Example:**
-- MangaDex: Ch. 1-150 (primary)
-- Kagane: Ch. 145-149 (secondary, released earlier)
-- Result: Ch. 1-150 (uses Kagane for 145-149 if newer release date)
-
-### **Metadata Merging**
-When adding sources:
-- **Alt titles**: Combined from all sources (deduplicated)
-- **Genres**: Combined from all sources (deduplicated)
-- **Searchable text**: Rebuilt with all titles
-- **Cover/banner**: Uses primary source (user can manually override)
-
-### **Activity Logging**
-Source changes are logged:
-```json
-{
-  "action_type": "edited",
-  "series_id": 123,
-  "old_value": {
-    "sources": [{"url": "...", "type": "MangaDex", "is_primary": true}]
-  },
-  "new_value": {
-    "sources": [
-      {"url": "...", "type": "MangaDex", "is_primary": true},
-      {"url": "...", "type": "Kagane", "is_primary": false}
-    ]
-  }
-}
-```
+- Table: `series_sources`, one row per source, one marked `is_primary`.
+- **Add a source**: series settings → "Add Another Source" → paste URL → validated by type → chapters fetched and merged.
+- **Reorder / set primary**: drag-and-drop in series settings; top = primary; used for the "Go to Source" button.
+- **Remove a source**: trash icon (non-primary only; must reorder before removing the primary or the last source).
+- **Chapter merge logic**: dedupe by chapter number, keep whichever source's copy has the more recent `release_date`.
+- **Metadata merge**: alt titles and genres are unioned across sources; cover/banner defaults to the primary source (user can override).
+- All source changes are activity-logged with before/after JSON.
 
 ---
 
-## 🌟 **Special Features**
+## 🌟 **Special Behaviors Worth Knowing**
 
-### **Season-Aware Parsing (Kagane)**
-Handles series where seasons reset chapter numbering:
-
-**Problem:**
-- Season 1: Episode 1-65
-- Season 2: (S2) Episode 1-23
-
-**Solution:**
-- Detects season markers: `(S2)`, `[Season 2]`, `{S3}`, etc.
-- Calculates offset: Season 2 offset = 65 (last of Season 1)
-- Applies offset: `(S2) Episode 1` → Chapter 66
-- Result: Continuous numbering (1-88), no data loss
-
-**Supported Formats:**
-- Prefixes: `(S2) Episode 3`, `[Season 2] Episode 3`, `S3 Episode 3`
-- Suffixes: `Episode 65 (Season 1 Finale)`, `Episode 1 (S2 Premiere)`
-- Combined: `(S2) Episode 1 (Season 2 Premiere)`
-
-### **Smart Search**
-- Searches across: main title, English title, romaji, native, alt titles
-- Normalized matching: removes punctuation, diacritics
-- Multi-word support: all words must match (AND logic)
-
-### **Volume-Aware Sorting**
-For manga with volumes:
-- Chapters sorted by volume first, then chapter number
-- Dropdown shows: "Vol.3 Ch.25" instead of just "Ch.25"
-- Handles numeric volumes (1, 2, 3) and text volumes
-
-### **Adaptive Checking**
-Background scheduler checks series at different intervals:
-```python
-intervals = {
-    'reading': 1800,        # 30 minutes - actively reading
-    'plan_to_read': 10800,  # 3 hours - might start soon
-    'on_hold': 86400,       # 24 hours - paused
-    'dropped': 604800,      # 7 days - rarely check
-    'completed': 604800     # 7 days - might get extras
-}
-```
-
-### **Middle-Click Navigation**
-All navigation buttons support middle-click (mouse wheel click):
-- **Search Google button**: Opens Google search in background tab
-- **Go to Source button**: Opens series source page in background tab
-- **Continue button**: Opens next chapter in background tab
-- Uses `auxclick` event for proper browser behavior
-
-### **Hold-to-Repeat Chapter Navigation**
-The +/- buttons support holding for rapid changes:
-- **Initial delay**: 300ms before repeat starts
-- **Repeat rate**: 50ms between increments (20 per second)
-- **Smooth**: Natural feel for catching up on long series
-- **Safe**: Confirm button prevents accidental saves
-
-### **Mobile Long-Press Selection**
-Touch-optimized bulk selection:
-- **Trigger**: 500ms press duration
-- **Feedback**: Slight scale animation (0.95)
-- **Scroll detection**: >10px movement cancels press
-- **Touch vs Click**: Separate handlers for each
-- **Visual**: Yellow border on selection
-- **Cancel**: touchcancel event handling
+- **Season-aware parsing (Kagane)** — detects season markers (`(S2)`, `[Season 2]`, `{S3}`, etc.) in chapter titles and applies a numeric offset so multi-season series get continuous chapter numbering instead of resetting.
+- **Smart search** — matches across title, English, romaji, native, and alt titles; normalized (strips punctuation/diacritics); multi-word AND matching.
+- **Volume-aware sorting** — chapters sort by volume then number; chapter picker shows "Vol.3 Ch.25".
+- **Hold-to-repeat** — +/− chapter buttons repeat after 300ms hold, every 50ms after that.
+- **Mobile long-press** — 500ms to enter bulk-select mode; >10px movement cancels it (so scrolling doesn't accidentally trigger selection).
 
 ---
+
+## 🚀 **Known To-Do / Ideas (not yet implemented)**
+- Reading statistics trends over time (partially enabled now via `stats_history`, but no trend charts/graphs built yet)
+- Fix Kagane's manga/manhwa/manhua/other type detection (still unreliable)
+- Reading history timeline
+- Time-based comparison view (this month vs last month)
+- Genre preferences chart (radar/spider)
+- Series completion timeline
+- Reading heatmap (days active)
+
+---
+
+## 📝 **Notes for a fresh chat**
+- The database (`data/tracker.db`) may be wiped/reset between sessions — always sanity check row counts before assuming data exists (`SELECT COUNT(*) FROM series`).
+- If the server fails to start with a Windows socket error ("address not valid in its context" or similar), check `backend/api.py`'s `app.run(host=...)` — it should be `0.0.0.0`, not a hardcoded IP.
+- Don't use `alert()`/`confirm()` for new UI feedback — use the existing toast system in `notifications.js` to stay consistent.
+- This project has no build step — CSS/JS are edited directly and served as static files; a hard refresh (or cache-busted reload) may be needed to see changes in a browser that already cached the old stylesheet/script.
