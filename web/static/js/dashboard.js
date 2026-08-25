@@ -458,7 +458,7 @@ async function addNewSource() {
 	}
 
 	// Validate URL — NOTE: fixed extra spaces in comparison
-	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.org/')) {
+	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/')) {
 		alert('Only MangaDex and Kagane sources are supported');
 		return;
 	}
@@ -4260,7 +4260,7 @@ async function addMobileNewSource() {
     return;
   }
   
-  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.org/')) {
+  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/')) {
     alert('This source is not supported');
     return;
   }

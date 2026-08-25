@@ -4,8 +4,8 @@ import re
 from ..selenium_kagane import kagane_selenium
 
 def extract_series_id(url):
-    """Extract Kagane series ID from URL like https://kagane.org/series/ABC123"""
-    match = re.search(r'https://kagane\.org/series/([A-Za-z0-9]+)', url)
+    """Extract Kagane series ID from URL like https://kagane.to/series/019dda10-c2c5-7dc7-9128-387e20611e51"""
+    match = re.search(r'https://kagane\.(?:to|org)/series/([A-Za-z0-9-]+)', url)
     return match.group(1) if match else None
 
 def _is_expected_special(title):
@@ -200,7 +200,7 @@ def get_series_info(series_id):
                 proposed_num = chapters[-1]['chapter_number'] + 0.01
             final_chapter_num = round(proposed_num, 2)
         
-        chapter_url = f"https://kagane.org/series/{series_id}/reader/{book['id']}"
+        chapter_url = f"https://kagane.to/series/{series_id}/reader/{book['id']}"
         
         chapters.append({
             'chapter_number': final_chapter_num,
@@ -246,7 +246,7 @@ def get_series_info(series_id):
 
     return {
         'title': meta.get('name', 'Unknown Title'),
-        'cover_url': f"https://api.kagane.org/api/v1/series/{series_id}/thumbnail",
+        'cover_url': f"https://kagane.to/api/v2/series/{series_id}/thumbnail",
         'status': source_status,
         'chapters': chapters,
         'alt_titles': [t['title'] for t in meta.get('alternate_titles', []) if t.get('title')],

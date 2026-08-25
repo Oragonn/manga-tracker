@@ -182,51 +182,81 @@ def get_manga_info_with_anilist(manga_id):
     return md_data
 
 def get_latest_chapters(manga_id, limit=100):
+    """
+    Fetch all chapters for a manga, paginating through MangaDex's per-manga
+    chapter feed (`/manga/{id}/feed`, capped at 500 results per request
+    server-side — the generic `/chapter` endpoint caps at 100 and was
+    silently truncating series with more chapters than that) until every
+    chapter has been retrieved. `limit` is kept as a parameter for backward
+    compatibility but is no longer used to truncate results.
+    """
     try:
-        params = {
-            'manga': manga_id,
-            'translatedLanguage[]': ['en'],
-            'contentRating[]': ['safe', 'suggestive', 'erotica', 'pornographic'],
-            'order[createdAt]': 'desc',
-            'limit': limit
-        }
-        resp = _delayed_get("https://api.mangadex.org/chapter", params=params)
-        if resp.status_code != 200:
-            return []
-
+        page_size = 500
+        offset = 0
         chapters = []
         seen = set()
-        for item in resp.json().get('data', []):
-            attrs = item['attributes']
-            chapter_str = attrs.get('chapter')
-            volume_str = attrs.get('volume')
 
-            is_oneshot = False
-            if chapter_str is None or str(chapter_str).strip() == "" or str(chapter_str).strip() == "0":
-                is_oneshot = True
-                normalized_chapter = 0.0
-            elif str(chapter_str).replace('.', '', 1).isdigit():
-                normalized_chapter = float(chapter_str)
-            else:
-                is_oneshot = True
-                normalized_chapter = 0.0
+        while True:
+            params = {
+                'translatedLanguage[]': ['en'],
+                'contentRating[]': ['safe', 'suggestive', 'erotica', 'pornographic'],
+                'order[createdAt]': 'desc',
+                'limit': page_size,
+                'offset': offset
+            }
+            resp = _delayed_get(f"https://api.mangadex.org/manga/{manga_id}/feed", params=params)
+            if resp.status_code != 200:
+                break
 
-            key = (volume_str, chapter_str)
-            if key in seen:
-                continue
-            seen.add(key)
+            payload = resp.json()
+            data = payload.get('data', [])
 
-            release_date = attrs['createdAt']
-            chapter_url = f"https://mangadex.org/chapter/{item['id']}"
+            for item in data:
+                attrs = item['attributes']
+                chapter_str = attrs.get('chapter')
+                volume_str = attrs.get('volume')
 
-            chapters.append({
-                'volume': volume_str,
-                'raw_chapter': chapter_str,
-                'chapter_number': normalized_chapter,
-                'release_date': release_date,
-                'chapter_url': chapter_url,
-                'is_oneshot': is_oneshot
-            })
+                is_oneshot = False
+                if chapter_str is None or str(chapter_str).strip() == "":
+                    is_oneshot = True
+                    normalized_chapter = 0.0
+                elif str(chapter_str).strip() == "0":
+                    # Chapter 0 is a real chapter (prologue/ch.0), not a oneshot,
+                    # unless it's the only chapter the series has at all.
+                    normalized_chapter = 0.0
+                elif str(chapter_str).replace('.', '', 1).isdigit():
+                    normalized_chapter = float(chapter_str)
+                else:
+                    is_oneshot = True
+                    normalized_chapter = 0.0
+
+                key = (volume_str, chapter_str)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                release_date = attrs['createdAt']
+                chapter_url = f"https://mangadex.org/chapter/{item['id']}"
+
+                chapters.append({
+                    'volume': volume_str,
+                    'raw_chapter': chapter_str,
+                    'chapter_number': normalized_chapter,
+                    'release_date': release_date,
+                    'chapter_url': chapter_url,
+                    'is_oneshot': is_oneshot
+                })
+
+            total = payload.get('total', len(data))
+            offset += len(data)
+            if len(data) < page_size or offset >= total:
+                break
+
+        # A lone "chapter 0" with nothing else published is effectively a
+        # oneshot; once other chapters exist, chapter 0 is just a normal chapter.
+        if len(chapters) == 1 and str(chapters[0]['raw_chapter'] or "").strip() == "0":
+            chapters[0]['is_oneshot'] = True
+
         return chapters
     except Exception as e:
         print(f"[MangaDex] Failed to fetch chapters for {manga_id}: {e}")

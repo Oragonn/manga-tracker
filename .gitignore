@@ -3,6 +3,11 @@ logs/
 data/
 venv/
 backups/
+.chief/
+
+# Local task/bug notes
+Task.txt
+Bugs.txt
 
 # Python
 __pycache__/

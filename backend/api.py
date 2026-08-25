@@ -55,7 +55,7 @@ def _add_worker():
                     continue
 
                 is_mangadex = url.startswith("https://mangadex.org/title/")
-                is_kagane = url.startswith("https://kagane.org/series/")
+                is_kagane = url.startswith("https://kagane.to/series/") or url.startswith("https://kagane.org/series/")
 
                 if not (is_mangadex or is_kagane):
                     result = {'error': 'Only MangaDex or Kagane series URLs are supported'}

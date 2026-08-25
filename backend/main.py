@@ -546,7 +546,7 @@ def api_add_source(series_id):
         # Detect source type
         if 'mangadex.org' in source_url:
             source_type = 'mangadex'
-        elif 'kagane.org' in source_url:
+        elif 'kagane.org' in source_url or 'kagane.to' in source_url:
             source_type = 'kagane'
         else:
             source_type = 'unknown'

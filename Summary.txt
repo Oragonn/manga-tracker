@@ -233,16 +233,23 @@ A single series can track chapters from multiple sources simultaneously (e.g. Ma
 
 ---
 
-## 🚀 **Known To-Do / Ideas (not yet implemented)**
-- Reading statistics trends over time (partially enabled now via `stats_history`, but no trend charts/graphs built yet)
-- Fix Kagane's manga/manhwa/manhua/other type detection (still unreliable)
-- Reading history timeline
-- Time-based comparison view (this month vs last month)
-- Genre preferences chart (radar/spider)
-- Series completion timeline
-- Reading heatmap (days active)
+## 🚀 **Known To-Do / Ideas**
+See `Bugs.txt` for the current list of known issues and unimplemented features.
 
 ---
+
+## ⚠️ **Kagane Cloudflare status (Aug 2026)**
+kagane.to escalated its bot protection to an interactive Cloudflare Turnstile
+checkbox ("verify you are human") on its API endpoints, not just the old
+passive JS delay check. This blocks the Selenium client's automated fetches
+(confirmed in `logs/error_2026-08-25.log`: "Stuck on Cloudflare challenge
+page after 25s"). A nodriver-based rewrite was tried (per
+`.chief/prds/main/prd.md`) and hit the identical wall — same Cloudflare
+challenge regardless of automation library — so the migration was reverted
+back to Selenium. The app does not attempt to auto-solve the checkbox (that
+would be automating a CAPTCHA); until Cloudflare's risk scoring for this
+traffic relaxes, expect Kagane fetches for affected series to keep failing
+and logging this error rather than succeeding.
 
 ## 📝 **Notes for a fresh chat**
 - The database (`data/tracker.db`) may be wiped/reset between sessions — always sanity check row counts before assuming data exists (`SELECT COUNT(*) FROM series`).

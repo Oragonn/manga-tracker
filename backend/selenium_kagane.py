@@ -6,6 +6,7 @@ import threading
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import (
     WebDriverException,
     TimeoutException,
@@ -56,17 +57,29 @@ class KaganeSeleniumClient:
 
         self.driver = driver
 
-    def fetch_json(self, url, timeout=8):
-        """Fetch a URL and parse JSON from the <pre> tag."""
+    def fetch_json(self, url, timeout=25):
+        """Fetch a URL and parse JSON from the <pre> tag.
+
+        kagane.to now serves its API from the same origin as the main site,
+        so requests can land on a Cloudflare "Un instant..." challenge page
+        (a short client-side JS check, not a captcha) before the real JSON
+        is returned. Poll for the <pre> tag instead of a single 5s check.
+        """
         try:
             self.driver.get(url)
-            # Wait up to 5 seconds for <pre> (standard for raw JSON in browsers)
-            self.driver.implicitly_wait(5)
-            pre_element = self.driver.find_element(By.TAG_NAME, "pre")
+            try:
+                pre_element = WebDriverWait(self.driver, timeout).until(
+                    lambda d: d.find_element(By.TAG_NAME, "pre")
+                )
+            except TimeoutException:
+                title = (self.driver.title or "").lower()
+                if 'un instant' in title or 'just a moment' in title:
+                    raise RuntimeError(
+                        f"Stuck on Cloudflare challenge page after {timeout}s at {url}"
+                    )
+                snippet = self.driver.page_source[:500].replace('\n', ' ')
+                raise RuntimeError(f"No <pre> tag found at {url}. Page snippet: {snippet}")
             return json.loads(pre_element.text)
-        except NoSuchElementException:
-            snippet = self.driver.page_source[:500].replace('\n', ' ')
-            raise RuntimeError(f"No <pre> tag found at {url}. Page snippet: {snippet}")
         except json.JSONDecodeError as e:
             raw = self.driver.find_element(By.TAG_NAME, "pre").text[:300]
             raise RuntimeError(f"Invalid JSON from {url}: {raw} | Error: {e}")
@@ -90,8 +103,8 @@ class KaganeSeleniumClient:
             self.last_call = time.time()
 
             try:
-                meta_url = f"https://api.kagane.org/api/v1/series/{series_id}"
-                books_url = f"https://api.kagane.org/api/v1/books/{series_id}"
+                meta_url = f"https://kagane.to/api/v2/series/{series_id}"
+                books_url = f"https://kagane.to/api/v2/books/{series_id}"
 
                 meta = self.fetch_json(meta_url)
                 books = self.fetch_json(books_url)
@@ -102,7 +115,7 @@ class KaganeSeleniumClient:
                 try:
                     from .error_logger import log_error
                     log_error(
-                        source_url=f"https://kagane.org/series/{series_id}",
+                        source_url=f"https://kagane.to/series/{series_id}",
                         error_message=str(e),
                         series_title="Kagane Selenium Fetch"
                     )

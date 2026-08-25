@@ -40,7 +40,7 @@ def detect_source_type(url):
     """Detect source type from URL."""
     if 'mangadex.org' in url:
         return 'MangaDex'
-    elif 'kagane.org' in url:
+    elif 'kagane.org' in url or 'kagane.to' in url:
         return 'Kagane'
     return 'Unknown'
 
