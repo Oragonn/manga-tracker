@@ -1518,7 +1518,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!genreMenu.classList.contains('hidden')) {
 			closeAllMultiSelectMenus(genreMenu);
 			const rect = genreTrigger.getBoundingClientRect();
-			genreMenu.style.width = rect.width + 'px';
+			genreMenu.style.width = (rect.width * 1.6) + 'px';
 			// Scroll to top when opening
 			const scrollContainer = genreMenu.querySelector('.combined-tags-list');
 			if (scrollContainer) {

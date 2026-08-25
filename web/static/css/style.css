@@ -175,6 +175,12 @@ html {
   background: #1e2c40;
 }
 
+.control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Square buttons */
 .control-button.square-button,
 .sort-toggle {
@@ -359,9 +365,27 @@ html {
 
 .multi-select-trigger::after,
 .single-select-trigger::after {
-  content: "▾";
-  font-size: 12px;
+  content: "";
+  display: inline-block;
+  width: 16px;
+  height: 16px;
   margin-left: 8px;
+  flex-shrink: 0;
+  background-color: currentColor;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  transition: transform 0.2s ease;
+}
+
+.multi-select:has(.multi-select-menu:not(.hidden)) .multi-select-trigger::after,
+.single-select:has(.single-select-menu:not(.hidden)) .single-select-trigger::after {
+  transform: rotate(180deg);
 }
 
 .multi-select-menu,
@@ -433,6 +457,9 @@ html {
   display: flex;
   flex-direction: column;
   padding: 0;
+  width: 224px;
+  left: 0;
+  right: auto;
 }
 
 /* Hide the tag-state-indicator spans (we'll use data-mode on checkboxes instead) */
@@ -965,7 +992,8 @@ html {
   display: inline-flex;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   border-radius: 0.375rem;
-  background: #1a2436;
+  background: #0f172a;
+  border: 1px solid #475569;
 }
 
 .pagination-kenmei a,
@@ -975,7 +1003,7 @@ html {
   justify-content: center;
   padding: 0.25rem 1rem;
   font-size: 0.875rem;
-  color: #94a3b8;
+  color: #e2e8f0;
   text-decoration: none;
   border-left: 1px solid #334155;
   min-width: 2.5rem;
@@ -994,14 +1022,14 @@ html {
 }
 
 .pagination-kenmei a:hover:not(.page__current) {
-  background: #1e2c40;
-  color: #cbd5e1;
+  background: #1e293b;
+  color: #ffffff;
 }
 
 .pagination-kenmei .page__current {
-  background: #1e2c40;
-  color: #678ec9;
-  font-weight: 600;
+  background: #678ec9;
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .pagination-kenmei .left-chevron,
@@ -1022,7 +1050,8 @@ html {
 }
 
 .pagination-kenmei .cursor-not-allowed {
-  opacity: 0.5;
+  color: #64748b;
+  opacity: 1;
   pointer-events: none;
 }
 
