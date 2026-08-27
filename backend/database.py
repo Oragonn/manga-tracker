@@ -134,6 +134,8 @@ def migrate_to_multi_source():
                 source_type = 'mangadex'
             elif 'kagane.org' in source_url or 'kagane.to' in source_url:
                 source_type = 'kagane'
+            elif 'atsu.moe' in source_url:
+                source_type = 'atsu'
             else:
                 source_type = 'unknown'
             
@@ -495,6 +497,8 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
             detected_source_type = 'mangadex'
         elif 'kagane.org' in source_url or 'kagane.to' in source_url:
             detected_source_type = 'kagane'
+        elif 'atsu.moe' in source_url:
+            detected_source_type = 'atsu'
         else:
             detected_source_type = 'unknown'
         

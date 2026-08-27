@@ -56,9 +56,10 @@ def _add_worker():
 
                 is_mangadex = url.startswith("https://mangadex.org/title/")
                 is_kagane = url.startswith("https://kagane.to/series/") or url.startswith("https://kagane.org/series/")
+                is_atsu = url.startswith("https://atsu.moe/manga/") or url.startswith("https://atsu.moe/read/")
 
-                if not (is_mangadex or is_kagane):
-                    result = {'error': 'Only MangaDex or Kagane series URLs are supported'}
+                if not (is_mangadex or is_kagane or is_atsu):
+                    result = {'error': 'Only MangaDex, Kagane, or Atsumaru series URLs are supported'}
                     task_processed = True
                     continue
 
@@ -352,7 +353,7 @@ def _add_worker():
                                         ch['chapter_number'],
                                         ch['release_date'],
                                         ch['chapter_url'],
-                                        0
+                                        int(ch.get('is_oneshot', False))
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
@@ -421,6 +422,145 @@ def _add_worker():
                                     else:
                                         error_msg = 'This series is already in your tracker (unable to retrieve details)'
                                         
+                                        # Log to logs/ folder
+                                        try:
+                                            from .error_logger import log_error
+                                            log_error(url, error_msg, series_title="Unknown Series")
+                                        except Exception as log_err:
+                                            pass
+                                        result = {'error': error_msg}
+                                    task_processed = True
+                                else:
+                                    result = {'error': 'Database integrity error.'}
+                                    task_processed = True
+                            except Exception as e:
+                                result = {'error': str(e)}
+                                task_processed = True
+
+                elif is_atsu:
+                    from .trackers.atsu import extract_series_id, get_series_info
+                    atsu_id = extract_series_id(url)
+                    if not atsu_id:
+                        result = {'error': 'Invalid Atsumaru URL'}
+                        task_processed = True
+                    else:
+                        # Normalize read/chapter URLs (atsu.moe often redirects a
+                        # pasted series link straight to the latest chapter) to
+                        # the canonical series URL before storing/logging.
+                        url = f"https://atsu.moe/manga/{atsu_id}"
+                        atsu_info = get_series_info(atsu_id)
+                        if not atsu_info:
+                            result = {'error': 'Failed to fetch Atsumaru series data'}
+                            task_processed = True
+                        else:
+                            title = atsu_info['title']
+                            cover_url = atsu_info['cover_url']
+                            alt_titles = atsu_info.get('alt_titles') or []
+                            chapters_to_save = atsu_info['chapters']
+
+                            try:
+                                series_id = add_series(
+                                    title=title,
+                                    source_url=url,
+                                    status=user_status,
+                                    cover_url=cover_url,
+                                    banner_url=None,
+                                    anilist_id=None,
+                                    title_en=None,
+                                    title_romaji=None,
+                                    title_native=None,
+                                    source_status=atsu_info['status'],
+                                    alt_titles=alt_titles,
+                                    genres=atsu_info.get('genres', []),
+                                    content_rating=atsu_info.get('content_rating', 'unknown'),
+                                    source_type=atsu_info.get('source_type', 'other')
+                                )
+
+                                conn = get_db()
+                                cursor = conn.cursor()
+                                cursor.execute("DELETE FROM chapters WHERE series_id = ?", (series_id,))
+                                for ch in chapters_to_save:
+                                    cursor.execute("""
+                                        INSERT INTO chapters (
+                                            series_id, volume, raw_chapter, chapter_number,
+                                            release_date, chapter_url, is_oneshot
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    """, (
+                                        series_id,
+                                        None,
+                                        str(ch['chapter_number']),
+                                        ch['chapter_number'],
+                                        ch['release_date'],
+                                        ch['chapter_url'],
+                                        int(ch.get('is_oneshot', False))
+                                    ))
+                                if chapters_to_save:
+                                    latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
+                                    latest_release = max(
+                                        (ch['release_date'] for ch in chapters_to_save if ch['release_date']),
+                                        default=''
+                                    )
+                                    cursor.execute("""
+                                        UPDATE series
+                                        SET latest_chapter = ?, latest_release = ?, total_chapters = ?
+                                        WHERE id = ?
+                                    """, (latest_ch, latest_release, len(chapters_to_save), series_id))
+                                release_db(conn)
+                                result = {'id': series_id, 'success': True}
+
+                                # Logging
+                                try:
+                                    log_activity(
+                                        action_type='added',
+                                        series_id=series_id,
+                                        series_title=title,
+                                        new_value={
+                                            'title': title,
+                                            'sources': [{
+                                                'url': url,
+                                                'type': 'Atsumaru',
+                                                'is_primary': True
+                                            }],
+                                            'status': user_status,
+                                            'cover_url': cover_url,
+                                            'source_type': atsu_info.get('source_type', 'other')
+                                        }
+                                    )
+                                except Exception as log_err:
+                                    pass
+                                # Update stats
+                                try:
+                                    from .database import update_current_period_stats
+                                    update_current_period_stats()
+                                except Exception as stats_err:
+                                    pass
+                                task_processed = True
+                            except sqlite3.IntegrityError as e:
+                                error_str = str(e).lower()
+                                if "source_url" in error_str or "unique" in error_str:
+                                    # Race condition: fetch existing series
+                                    conn_dup = get_db()
+                                    cursor_dup = conn_dup.cursor()
+                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                    existing = cursor_dup.fetchone()
+                                    release_db(conn_dup)
+
+                                    if existing:
+                                        series_id, existing_title = existing
+                                        error_msg = f"Duplicate series: '{existing_title}' is already in your tracker"
+
+                                        # Log to logs/ folder
+                                        try:
+                                            from .error_logger import log_error
+                                            log_error(url, error_msg, series_title=existing_title)
+                                        except Exception as log_err:
+                                            import traceback
+                                            traceback.print_exc()
+
+                                        result = {'id': series_id, 'success': True, 'duplicate': True}
+                                    else:
+                                        error_msg = 'This series is already in your tracker (unable to retrieve details)'
+
                                         # Log to logs/ folder
                                         try:
                                             from .error_logger import log_error

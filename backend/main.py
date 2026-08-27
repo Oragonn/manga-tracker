@@ -548,12 +548,14 @@ def api_add_source(series_id):
             source_type = 'mangadex'
         elif 'kagane.org' in source_url or 'kagane.to' in source_url:
             source_type = 'kagane'
+        elif 'atsu.moe' in source_url:
+            source_type = 'atsu'
         else:
             source_type = 'unknown'
-        
+
         # *** FIX: Fetch metadata from new source ***
         new_metadata = None
-        
+
         if source_type == 'mangadex':
             from .trackers.mangadex import extract_manga_id, get_manga_info_with_anilist
             manga_id = extract_manga_id(source_url)
@@ -564,6 +566,11 @@ def api_add_source(series_id):
             kagane_id = extract_series_id(source_url)
             if kagane_id:
                 new_metadata = get_series_info(kagane_id)
+        elif source_type == 'atsu':
+            from .trackers.atsu import extract_series_id, get_series_info
+            atsu_id = extract_series_id(source_url)
+            if atsu_id:
+                new_metadata = get_series_info(atsu_id)
         
         # Add source to database
         from .database import add_source_to_series, get_db, release_db
@@ -584,13 +591,13 @@ def api_add_source(series_id):
             
             # Get existing series data
             cursor.execute("""
-                SELECT alt_titles, genres, searchable_text 
+                SELECT alt_titles, genres, searchable_text, content_rating
                 FROM series WHERE id = ?
             """, (series_id,))
             row = cursor.fetchone()
-            
+
             if row:
-                existing_alt_titles_json, existing_genres_json, existing_searchable_text = row
+                existing_alt_titles_json, existing_genres_json, existing_searchable_text, existing_content_rating = row
                 
                 # Parse existing data
                 try:
@@ -616,6 +623,28 @@ def api_add_source(series_id):
                 
                 merged_alt_titles = list(set(existing_alt_titles + new_alt_titles))
                 merged_genres = list(set(existing_genres + new_genres))
+
+                # Content rating: sources can disagree (e.g. Atsumaru tags a
+                # series Mature but MangaDex calls it Safe). Trust whichever
+                # attached source ranks highest in SOURCE_RATING_PRIORITY —
+                # MangaDex's rating wins over Kagane's, which wins over
+                # Atsumaru's. Only replace the stored rating if the source
+                # just added outranks every source already on the series.
+                SOURCE_RATING_PRIORITY = {'mangadex': 3, 'kagane': 2, 'atsu': 1}
+                cursor.execute(
+                    "SELECT source_type FROM series_sources WHERE series_id = ? AND id != ?",
+                    (series_id, source_id)
+                )
+                existing_source_types = [r[0] for r in cursor.fetchall()]
+                existing_max_priority = max(
+                    (SOURCE_RATING_PRIORITY.get(t, 0) for t in existing_source_types),
+                    default=-1
+                )
+                new_content_rating = new_metadata.get('content_rating', 'unknown')
+                if SOURCE_RATING_PRIORITY.get(source_type, 0) > existing_max_priority:
+                    merged_content_rating = new_content_rating
+                else:
+                    merged_content_rating = existing_content_rating
                 
                 # Rebuild searchable text from ALL titles
                 cursor.execute("""
@@ -641,21 +670,24 @@ def api_add_source(series_id):
                     
                     # Update database with merged data
                     cursor.execute("""
-                        UPDATE series 
-                        SET alt_titles = ?, 
-                            genres = ?, 
-                            searchable_text = ?
+                        UPDATE series
+                        SET alt_titles = ?,
+                            genres = ?,
+                            searchable_text = ?,
+                            content_rating = ?
                         WHERE id = ?
                     """, (
                         json.dumps(merged_alt_titles, ensure_ascii=False),
                         json.dumps(merged_genres, ensure_ascii=False),
                         searchable_text,
+                        merged_content_rating,
                         series_id
                     ))
-                    
+
                     print(f"[Add Source] Merged metadata for series {series_id}")
                     print(f"  - Alt titles: {len(existing_alt_titles)} + {len(new_alt_titles)} = {len(merged_alt_titles)}")
                     print(f"  - Genres: {len(existing_genres)} + {len(new_genres)} = {len(merged_genres)}")
+                    print(f"  - Content rating: {existing_content_rating} + {new_content_rating} = {merged_content_rating}")
             
             release_db(conn)
         

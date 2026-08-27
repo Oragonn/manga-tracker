@@ -2,7 +2,7 @@
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane) with manual chapter control, automated background checking, bulk operations, activity logging with undo, automated hourly backups, multi-source support per series, a statistics dashboard with historical trends, toast notifications, and full mobile UI across all pages.
+A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane, Atsumaru) with manual chapter control, automated background checking, bulk operations, activity logging with undo, automated hourly backups, multi-source support per series, a statistics dashboard with historical trends, toast notifications, and full mobile UI across all pages.
 
 This file is meant to be handed to a fresh chat/assistant to resume work without re-exploring the whole codebase. It describes **current state**, not a changelog — check `git log` for history.
 
@@ -14,7 +14,7 @@ This file is meant to be handed to a fresh chat/assistant to resume work without
 - **Backend**: Python 3.9+, Flask, SQLite (WAL mode), APScheduler (background jobs)
 - **Frontend**: Vanilla JavaScript, custom CSS (no frameworks/build step)
 - **Special**: Selenium for Kagane (Cloudflare bypass)
-- **Integrations**: MangaDex API, Kagane scraper, AniList enrichment
+- **Integrations**: MangaDex API, Kagane scraper, Atsumaru (atsu.moe) API, AniList enrichment
 - **Browser extension**: `extension/` (background.js) — lightweight companion, not actively documented here
 
 ### **File Structure**
@@ -32,6 +32,7 @@ manga-tracker/
 │   └── trackers/
 │       ├── mangadex.py           # MangaDex API integration
 │       ├── kagane.py             # Kagane scraper (Selenium-based, season-aware)
+│       ├── atsu.py               # Atsumaru (atsu.moe) API integration — plain requests, no auth/browser needed
 │       └── anilist.py            # AniList enrichment (covers, titles, genres)
 ├── data/
 │   ├── tracker.db                # Main SQLite database
@@ -172,7 +173,7 @@ CREATE TABLE meta (
 
 ## ⚙️ **Core Features (current state)**
 
-1. **Multi-source tracking** — multiple sources per series (MangaDex + Kagane), user-controlled linking (never auto-linked), drag-and-drop primary source selection, automated chapter/metadata merging, AniList enrichment.
+1. **Multi-source tracking** — multiple sources per series (MangaDex + Kagane + Atsumaru), user-controlled linking (never auto-linked), drag-and-drop primary source selection, automated chapter/metadata merging, AniList enrichment.
 
 2. **Manual chapter control** — +/− with hold-to-repeat (300ms delay, 50ms repeat), volume-aware sorting, season-aware parsing for Kagane, confirm button disabled until an actual change is made.
 
@@ -195,7 +196,7 @@ CREATE TABLE meta (
 
 7. **Statistics dashboard (`/stats`)** — hero stats, reading progress, content/status/rating distribution, time-based activity (today/week/month/year, backed by `stats_history`), source/genre preferences. Chapters-read and series-added deltas are now accurate (fixed a bug where undo/unread/delete didn't properly decrement the counters).
 
-8. **Advanced filtering** — multi-select content type, combined Tags dropdown (genres + content rating, with an **exclude** mode per tag — Mature/Explicit are excluded by default), Publication Status, Readable On (MangaDex/Kagane), text search (title/alt titles/romaji/native, clearable via an inline × button), sort with direction toggle.
+8. **Advanced filtering** — multi-select content type, combined Tags dropdown (genres + content rating, with an **exclude** mode per tag — Mature/Explicit are excluded by default), Publication Status, Readable On (MangaDex/Kagane/Atsumaru), text search (title/alt titles/romaji/native, clearable via an inline × button), sort with direction toggle.
 
 9. **Toast notification system** (`notifications.js`, added Jan 2026) — replaced essentially all `alert()`/`confirm()` popups across every page with top-right toast notifications (auto-dismiss 4s, manual close, contextual icons, only fires when a value actually changed). Used for series edits, bulk ops, source management, activity log undo, backup operations, and error states. Desktop and mobile both covered.
 
@@ -211,7 +212,7 @@ CREATE TABLE meta (
 
 ## 🔧 **Multi-Source Architecture**
 
-A single series can track chapters from multiple sources simultaneously (e.g. MangaDex + Kagane). This is **user-controlled** — the system never auto-links sources, since same-name series aren't always the same work.
+A single series can track chapters from multiple sources simultaneously (e.g. MangaDex + Kagane + Atsumaru). This is **user-controlled** — the system never auto-links sources, since same-name series aren't always the same work.
 
 - Table: `series_sources`, one row per source, one marked `is_primary`.
 - **Add a source**: series settings → "Add Another Source" → paste URL → validated by type → chapters fetched and merged.
@@ -226,6 +227,7 @@ A single series can track chapters from multiple sources simultaneously (e.g. Ma
 ## 🌟 **Special Behaviors Worth Knowing**
 
 - **Season-aware parsing (Kagane)** — detects season markers (`(S2)`, `[Season 2]`, `{S3}`, etc.) in chapter titles and applies a numeric offset so multi-season series get continuous chapter numbering instead of resetting.
+- **Atsumaru (`backend/trackers/atsu.py`)** — plain JSON API, no auth, no browser automation, no Cloudflare challenge on the API routes (unlike Kagane). Series URL: `https://atsu.moe/manga/{id}`. Metadata from `GET /api/manga/page?id={id}`, full chapter list from `GET /api/manga/allChapters?mangaId={id}` (chapter numbers are already numeric, no title parsing needed). Multiple scanlator groups can post the same chapter number — deduped by keeping the most recently posted one per number. Atsumaru's own API has a typo (`"Manwha"` instead of `"Manhwa"`) that's normalized on our side. Only exposes a boolean `isAdult` flag (no granular content-rating scale like MangaDex), mapped to safe/explicit.
 - **Smart search** — matches across title, English, romaji, native, and alt titles; normalized (strips punctuation/diacritics); multi-word AND matching.
 - **Volume-aware sorting** — chapters sort by volume then number; chapter picker shows "Vol.3 Ch.25".
 - **Hold-to-repeat** — +/− chapter buttons repeat after 300ms hold, every 50ms after that.

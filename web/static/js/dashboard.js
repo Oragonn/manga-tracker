@@ -66,6 +66,11 @@ let isLoadingPage = false;
 // Track default excluded ratings to hide from count
 const DEFAULT_EXCLUDED_RATINGS = ['mature', 'explicit'];
 
+// Ratings reset to this (Mature/Explicit excluded), not to an empty filter
+function getDefaultRatingState() {
+	return DEFAULT_EXCLUDED_RATINGS.map(name => ({ name, mode: 'exclude' }));
+}
+
 // ─── Bulk Selection State ────────────────────────────────────────
 const bulkState = {
 	selectedIds: new Set(),
@@ -274,6 +279,7 @@ function renderSources(sources) {
 		const sourceTypeLabel = {
 			'mangadex': 'MangaDex',
 			'kagane': 'Kagane',
+			'atsu': 'Atsumaru',
 			'unknown': 'Unknown'
 		}[source.source_type.toLowerCase()] || source.source_type;
 
@@ -458,8 +464,8 @@ async function addNewSource() {
 	}
 
 	// Validate URL — NOTE: fixed extra spaces in comparison
-	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/')) {
-		alert('Only MangaDex and Kagane sources are supported');
+	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/')) {
+		alert('Only MangaDex, Kagane, and Atsumaru sources are supported');
 		return;
 	}
 
@@ -1494,7 +1500,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	const readableOnCheckboxes = readableOnMenu.querySelectorAll('input[type="checkbox"]');
 	setupStaticMultiSelect(readableOnTrigger, readableOnMenu, readableOnCheckboxes, 'readableOn', {
 		'mangadex': 'MangaDex',
-		'kagane': 'Kagane'
+		'kagane': 'Kagane',
+		'atsu': 'Atsumaru'
 	}, 'Readable On');
 
 	// Genre (Tags) - NOW WITH CONTENT RATING INSIDE THE SAME DROPDOWN
@@ -1584,20 +1591,24 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-	// Clear All button (clears both genres and ratings)
+	// Clear All button (clears genres, restores ratings to their default: Mature/Explicit excluded)
 	clearAllBtn.addEventListener('click', () => {
 		state.genre = [];
-		state.rating = [];
+		state.rating = getDefaultRatingState();
 		state.page = 1;
-		
+
 		// Reset all checkboxes data-mode
 		genreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => {
 			delete cb.dataset.mode;
 		});
 		ratingCheckboxes.forEach(cb => {
-			delete cb.dataset.mode;
+			if (DEFAULT_EXCLUDED_RATINGS.includes(cb.value)) {
+				cb.dataset.mode = 'exclude';
+			} else {
+				delete cb.dataset.mode;
+			}
 		});
-		
+
 		loadPage();
 		updateTagsTriggerText();
 	});
@@ -1868,7 +1879,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		state.dir = 'asc';
 		state.type = [];
 		state.genre = [];
-		state.rating = [];
+		state.rating = getDefaultRatingState();
 		state.pubStatus = [];
 		state.readableOn = [];
 		state.tagsMode = 'include';  // ADDED: Reset to include mode
@@ -1901,6 +1912,14 @@ document.addEventListener('DOMContentLoaded', () => {
 #filter-pub-status-container input[type="checkbox"],
 #filter-readable-on-container input[type="checkbox"]
 `).forEach(cb => cb.checked = false);
+		// Rating checkboxes are 3-state (data-mode driven, not .checked) — restore Mature/Explicit to excluded
+		document.querySelectorAll('#filter-genre-container .rating-checkbox').forEach(cb => {
+			if (DEFAULT_EXCLUDED_RATINGS.includes(cb.value)) {
+				cb.dataset.mode = 'exclude';
+			} else {
+				delete cb.dataset.mode;
+			}
+		});
 		document.getElementById('filter-type-trigger').textContent = 'Content Type';
 		document.getElementById('filter-genre-trigger').textContent = 'Tags';
 		document.getElementById('filter-pub-status-trigger').textContent = 'Publication Status';
@@ -2568,6 +2587,7 @@ function createFilterDrawer() {
             <div class="multi-select-menu hidden">
               <label><input type="checkbox" value="mangadex"> MangaDex</label>
               <label><input type="checkbox" value="kagane"> Kagane</label>
+              <label><input type="checkbox" value="atsu"> Atsumaru</label>
               <button class="btn-select-all">Select All</button>
               <button class="btn-select-none">Clear</button>
             </div>
@@ -2641,20 +2661,24 @@ function createFilterDrawer() {
 		}
 	}
 
-	// Clear All button (clears both genres and ratings)
+	// Clear All button (clears genres, restores ratings to their default: Mature/Explicit excluded)
   mobileClearAllBtn.addEventListener('click', () => {
     state.genre = [];
-    state.rating = [];
+    state.rating = getDefaultRatingState();
     state.page = 1;
-    
+
     // Reset all checkboxes data-mode
     mobileGenreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => {
       delete cb.dataset.mode;
     });
     mobileRatingCheckboxes.forEach(cb => {
-      delete cb.dataset.mode;
+      if (DEFAULT_EXCLUDED_RATINGS.includes(cb.value)) {
+        cb.dataset.mode = 'exclude';
+      } else {
+        delete cb.dataset.mode;
+      }
     });
-    
+
     loadPage();
     updateMobileTagsTriggerText();
   });
@@ -2770,7 +2794,8 @@ function createFilterDrawer() {
   const mobileReadableOnCheckboxes = mobileReadableOnMenu.querySelectorAll('input[type="checkbox"]');
   setupStaticMultiSelect(mobileReadableOnTrigger, mobileReadableOnMenu, mobileReadableOnCheckboxes, 'readableOn', {
     'mangadex': 'MangaDex',
-    'kagane': 'Kagane'
+    'kagane': 'Kagane',
+    'atsu': 'Atsumaru'
   }, 'Readable On');
 }
 
@@ -2967,7 +2992,7 @@ function resetMobileFilters() {
   state.dir = 'asc';
   state.type = [];
   state.genre = [];
-  state.rating = [];
+  state.rating = getDefaultRatingState();
   state.pubStatus = [];
   state.readableOn = [];
   state.tagsMode = 'include';  // ADDED: Reset tags mode
@@ -3001,7 +3026,15 @@ function resetMobileFilters() {
     #mobile-filter-pub-status-container input[type="checkbox"],
     #mobile-filter-readable-on-container input[type="checkbox"]
   `).forEach(cb => cb.checked = false);
-  
+  // Rating checkboxes are 3-state (data-mode driven, not .checked) — restore Mature/Explicit to excluded
+  document.querySelectorAll('#mobile-filter-genre-container .rating-checkbox').forEach(cb => {
+    if (DEFAULT_EXCLUDED_RATINGS.includes(cb.value)) {
+      cb.dataset.mode = 'exclude';
+    } else {
+      delete cb.dataset.mode;
+    }
+  });
+
   // Reset trigger texts
   document.getElementById('mobile-filter-type-trigger').textContent = 'Content Type';
   document.getElementById('mobile-filter-genre-trigger').textContent = 'Tags';
@@ -4028,6 +4061,7 @@ function renderMobileSources(sources) {
 	const sourceTypeLabel = {
       'mangadex': 'MangaDex',
       'kagane': 'Kagane',
+      'atsu': 'Atsumaru',
       'unknown': 'Unknown'
     }[source.source_type.toLowerCase()] || source.source_type;
     
@@ -4260,7 +4294,7 @@ async function addMobileNewSource() {
     return;
   }
   
-  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/')) {
+  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/')) {
     alert('This source is not supported');
     return;
   }
