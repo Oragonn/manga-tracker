@@ -6,6 +6,8 @@ from .activity_logger import get_logs, mark_log_undone
 from .database import add_series as db_add_series
 import os
 import json
+import csv
+import io
 
 @app.route('/errors')
 def errors_page():
@@ -611,23 +613,31 @@ def api_add_source(series_id):
                     existing_alt_titles = json.loads(existing_alt_titles_json) if existing_alt_titles_json else []
                 except:
                     existing_alt_titles = []
-                
+
                 try:
                     existing_genres = json.loads(existing_genres_json) if existing_genres_json else []
                 except:
                     existing_genres = []
-                
+
                 # Get new data
                 new_alt_titles = new_metadata.get('alt_titles', [])
                 new_genres = new_metadata.get('genres', [])
-                
+
                 # *** CRITICAL FIX: Merge lists properly ***
                 # Convert to sets to remove duplicates, then back to sorted lists
+                # alt_titles can come out of the tracker (or off an older series
+                # row) as a dict like {'en': '...', 'ja': '...'} instead of a
+                # list -- normalize both sides before merging or `+` blows up.
+                if isinstance(existing_alt_titles, dict):
+                    existing_alt_titles = list(existing_alt_titles.values())
+                elif not isinstance(existing_alt_titles, list):
+                    existing_alt_titles = [str(existing_alt_titles)] if existing_alt_titles else []
+
                 if isinstance(new_alt_titles, dict):
                     new_alt_titles = list(new_alt_titles.values())
                 elif not isinstance(new_alt_titles, list):
                     new_alt_titles = [str(new_alt_titles)] if new_alt_titles else []
-                
+
                 merged_alt_titles = list(set(existing_alt_titles + new_alt_titles))
                 merged_genres = list(set(existing_genres + new_genres))
 
@@ -784,5 +794,66 @@ def api_remove_source(series_id, source_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
   
+@app.route('/import-kenmei')
+def import_kenmei_page():
+    """Personal Kenmei CSV import helper. Not linked in the nav on purpose."""
+    return render_template('import_kenmei.html')
+
+
+@app.route('/api/import/kenmei-csv', methods=['POST'])
+def api_import_kenmei_csv():
+    """Parse an uploaded Kenmei export CSV into rows the import page can render.
+
+    Only reads title/status/last_chapter_read/tracked_site from the file --
+    the source URLs in a Kenmei export point at sites this tracker mostly
+    doesn't support, so matching a real source is a manual step on the page.
+    """
+    if 'csv_file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+    file = request.files['csv_file']
+    if not file.filename:
+        return jsonify({'error': 'No file selected'}), 400
+
+    try:
+        raw = file.read().decode('utf-8-sig')
+    except UnicodeDecodeError:
+        return jsonify({'error': 'File is not valid UTF-8 text'}), 400
+
+    try:
+        reader = csv.DictReader(io.StringIO(raw))
+        if reader.fieldnames is None or 'title' not in reader.fieldnames:
+            return jsonify({'error': "This doesn't look like a Kenmei export (no 'title' column found)"}), 400
+
+        valid_statuses = {'reading', 'plan_to_read', 'on_hold', 'dropped', 'completed'}
+        rows = []
+        for row in reader:
+            title = (row.get('title') or '').strip()
+            if not title:
+                continue
+
+            status = (row.get('status') or '').strip()
+            if status not in valid_statuses:
+                status = 'plan_to_read'
+
+            chapter = None
+            chapter_raw = (row.get('last_chapter_read') or '').strip()
+            if chapter_raw:
+                try:
+                    chapter = float(chapter_raw)
+                except ValueError:
+                    chapter = None
+
+            rows.append({
+                'title': title,
+                'status': status,
+                'chapter': chapter,
+                'source_site': (row.get('tracked_site') or '').strip(),
+            })
+    except csv.Error as e:
+        return jsonify({'error': f'Could not parse CSV: {e}'}), 400
+
+    return jsonify({'rows': rows, 'count': len(rows)})
+
+
 if __name__ == '__main__':
     run_server()

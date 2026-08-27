@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kenmei Import - Manga Tracker</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .import-container {
+      max-width: 1400px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+
+    .import-container h1 {
+      color: white;
+      font-size: 28px;
+      margin-bottom: 4px;
+    }
+
+    .import-subtitle {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+
+    .upload-card {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .upload-card input[type="file"] {
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+
+    .upload-summary {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-left: auto;
+    }
+
+    .upload-error {
+      color: #f56565;
+      font-size: 14px;
+    }
+
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filter-bar input[type="text"] {
+      flex: 1;
+      min-width: 220px;
+    }
+
+    .filter-bar .result-count {
+      color: #64748b;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .import-table-wrap {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    table.import-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .import-table thead th {
+      text-align: left;
+      padding: 10px 12px;
+      color: #94a3b8;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      border-bottom: 1px solid #334155;
+      background: #0f172a;
+      white-space: nowrap;
+    }
+
+    .import-table tbody td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #1e293b;
+      vertical-align: middle;
+      color: #e2e8f0;
+    }
+
+    .import-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .import-table tbody tr.row-imported {
+      background: rgba(34, 197, 94, 0.06);
+    }
+
+    .row-title {
+      font-weight: 600;
+      color: white;
+      max-width: 260px;
+    }
+
+    .row-origin {
+      display: block;
+      font-weight: 400;
+      color: #64748b;
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .row-chapter-input {
+      width: 80px;
+    }
+
+    .search-btn-group {
+      display: flex;
+      gap: 4px;
+      flex-wrap: nowrap;
+    }
+
+    .search-btn-group button {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 4px;
+      border: 1px solid #334155;
+      background: #1a2436;
+      color: #cbd5e1;
+      cursor: pointer;
+    }
+
+    .search-btn-group button:hover {
+      background: #1e2c40;
+      color: white;
+    }
+
+    .search-btn-group button.btn-open-all {
+      width: auto;
+      padding: 0 8px;
+      border-color: #678ec9;
+      color: #678ec9;
+    }
+
+    .search-btn-group button.btn-open-all:hover {
+      background: #1e2c40;
+      color: #94b3e0;
+    }
+
+    .row-url-input {
+      width: 220px;
+      font-size: 13px;
+    }
+
+    .row-add-btn {
+      white-space: nowrap;
+    }
+
+    .row-status-text {
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .row-status-text.ok {
+      color: #4ade80;
+    }
+
+    .row-status-text.err {
+      color: #f56565;
+    }
+
+    .row-status-text.pending {
+      color: #94a3b8;
+    }
+
+    .row-info-msg {
+      color: #64748b;
+      font-size: 11px;
+      margin-top: 2px;
+    }
+
+    .pagination-bar {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      margin-top: 20px;
+      color: #94a3b8;
+      font-size: 14px;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #64748b;
+      padding: 60px 20px;
+    }
+  </style>
+</head>
+<body>
+
+<header class="header-full">
+  <nav class="nav-container">
+    <div class="nav-links">
+      <a href="/errors" class="nav-link">Errors</a>
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/logs" class="nav-link">Activity Log</a>
+      <a href="/backups" class="nav-link">Backups</a>
+      <a href="/stats" class="nav-link">Stats</a>
+      <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
+    </div>
+  </nav>
+</header>
+
+<div class="import-container">
+  <h1>Kenmei Import</h1>
+  <p class="import-subtitle">Upload a Kenmei export CSV, find each series on a supported source, paste its link, and add it with the status/progress from the export.</p>
+
+  <div class="upload-card">
+    <input type="file" id="csv-file-input" accept=".csv,text/csv" />
+    <button class="control-button primary" id="btn-parse-csv">Parse CSV</button>
+    <span class="upload-summary" id="upload-summary"></span>
+    <span class="upload-error" id="upload-error"></span>
+  </div>
+
+  <div id="table-section" style="display:none;">
+    <div class="filter-bar">
+      <input type="text" id="filter-title" class="control-input" placeholder="Filter by title..." />
+      <select id="filter-status" class="control-input">
+        <option value="all">All statuses</option>
+        <option value="reading">Reading</option>
+        <option value="plan_to_read">Plan to Read</option>
+        <option value="on_hold">On Hold</option>
+        <option value="dropped">Dropped</option>
+        <option value="completed">Completed</option>
+      </select>
+      <select id="filter-imported" class="control-input">
+        <option value="all">All rows</option>
+        <option value="pending">Not imported yet</option>
+        <option value="imported">Imported this session</option>
+      </select>
+      <span class="result-count" id="result-count"></span>
+    </div>
+
+    <div class="import-table-wrap">
+      <table class="import-table">
+        <thead>
+          <tr>
+            <th style="width: 22%;">Title</th>
+            <th>Status</th>
+            <th>Chapter</th>
+            <th>Search</th>
+            <th>Source URL</th>
+            <th></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="import-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="pagination-bar">
+      <button class="control-button" id="btn-prev-page">Previous</button>
+      <span id="page-indicator"></span>
+      <button class="control-button" id="btn-next-page">Next</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const PAGE_SIZE = 50;
+  const STATUS_LABELS = {
+    reading: 'Reading',
+    plan_to_read: 'Plan to Read',
+    on_hold: 'On Hold',
+    dropped: 'Dropped',
+    completed: 'Completed'
+  };
+
+  let allRows = [];   // { title, status, origStatus, chapter, source_site, url, importState: 'pending'|'adding'|'imported'|'error', errorMsg, infoMsg, seriesId }
+  let currentPage = 1;
+
+  // --- Persistence: remember progress across page reloads/sessions ---
+  const STORAGE_KEY = 'kenmeiImportState_v1';
+  let persisted = {};
+  try { persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch (e) { persisted = {}; }
+
+  function rowKey(r) {
+    return `${r.title}|||${r.source_site || ''}|||${r.origStatus}`;
+  }
+
+  let saveTimer = null;
+  function persistRow(row) {
+    persisted[rowKey(row)] = {
+      importState: row.importState,
+      seriesId: row.seriesId,
+      url: row.url,
+      status: row.status,
+      chapter: row.chapter,
+      errorMsg: row.errorMsg,
+      infoMsg: row.infoMsg
+    };
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted)); } catch (e) { /* storage full/blocked, ignore */ }
+    }, 400);
+  }
+
+  const tbody = document.getElementById('import-tbody');
+  const tableSection = document.getElementById('table-section');
+  const uploadSummary = document.getElementById('upload-summary');
+  const uploadError = document.getElementById('upload-error');
+  const filterTitle = document.getElementById('filter-title');
+  const filterStatus = document.getElementById('filter-status');
+  const filterImported = document.getElementById('filter-imported');
+  const resultCount = document.getElementById('result-count');
+  const pageIndicator = document.getElementById('page-indicator');
+
+  function searchUrl(site, title) {
+    const q = encodeURIComponent(title);
+    switch (site) {
+      case 'mangadex': return `https://mangadex.org/search?q=${q}`;
+      case 'atsu': return `https://atsu.moe/search?query=${q}`;
+      case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
+      case 'asura': return `https://www.google.com/search?q=site:asurascans.com+${q}`;
+    }
+    return '#';
+  }
+
+  function detectSourceType(url) {
+    if (/^https:\/\/mangadex\.org\/title\//.test(url)) return true;
+    if (/^https:\/\/kagane\.(to|org)\/series\//.test(url)) return true;
+    if (/^https:\/\/atsu\.moe\/(manga|read)\//.test(url)) return true;
+    if (/asurascans\.com\/comics\//.test(url)) return true;
+    return false;
+  }
+
+  function getFilteredRows() {
+    const titleQuery = filterTitle.value.trim().toLowerCase();
+    const statusQuery = filterStatus.value;
+    const importedQuery = filterImported.value;
+    return allRows.filter(r => {
+      if (titleQuery && !r.title.toLowerCase().includes(titleQuery)) return false;
+      if (statusQuery !== 'all' && r.status !== statusQuery) return false;
+      if (importedQuery === 'pending' && r.importState === 'imported') return false;
+      if (importedQuery === 'imported' && r.importState !== 'imported') return false;
+      return true;
+    });
+  }
+
+  function render() {
+    const filtered = getFilteredRows();
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (currentPage > totalPages) currentPage = totalPages;
+    if (currentPage < 1) currentPage = 1;
+
+    resultCount.textContent = `${filtered.length} of ${allRows.length} rows`;
+    pageIndicator.textContent = `Page ${currentPage} of ${totalPages}`;
+
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageRows = filtered.slice(start, start + PAGE_SIZE);
+
+    tbody.innerHTML = '';
+    if (pageRows.length === 0) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td colspan="7" class="empty-state">No rows match the current filters.</td>`;
+      tbody.appendChild(tr);
+      return;
+    }
+
+    for (const row of pageRows) {
+      const tr = document.createElement('tr');
+      tr.className = row.importState === 'imported' ? 'row-imported' : '';
+
+      const originHtml = row.source_site
+        ? `<span class="row-origin">was on ${row.source_site}</span>`
+        : '';
+
+      const statusOptions = Object.entries(STATUS_LABELS)
+        .map(([val, label]) => `<option value="${val}" ${val === row.status ? 'selected' : ''}>${label}</option>`)
+        .join('');
+
+      const busy = row.importState === 'adding';
+      const committed = row.importState === 'imported'; // already has a primary source
+      const fieldsLocked = busy || committed; // status/chapter are only meaningful before the first add
+
+      tr.innerHTML = `
+        <td>
+          <div class="row-title">${escapeHtml(row.title)}</div>
+          ${originHtml}
+        </td>
+        <td>
+          <select class="control-input row-status-select" ${fieldsLocked ? 'disabled' : ''}>
+            ${statusOptions}
+          </select>
+        </td>
+        <td>
+          <input type="number" step="0.1" class="control-input row-chapter-input" value="${row.chapter ?? ''}" placeholder="-" ${fieldsLocked ? 'disabled' : ''} />
+        </td>
+        <td>
+          <div class="search-btn-group">
+            <button type="button" data-site="mangadex" title="Search MangaDex">MD</button>
+            <button type="button" data-site="atsu" title="Search Atsumaru">AT</button>
+            <button type="button" data-site="asura" title="Search AsuraScans">AS</button>
+            <button type="button" data-site="kagane" title="Search Kagane">KG</button>
+            <button type="button" class="btn-open-all" title="Open all 4 searches in new tabs">All</button>
+          </div>
+        </td>
+        <td>
+          <input type="text" class="control-input row-url-input" placeholder="Paste URL(s), comma-separated..." value="${row.url ? escapeHtml(row.url) : ''}" ${busy ? 'disabled' : ''} />
+        </td>
+        <td>
+          <button type="button" class="control-button primary row-add-btn" ${busy ? 'disabled' : ''}>
+            ${busy ? 'Adding...' : (committed ? 'Add Source' : 'Add')}
+          </button>
+        </td>
+        <td>
+          <span class="row-status-text ${committed ? 'ok' : (row.importState === 'error' ? 'err' : 'pending')}">
+            ${committed ? '✓ Imported' : (row.importState === 'error' ? row.errorMsg : '')}
+          </span>
+          ${row.infoMsg ? `<div class="row-info-msg">${escapeHtml(row.infoMsg)}</div>` : ''}
+        </td>
+      `;
+
+      tr.querySelectorAll('.search-btn-group button[data-site]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          window.open(searchUrl(btn.dataset.site, row.title), '_blank', 'noopener');
+        });
+      });
+
+      tr.querySelector('.btn-open-all').addEventListener('click', () => {
+        ['mangadex', 'atsu', 'asura', 'kagane'].forEach(site => {
+          window.open(searchUrl(site, row.title), '_blank', 'noopener');
+        });
+      });
+
+      const statusSelect = tr.querySelector('.row-status-select');
+      statusSelect.addEventListener('change', () => { row.status = statusSelect.value; persistRow(row); });
+
+      const chapterInput = tr.querySelector('.row-chapter-input');
+      chapterInput.addEventListener('change', () => {
+        const v = chapterInput.value.trim();
+        row.chapter = v === '' ? null : parseFloat(v);
+        persistRow(row);
+      });
+
+      const urlInput = tr.querySelector('.row-url-input');
+      urlInput.addEventListener('input', () => { row.url = urlInput.value.trim(); persistRow(row); });
+
+      const addBtn = tr.querySelector('.row-add-btn');
+      addBtn.addEventListener('click', () => addRow(row, tr));
+
+      tbody.appendChild(tr);
+    }
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  async function addSourceToSeries(seriesId, url) {
+    try {
+      const res = await fetch(`/api/series/${seriesId}/sources`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_url: url })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) return { ok: false, error: data.error || 'failed to add source' };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: 'network error' };
+    }
+  }
+
+  function summarizeSourceResults(results) {
+    const failed = results.filter(r => !r.ok);
+    if (failed.length === 0) {
+      return { errorMsg: '', infoMsg: `+${results.length} source${results.length > 1 ? 's' : ''} added` };
+    }
+    const ok = results.length - failed.length;
+    return { errorMsg: '', infoMsg: `${ok}/${results.length} extra source(s) added (${failed[0].error})` };
+  }
+
+  async function addRow(row, tr) {
+    // Multiple URLs can be pasted at once, comma-separated.
+    const urls = (row.url || '').split(',').map(u => u.trim()).filter(Boolean);
+    if (urls.length === 0) {
+      row.importState = row.seriesId ? 'imported' : 'error';
+      row.errorMsg = 'Paste a URL first';
+      render();
+      return;
+    }
+    const badUrl = urls.find(u => !detectSourceType(u));
+    if (badUrl) {
+      row.importState = row.seriesId ? 'imported' : 'error';
+      row.errorMsg = `Not a supported URL: ${badUrl}`;
+      render();
+      return;
+    }
+
+    // Series already exists -- every pasted URL here is an additional source.
+    if (row.seriesId) {
+      row.importState = 'adding';
+      row.errorMsg = '';
+      render();
+      const results = await Promise.all(urls.map(u => addSourceToSeries(row.seriesId, u)));
+      Object.assign(row, summarizeSourceResults(results));
+      row.importState = 'imported';
+      row.url = '';
+      render();
+      persistRow(row);
+      return;
+    }
+
+    // First add: the first URL becomes the primary source via the normal
+    // add-series pipeline; any further URLs get attached once it exists.
+    const [primaryUrl, ...extraUrls] = urls;
+
+    row.importState = 'adding';
+    row.errorMsg = '';
+    render();
+
+    try {
+      const res = await fetch('/api/series', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_url: primaryUrl, status: row.status })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        row.importState = 'error';
+        row.errorMsg = err.error || 'Failed to add';
+        render();
+        persistRow(row);
+        return;
+      }
+      const { task_id } = await res.json();
+      pollAddStatus(task_id, row, extraUrls);
+    } catch (e) {
+      row.importState = 'error';
+      row.errorMsg = 'Network error';
+      render();
+      persistRow(row);
+    }
+  }
+
+  function pollAddStatus(taskId, row, extraUrls = [], attempt = 0) {
+    if (attempt >= 60) {
+      row.importState = 'error';
+      row.errorMsg = 'Timed out';
+      render();
+      persistRow(row);
+      return;
+    }
+    fetch(`/api/series/add-status/${taskId}`)
+      .then(r => r.json())
+      .then(async (data) => {
+        if (data.status === 'pending') {
+          setTimeout(() => pollAddStatus(taskId, row, extraUrls, attempt + 1), 1000);
+          return;
+        }
+        if (!data.success) {
+          row.importState = 'error';
+          row.errorMsg = data.duplicate ? 'Already in your library' : (data.error || 'Failed to add');
+          render();
+          persistRow(row);
+          return;
+        }
+
+        // Apply the chapter progress from the CSV now that the series exists.
+        if (row.chapter !== null && row.chapter !== undefined && !isNaN(row.chapter)) {
+          try {
+            await fetch(`/api/series/${data.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ current_chapter: row.chapter })
+            });
+          } catch (e) {
+            // Series was added; progress patch failing isn't fatal, just leave it unread.
+          }
+        }
+
+        row.seriesId = data.id;
+
+        if (extraUrls.length) {
+          const results = await Promise.all(extraUrls.map(u => addSourceToSeries(data.id, u)));
+          Object.assign(row, summarizeSourceResults(results));
+        }
+
+        row.importState = 'imported';
+        row.url = '';
+        render();
+        persistRow(row);
+      })
+      .catch(() => {
+        row.importState = 'error';
+        row.errorMsg = 'Network error';
+        render();
+        persistRow(row);
+      });
+  }
+
+  document.getElementById('btn-parse-csv').addEventListener('click', async () => {
+    const fileInput = document.getElementById('csv-file-input');
+    const file = fileInput.files[0];
+    uploadError.textContent = '';
+    if (!file) {
+      uploadError.textContent = 'Choose a CSV file first';
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('csv_file', file);
+
+    uploadSummary.textContent = 'Parsing...';
+    try {
+      const res = await fetch('/api/import/kenmei-csv', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) {
+        uploadSummary.textContent = '';
+        uploadError.textContent = data.error || 'Failed to parse file';
+        return;
+      }
+      allRows = data.rows.map(r => {
+        const base = {
+          title: r.title,
+          status: r.status,
+          origStatus: r.status,
+          chapter: r.chapter,
+          source_site: r.source_site,
+          url: '',
+          importState: 'pending',
+          errorMsg: '',
+          infoMsg: '',
+          seriesId: null
+        };
+        const saved = persisted[rowKey(base)];
+        return saved ? { ...base, ...saved } : base;
+      });
+      currentPage = 1;
+      const importedCount = allRows.filter(r => r.importState === 'imported').length;
+      uploadSummary.textContent = importedCount
+        ? `Loaded ${allRows.length} rows (${importedCount} already imported)`
+        : `Loaded ${allRows.length} rows`;
+      tableSection.style.display = '';
+      render();
+    } catch (e) {
+      uploadSummary.textContent = '';
+      uploadError.textContent = 'Network error while parsing file';
+    }
+  });
+
+  filterTitle.addEventListener('input', () => { currentPage = 1; render(); });
+  filterStatus.addEventListener('change', () => { currentPage = 1; render(); });
+  filterImported.addEventListener('change', () => { currentPage = 1; render(); });
+
+  document.getElementById('btn-prev-page').addEventListener('click', () => {
+    if (currentPage > 1) { currentPage--; render(); }
+  });
+  document.getElementById('btn-next-page').addEventListener('click', () => {
+    currentPage++; render();
+  });
+})();
+</script>
+
+</body>
+</html>
