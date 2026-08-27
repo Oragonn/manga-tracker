@@ -7,6 +7,7 @@ from .database import get_db, release_db
 from .trackers.mangadex import extract_manga_id, get_latest_chapters
 from .trackers.kagane import extract_series_id, get_series_info
 from .trackers import atsu as atsu_tracker
+from .trackers import asura as asura_tracker
 from .backup_manager import BackupManager
 
 class MangaScheduler:
@@ -146,7 +147,7 @@ class MangaScheduler:
                     # Create missing source entry
                     from .database import add_source_to_series
                     source_url = row[0]
-                    source_type = 'mangadex' if 'mangadex.org' in source_url else 'kagane' if ('kagane.org' in source_url or 'kagane.to' in source_url) else 'atsu' if 'atsu.moe' in source_url else 'unknown'
+                    source_type = 'mangadex' if 'mangadex.org' in source_url else 'kagane' if ('kagane.org' in source_url or 'kagane.to' in source_url) else 'atsu' if 'atsu.moe' in source_url else 'asura' if 'asurascans.com' in source_url else 'unknown'
                     add_source_to_series(series_id, source_url, source_type, is_primary=True)
                     # Retry getting sources
                     sources = get_series_sources(series_id)
@@ -183,7 +184,13 @@ class MangaScheduler:
                             atsu_info = atsu_tracker.get_series_info(atsu_id)
                             if atsu_info:
                                 chapters = atsu_info['chapters']
-                    
+                    elif source_type == 'asura':
+                        asura_id = asura_tracker.extract_series_id(source_url)
+                        if asura_id:
+                            asura_info = asura_tracker.get_series_info(asura_id)
+                            if asura_info:
+                                chapters = asura_info['chapters']
+
                     if chapters:
                         # Tag chapters with source info
                         for ch in chapters:

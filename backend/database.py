@@ -136,9 +136,11 @@ def migrate_to_multi_source():
                 source_type = 'kagane'
             elif 'atsu.moe' in source_url:
                 source_type = 'atsu'
+            elif 'asurascans.com' in source_url:
+                source_type = 'asura'
             else:
                 source_type = 'unknown'
-            
+
             cursor.execute("""
                 INSERT INTO series_sources (series_id, source_url, source_type, is_primary, last_check)
                 VALUES (?, ?, ?, 1, ?)
@@ -499,6 +501,8 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
             detected_source_type = 'kagane'
         elif 'atsu.moe' in source_url:
             detected_source_type = 'atsu'
+        elif 'asurascans.com' in source_url:
+            detected_source_type = 'asura'
         else:
             detected_source_type = 'unknown'
         

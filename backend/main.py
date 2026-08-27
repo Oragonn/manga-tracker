@@ -550,6 +550,8 @@ def api_add_source(series_id):
             source_type = 'kagane'
         elif 'atsu.moe' in source_url:
             source_type = 'atsu'
+        elif 'asurascans.com' in source_url:
+            source_type = 'asura'
         else:
             source_type = 'unknown'
 
@@ -571,7 +573,12 @@ def api_add_source(series_id):
             atsu_id = extract_series_id(source_url)
             if atsu_id:
                 new_metadata = get_series_info(atsu_id)
-        
+        elif source_type == 'asura':
+            from .trackers.asura import extract_series_id, get_series_info
+            asura_id = extract_series_id(source_url)
+            if asura_id:
+                new_metadata = get_series_info(asura_id)
+
         # Add source to database
         from .database import add_source_to_series, get_db, release_db
         source_id = add_source_to_series(
@@ -628,9 +635,12 @@ def api_add_source(series_id):
                 # series Mature but MangaDex calls it Safe). Trust whichever
                 # attached source ranks highest in SOURCE_RATING_PRIORITY —
                 # MangaDex's rating wins over Kagane's, which wins over
-                # Atsumaru's. Only replace the stored rating if the source
-                # just added outranks every source already on the series.
-                SOURCE_RATING_PRIORITY = {'mangadex': 3, 'kagane': 2, 'atsu': 1}
+                # Atsumaru's, which wins over AsuraScans' (AsuraScans has no
+                # content-rating system at all, so it always reports 'safe'
+                # and must never be able to override a stricter source).
+                # Only replace the stored rating if the source just added
+                # outranks every source already on the series.
+                SOURCE_RATING_PRIORITY = {'mangadex': 3, 'kagane': 2, 'atsu': 1, 'asura': 0}
                 cursor.execute(
                     "SELECT source_type FROM series_sources WHERE series_id = ? AND id != ?",
                     (series_id, source_id)

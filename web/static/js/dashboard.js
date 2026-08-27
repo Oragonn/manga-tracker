@@ -280,6 +280,7 @@ function renderSources(sources) {
 			'mangadex': 'MangaDex',
 			'kagane': 'Kagane',
 			'atsu': 'Atsumaru',
+			'asura': 'AsuraScans',
 			'unknown': 'Unknown'
 		}[source.source_type.toLowerCase()] || source.source_type;
 
@@ -464,8 +465,8 @@ async function addNewSource() {
 	}
 
 	// Validate URL — NOTE: fixed extra spaces in comparison
-	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/')) {
-		alert('Only MangaDex, Kagane, and Atsumaru sources are supported');
+	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/')) {
+		alert('Only MangaDex, Kagane, Atsumaru, and AsuraScans sources are supported');
 		return;
 	}
 
@@ -1501,7 +1502,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	setupStaticMultiSelect(readableOnTrigger, readableOnMenu, readableOnCheckboxes, 'readableOn', {
 		'mangadex': 'MangaDex',
 		'kagane': 'Kagane',
-		'atsu': 'Atsumaru'
+		'atsu': 'Atsumaru',
+		'asura': 'AsuraScans'
 	}, 'Readable On');
 
 	// Genre (Tags) - NOW WITH CONTENT RATING INSIDE THE SAME DROPDOWN
@@ -1754,6 +1756,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const input = document.getElementById('new-series-url');
 			if (input) input.value = '';
 			addModal.classList.remove('hidden');
+			if (input) input.focus();
 		});
 	}
 
@@ -2588,6 +2591,7 @@ function createFilterDrawer() {
               <label><input type="checkbox" value="mangadex"> MangaDex</label>
               <label><input type="checkbox" value="kagane"> Kagane</label>
               <label><input type="checkbox" value="atsu"> Atsumaru</label>
+              <label><input type="checkbox" value="asura"> AsuraScans</label>
               <button class="btn-select-all">Select All</button>
               <button class="btn-select-none">Clear</button>
             </div>
@@ -2795,7 +2799,8 @@ function createFilterDrawer() {
   setupStaticMultiSelect(mobileReadableOnTrigger, mobileReadableOnMenu, mobileReadableOnCheckboxes, 'readableOn', {
     'mangadex': 'MangaDex',
     'kagane': 'Kagane',
-    'atsu': 'Atsumaru'
+    'atsu': 'Atsumaru',
+    'asura': 'AsuraScans'
   }, 'Readable On');
 }
 
@@ -4062,6 +4067,7 @@ function renderMobileSources(sources) {
       'mangadex': 'MangaDex',
       'kagane': 'Kagane',
       'atsu': 'Atsumaru',
+      'asura': 'AsuraScans',
       'unknown': 'Unknown'
     }[source.source_type.toLowerCase()] || source.source_type;
     
@@ -4294,7 +4300,7 @@ async function addMobileNewSource() {
     return;
   }
   
-  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/')) {
+  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/')) {
     alert('This source is not supported');
     return;
   }

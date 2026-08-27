@@ -761,7 +761,7 @@ html {
   width: 24px;
   height: 24px;
   background: rgba(20, 27, 47, 0.8);
-  border: 2px solid #334155;
+  border: 2px solid rgba(255, 255, 255, 0.6);
   border-radius: 4px;
   display: flex;
   align-items: center;
@@ -770,6 +770,9 @@ html {
   transition: opacity 0.2s;
   z-index: 3;
   cursor: pointer;
+  /* Keeps the box legible over both light and dark cover art -- the dark
+     fill alone used to blend into dark covers since its border matched. */
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
 .series-card:hover .series-checkbox,

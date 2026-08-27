@@ -44,6 +44,8 @@ def detect_source_type(url):
         return 'Kagane'
     elif 'atsu.moe' in url:
         return 'Atsumaru'
+    elif 'asurascans.com' in url:
+        return 'AsuraScans'
     return 'Unknown'
 
 def log_activity(action_type, series_id=None, series_title=None, old_value=None, new_value=None, 
