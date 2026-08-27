@@ -21,6 +21,12 @@
     .import-subtitle {
       color: #94a3b8;
       font-size: 14px;
+      margin-bottom: 8px;
+    }
+
+    .import-hint {
+      color: #64748b;
+      font-size: 12px;
       margin-bottom: 24px;
     }
 
@@ -240,6 +246,7 @@
 <div class="import-container">
   <h1>Kenmei Import</h1>
   <p class="import-subtitle">Upload a Kenmei export CSV, find each series on a supported source, paste its link, and add it with the status/progress from the export.</p>
+  <p class="import-hint">Tip: the "All" search button opens 4 tabs at once, but your browser will only let the first one through until you allow it. The first time you click it, look for a blocked-popups icon in the address bar and choose "Always allow" for this site — after that it opens all 4 every time.</p>
 
   <div class="upload-card">
     <input type="file" id="csv-file-input" accept=".csv,text/csv" />
