@@ -136,6 +136,7 @@
       flex-wrap: nowrap;
     }
 
+    .search-btn-group a,
     .search-btn-group button {
       width: 30px;
       height: 30px;
@@ -147,8 +148,14 @@
       background: #1a2436;
       color: #cbd5e1;
       cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      box-sizing: border-box;
     }
 
+    .search-btn-group a:hover,
     .search-btn-group button:hover {
       background: #1e2c40;
       color: white;
@@ -336,14 +343,34 @@
   const pageIndicator = document.getElementById('page-indicator');
 
   function searchUrl(site, title) {
-    const q = encodeURIComponent(title);
+    const q = encodeURIComponent(title).replace(/%20/g, '+');
     switch (site) {
       case 'mangadex': return `https://mangadex.org/search?q=${q}`;
       case 'atsu': return `https://atsu.moe/search?query=${q}`;
       case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
-      case 'asura': return `https://www.google.com/search?q=site:asurascans.com+${q}`;
+      case 'asura': return `https://asurascans.com/browse?q=${q}`;
     }
     return '#';
+  }
+
+  const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'kagane'];
+
+  // Multiple window.open() calls from one synthetic handler get blocked by
+  // most browsers except the first; simulating real <a> clicks (one per
+  // tab) is treated much more leniently as long as it's still inside the
+  // original user gesture, so build and click real anchors instead.
+  function openInNewTab(url) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function openAllSearches(title) {
+    SEARCH_SITES.forEach(site => openInNewTab(searchUrl(site, title)));
   }
 
   function detectSourceType(url) {
@@ -418,11 +445,11 @@
         </td>
         <td>
           <div class="search-btn-group">
-            <button type="button" data-site="mangadex" title="Search MangaDex">MD</button>
-            <button type="button" data-site="atsu" title="Search Atsumaru">AT</button>
-            <button type="button" data-site="asura" title="Search AsuraScans">AS</button>
-            <button type="button" data-site="kagane" title="Search Kagane">KG</button>
-            <button type="button" class="btn-open-all" title="Open all 4 searches in new tabs">All</button>
+            <a href="${searchUrl('mangadex', row.title)}" target="_blank" rel="noopener" title="Search MangaDex">MD</a>
+            <a href="${searchUrl('atsu', row.title)}" target="_blank" rel="noopener" title="Search Atsumaru">AT</a>
+            <a href="${searchUrl('asura', row.title)}" target="_blank" rel="noopener" title="Search AsuraScans">AS</a>
+            <a href="${searchUrl('kagane', row.title)}" target="_blank" rel="noopener" title="Search Kagane">KG</a>
+            <button type="button" class="btn-open-all" title="Open all 4 searches in new tabs (works on middle-click too)">All</button>
           </div>
         </td>
         <td>
@@ -441,16 +468,19 @@
         </td>
       `;
 
-      tr.querySelectorAll('.search-btn-group button[data-site]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          window.open(searchUrl(btn.dataset.site, row.title), '_blank', 'noopener');
-        });
-      });
+      // Individual MD/AT/AS/KG links are real anchors now, so left-click,
+      // middle-click, and ctrl/cmd-click all just work natively.
 
-      tr.querySelector('.btn-open-all').addEventListener('click', () => {
-        ['mangadex', 'atsu', 'asura', 'kagane'].forEach(site => {
-          window.open(searchUrl(site, row.title), '_blank', 'noopener');
-        });
+      const openAllBtn = tr.querySelector('.btn-open-all');
+      openAllBtn.addEventListener('click', () => openAllSearches(row.title));
+      openAllBtn.addEventListener('auxclick', (e) => {
+        if (e.button === 1) { // middle click
+          e.preventDefault();
+          openAllSearches(row.title);
+        }
+      });
+      openAllBtn.addEventListener('mousedown', (e) => {
+        if (e.button === 1) e.preventDefault(); // avoid the autoscroll cursor on middle-click
       });
 
       const statusSelect = tr.querySelector('.row-status-select');
