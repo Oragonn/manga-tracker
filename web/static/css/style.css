@@ -105,8 +105,9 @@ html {
 
 .control-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 24px;
+  gap: 12px 24px;
   width: 100%;
   margin-bottom: 8px;
   position: relative; /* For dropdown positioning */
@@ -117,8 +118,10 @@ html {
   margin-bottom: 0;
 }
 
+
 .control-group-left {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   flex: 1;
   min-width: 0;
@@ -126,13 +129,16 @@ html {
 
 .control-group-right {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  justify-content: flex-end;
 }
 
 #default-actions,
 #bulk-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
@@ -234,9 +240,10 @@ html {
 /* Sort control group */
 .sort-control-group {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  width: 100%;
+  width: auto;
 }
 
 .sort-control-group .control-input {
@@ -621,7 +628,7 @@ html {
    ================================ */
 .series-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(221px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(205px, 1fr));
   gap: 20px;
   justify-content: center;
   margin-top: 16px !important;
@@ -662,8 +669,9 @@ html {
 }
 
 .skeleton-cover {
-  width: 221px;
-  height: 331px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 221 / 331;
   background: linear-gradient(90deg, #1a2436 25%, #243447 50%, #1a2436 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
@@ -798,8 +806,9 @@ html {
 }
 
 .series-cover-container {
-  width: 221px;
-  height: 331px;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 221 / 331;
   position: relative;
 }
 
@@ -1829,6 +1838,31 @@ html {
   width: 100%;
   height: 100%;
   fill: currentColor;
+}
+
+/* Narrow desktop / small laptop windows — below this the filters and
+   search/action buttons no longer fit on one line. Stack them as clean
+   full-width rows instead of leaving them wrap in place with a dead gap
+   between the left-aligned filters and the right-pinned buttons. */
+@media (max-width: 1060px) and (min-width: 769px) {
+  .control-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .control-group-left,
+  .control-group-right {
+    width: 100%;
+    flex: unset;
+  }
+
+  .control-group-right {
+    justify-content: flex-start;
+  }
+
+  .sort-control-group {
+    width: auto;
+  }
 }
 
 /* Mobile adjustments */
