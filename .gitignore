@@ -4,6 +4,7 @@ data/
 venv/
 backups/
 .chief/
+.claude/
 
 # Local task/bug notes
 Task.txt
