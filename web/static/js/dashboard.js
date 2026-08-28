@@ -220,7 +220,7 @@ function openEditModal(series) {
 				}
 				select.appendChild(opt);
 			});
-			updateSaveChapterButtonState();
+			updateSaveButtonState();
 		})
 		.catch(err => console.error('Chapter load error:', err));
 
@@ -228,15 +228,18 @@ function openEditModal(series) {
 	document.body.style.overflow = 'hidden';
 }
 
-// Save button is only actionable once the picked chapter actually differs
-// from what's saved -- nothing to submit otherwise.
-function updateSaveChapterButtonState() {
+// Save button is only actionable once the pending chapter and/or title
+// actually differ from what's saved -- nothing to submit otherwise.
+function updateSaveButtonState() {
 	const select = document.getElementById('edit-current-chapter');
 	const btn = document.getElementById('btn-save-chapter');
+	const heading = document.getElementById('edit-series-title-heading');
 	if (!select || !btn) return;
-	const selected = parseFloat(select.value);
-	const original = originalSeriesValues?.current_chapter ?? null;
-	btn.disabled = (selected === original);
+
+	const chapterChanged = parseFloat(select.value) !== (originalSeriesValues?.current_chapter ?? null);
+	const titleChanged = heading && heading.textContent !== (originalSeriesValues?.title || '');
+
+	btn.disabled = !(chapterChanged || titleChanged);
 }
 
 // ─── Source Management Functions ─────────────────────────────
@@ -1787,59 +1790,76 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('edit-series-title-heading').classList.remove('hidden');
 	}
 
-	async function commitTitleEdit() {
+	// Enter/blur only stages the new title locally (like picking a chapter
+	// does) -- nothing is sent until the Save button is clicked.
+	function applyPendingTitle() {
 		const input = document.getElementById('edit-series-title-input');
-		if (input.classList.contains('hidden')) return; // already committed/cancelled
+		if (input.classList.contains('hidden')) return; // already applied/cancelled
 		const newTitle = input.value.trim();
-		const oldTitle = originalSeriesValues?.title || '';
 		exitTitleEditMode();
-		if (!newTitle || newTitle === oldTitle || !currentSeriesIdForEdit) return;
-
-		try {
-			const res = await fetch(`/api/series/${currentSeriesIdForEdit}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ title: newTitle })
-			});
-			if (res.ok) {
-				document.getElementById('edit-series-title-heading').textContent = newTitle;
-				if (originalSeriesValues) originalSeriesValues.title = newTitle;
-				loadPage();
-			} else {
-				showNotification('Failed to rename series', 'error');
-			}
-		} catch (e) {
-			showNotification('Failed to rename series', 'error');
+		if (newTitle) {
+			document.getElementById('edit-series-title-heading').textContent = newTitle;
 		}
+		updateSaveButtonState();
 	}
 
 	document.getElementById('edit-series-title-heading')?.addEventListener('click', enterTitleEditMode);
 
 	document.getElementById('edit-series-title-input')?.addEventListener('click', (e) => e.stopPropagation());
-	document.getElementById('edit-series-title-input')?.addEventListener('blur', commitTitleEdit);
+	document.getElementById('edit-series-title-input')?.addEventListener('blur', applyPendingTitle);
 	document.getElementById('edit-series-title-input')?.addEventListener('keydown', (e) => {
 		if (e.key === 'Enter') {
 			e.preventDefault();
-			commitTitleEdit();
+			applyPendingTitle();
 		} else if (e.key === 'Escape') {
 			e.preventDefault();
 			exitTitleEditMode();
 		}
 	});
 
-// ─── Series Settings modal: Save button commits the chapter select ──
-	document.getElementById('edit-current-chapter')?.addEventListener('change', updateSaveChapterButtonState);
+// ─── Series Settings modal: Save button commits title + chapter ──
+	document.getElementById('edit-current-chapter')?.addEventListener('change', updateSaveButtonState);
 
 	document.getElementById('btn-save-chapter')?.addEventListener('click', async () => {
 		if (!currentSeriesIdForEdit) return;
-		const select = document.getElementById('edit-current-chapter');
-		const newChapter = parseFloat(select.value);
+
+		const chapterSelect = document.getElementById('edit-current-chapter');
+		const newChapter = parseFloat(chapterSelect.value);
 		const oldChapter = originalSeriesValues?.current_chapter ?? null;
-		if (newChapter === oldChapter) return;
-		await saveChapter(currentSeriesIdForEdit, newChapter, oldChapter);
-		if (originalSeriesValues) originalSeriesValues.current_chapter = newChapter;
-		updateSaveChapterButtonState();
-		loadPage();
+		const chapterChanged = newChapter !== oldChapter;
+
+		const heading = document.getElementById('edit-series-title-heading');
+		const newTitle = heading.textContent;
+		const oldTitle = originalSeriesValues?.title || '';
+		const titleChanged = newTitle !== oldTitle;
+
+		if (!chapterChanged && !titleChanged) return;
+
+		const payload = {};
+		if (chapterChanged) payload.current_chapter = newChapter;
+		if (titleChanged) payload.title = newTitle;
+
+		try {
+			const res = await fetch(`/api/series/${currentSeriesIdForEdit}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload)
+			});
+			if (res.ok) {
+				if (chapterChanged && originalSeriesValues) originalSeriesValues.current_chapter = newChapter;
+				if (titleChanged && originalSeriesValues) originalSeriesValues.title = newTitle;
+				const parts = [];
+				if (titleChanged) parts.push('title');
+				if (chapterChanged) parts.push('chapter');
+				showNotification(`Updated ${parts.join(' and ')}`, 'read');
+				loadPage();
+			} else {
+				showNotification('Failed to save changes', 'error');
+			}
+		} catch (e) {
+			showNotification('Failed to save changes', 'error');
+		}
+		updateSaveButtonState();
 	});
 
 // ─── Modified Save Button Handler ─────────────────────────────
