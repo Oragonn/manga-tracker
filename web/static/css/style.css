@@ -1308,7 +1308,22 @@ html {
 
 .settings-cover-col {
   flex-shrink: 0;
-  width: 280px;
+  width: 322px;
+}
+
+/* Series Settings modal only: sit higher in the viewport (like Kenmei)
+   and drop the divider line under the title, without touching the
+   shared .modal/.settings-header/.settings-modal rules mobile uses. */
+#edit-series-modal {
+  align-items: flex-start;
+}
+
+#edit-series-modal .settings-modal {
+  margin-top: 64px;
+}
+
+#edit-series-modal .settings-header {
+  border-bottom: none;
 }
 
 .settings-cover-img {
