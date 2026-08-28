@@ -1286,28 +1286,8 @@ html {
   cursor: pointer;
 }
 
-.btn-edit-title {
-  background: none;
-  border: none;
-  color: #94a3b8;
-  cursor: pointer;
-  padding: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  opacity: 0;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
-  flex-shrink: 0;
-}
-
-.settings-title-wrap:hover .btn-edit-title {
-  opacity: 1;
-}
-
-.btn-edit-title:hover {
-  background: #1a2436;
-  color: white;
+.settings-title-wrap:hover h3 {
+  color: #cbd5e1;
 }
 
 .settings-title-input {

@@ -1777,7 +1777,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		const input = document.getElementById('edit-series-title-input');
 		input.value = heading.textContent;
 		heading.classList.add('hidden');
-		document.getElementById('btn-edit-title').classList.add('hidden');
 		input.classList.remove('hidden');
 		input.focus();
 		input.select();
@@ -1786,7 +1785,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	function exitTitleEditMode() {
 		document.getElementById('edit-series-title-input').classList.add('hidden');
 		document.getElementById('edit-series-title-heading').classList.remove('hidden');
-		document.getElementById('btn-edit-title').classList.remove('hidden');
 	}
 
 	async function commitTitleEdit() {
@@ -1816,7 +1814,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	document.getElementById('edit-series-title-heading')?.addEventListener('click', enterTitleEditMode);
-	document.getElementById('btn-edit-title')?.addEventListener('click', enterTitleEditMode);
 
 	document.getElementById('edit-series-title-input')?.addEventListener('click', (e) => e.stopPropagation());
 	document.getElementById('edit-series-title-input')?.addEventListener('blur', commitTitleEdit);
