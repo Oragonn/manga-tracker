@@ -220,11 +220,23 @@ function openEditModal(series) {
 				}
 				select.appendChild(opt);
 			});
+			updateSaveChapterButtonState();
 		})
 		.catch(err => console.error('Chapter load error:', err));
 
 	document.getElementById('edit-series-modal').classList.remove('hidden');
 	document.body.style.overflow = 'hidden';
+}
+
+// Save button is only actionable once the picked chapter actually differs
+// from what's saved -- nothing to submit otherwise.
+function updateSaveChapterButtonState() {
+	const select = document.getElementById('edit-current-chapter');
+	const btn = document.getElementById('btn-save-chapter');
+	if (!select || !btn) return;
+	const selected = parseFloat(select.value);
+	const original = originalSeriesValues?.current_chapter ?? null;
+	btn.disabled = (selected === original);
 }
 
 // ─── Source Management Functions ─────────────────────────────
@@ -1760,6 +1772,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 // ─── Series Settings modal: Save button commits the chapter select ──
+	document.getElementById('edit-current-chapter')?.addEventListener('change', updateSaveChapterButtonState);
+
 	document.getElementById('btn-save-chapter')?.addEventListener('click', async () => {
 		if (!currentSeriesIdForEdit) return;
 		const select = document.getElementById('edit-current-chapter');
@@ -1768,6 +1782,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (newChapter === oldChapter) return;
 		await saveChapter(currentSeriesIdForEdit, newChapter, oldChapter);
 		if (originalSeriesValues) originalSeriesValues.current_chapter = newChapter;
+		updateSaveChapterButtonState();
 		loadPage();
 	});
 
