@@ -141,10 +141,16 @@
           <div class="combined-tags-list">
             <!-- Genres section -->
             <div class="genre-list-section"></div>
-            
+
             <!-- SEPARATOR LINE -->
             <div style="border-top: 1px solid #334155; margin: 8px 0;"></div>
-            
+
+            <!-- Custom tags section -->
+            <div class="custom-tags-section"></div>
+
+            <!-- SEPARATOR LINE -->
+            <div style="border-top: 1px solid #334155; margin: 8px 0;"></div>
+
             <!-- Content Rating section -->
             <div class="rating-section">
               <label><input type="checkbox" value="safe" class="rating-checkbox"> Safe</label>
@@ -272,7 +278,7 @@
         <h3 id="edit-series-title-heading">Series Settings</h3>
         <input type="text" id="edit-series-title-input" class="settings-title-input hidden" />
       </div>
-      <button class="btn-close-modal" onclick="document.getElementById('edit-series-modal').classList.add('hidden'); document.body.style.overflow = '';">
+      <button class="btn-close-modal" onclick="document.getElementById('edit-series-modal').classList.add('hidden'); document.body.style.overflow = ''; document.getElementById('settings-tags-menu')?.classList.add('hidden');">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -282,17 +288,162 @@
     <input type="hidden" id="edit-series-id" />
 
     <div class="settings-section settings-cover-row">
-      <div class="settings-cover-col">
+      <div class="settings-cover-col" id="settings-cover-col">
         <img id="edit-series-cover-img" class="settings-cover-img" src="" alt="" />
+        <button type="button" class="settings-cover-edit-btn" id="settings-cover-edit-btn" title="Change cover">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9"/>
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </button>
+        <div class="settings-cover-menu hidden" id="settings-cover-menu">
+          <div class="settings-cover-menu-section">
+            <p class="settings-cover-menu-label">From a source</p>
+            <div class="settings-cover-source-list" id="settings-cover-source-list">
+              <p class="settings-cover-menu-empty">Loading…</p>
+            </div>
+          </div>
+          <div class="settings-cover-menu-divider"></div>
+          <div class="settings-cover-menu-section">
+            <p class="settings-cover-menu-label">Previously uploaded</p>
+            <div class="settings-cover-source-list" id="settings-cover-uploads-list">
+              <p class="settings-cover-menu-empty">Loading…</p>
+            </div>
+          </div>
+          <div class="settings-cover-menu-divider"></div>
+          <div class="settings-cover-menu-section">
+            <p class="settings-cover-menu-label">From a URL</p>
+            <div class="settings-cover-url-row">
+              <input type="text" id="settings-cover-url-input" class="settings-cover-url-input" placeholder="https://example.com/cover.jpg" />
+              <button type="button" class="settings-cover-url-apply" id="settings-cover-url-apply">Use</button>
+            </div>
+          </div>
+          <div class="settings-cover-menu-divider"></div>
+          <div class="settings-cover-menu-section">
+            <button type="button" class="settings-cover-upload-btn" id="settings-cover-upload-btn">Upload image…</button>
+            <input type="file" id="settings-cover-upload-input" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden" />
+          </div>
+        </div>
       </div>
       <div class="settings-chapter-col">
-        <div class="form-group">
+        <div class="form-group" id="chapter-select-group">
           <label>Last Read Chapter</label>
-          <select id="edit-current-chapter" class="form-input">
+          <select id="edit-current-chapter" class="form-input hidden">
             <option value="-1">Not started</option>
           </select>
+          <button type="button" class="settings-source-selector" id="chapter-select-trigger">
+            <span class="settings-source-name" id="chapter-select-trigger-text">Not started</span>
+            <svg class="settings-source-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </button>
+          <div class="settings-source-menu hidden" id="chapter-select-menu">
+            <input type="text" class="settings-dropdown-search" id="chapter-select-search" placeholder="Search chapters…" autocomplete="off" />
+            <div class="settings-dropdown-list" id="chapter-select-list"></div>
+          </div>
         </div>
-        <p class="settings-manual-hint">Or track chapter manually</p>
+        <div class="form-group settings-manual-group hidden" id="chapter-manual-group">
+          <div class="settings-stepper-row">
+            <div class="settings-stepper-col">
+              <label>Volume</label>
+              <div class="settings-stepper">
+                <button type="button" class="settings-stepper-btn" id="manual-volume-minus">−</button>
+                <input type="text" inputmode="numeric" autocomplete="off" class="settings-stepper-value settings-stepper-input settings-stepper-value-muted" id="manual-volume-value" value="" placeholder="—" />
+                <button type="button" class="settings-stepper-btn" id="manual-volume-plus">+</button>
+              </div>
+            </div>
+            <div class="settings-stepper-col">
+              <label>Chapter</label>
+              <div class="settings-stepper">
+                <button type="button" class="settings-stepper-btn" id="manual-chapter-minus">−</button>
+                <input type="text" inputmode="decimal" autocomplete="off" class="settings-stepper-value settings-stepper-input" id="manual-chapter-value" value="0" />
+                <button type="button" class="settings-stepper-btn" id="manual-chapter-plus">+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="settings-manual-hint">Or track chapter <a href="#" id="chapter-mode-toggle">manually</a></p>
+
+        <div class="form-group settings-source-group" id="settings-source-group">
+          <label>Source</label>
+          <button type="button" class="settings-source-selector" id="settings-source-selector">
+            <span class="settings-source-dot" id="settings-source-dot"></span>
+            <span class="settings-source-name" id="settings-source-name">Loading…</span>
+            <span class="settings-source-chapter" id="settings-source-chapter"></span>
+            <svg class="settings-source-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </button>
+          <div class="settings-source-menu hidden" id="settings-source-menu">
+            <div class="settings-source-list" id="settings-source-list">
+              <p class="settings-cover-menu-empty">Loading…</p>
+            </div>
+            <div class="settings-cover-menu-divider"></div>
+            <div class="settings-cover-url-row" id="settings-source-add-form">
+              <input type="text" id="settings-source-url-input" class="settings-cover-url-input" placeholder="Paste source URL" />
+              <button type="button" class="settings-cover-url-apply" id="settings-source-add-submit">Add</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-status-tags-row">
+          <div class="form-group settings-status-col" id="settings-status-group">
+            <label>Status</label>
+            <select id="edit-status" class="form-input hidden">
+              <option value="reading">Reading</option>
+              <option value="plan_to_read">Plan to Read</option>
+              <option value="on_hold">On Hold</option>
+              <option value="dropped">Dropped</option>
+              <option value="completed">Completed</option>
+            </select>
+            <button type="button" class="settings-source-selector" id="settings-status-selector">
+              <span class="settings-source-name" id="settings-status-selector-text">Reading</span>
+              <svg class="settings-source-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <div class="settings-source-menu settings-dropdown-menu-narrow hidden" id="settings-status-menu">
+              <div class="settings-dropdown-list" id="settings-status-list">
+                <div class="settings-dropdown-item" data-value="reading">Reading</div>
+                <div class="settings-dropdown-item" data-value="plan_to_read">Plan to Read</div>
+                <div class="settings-dropdown-item" data-value="on_hold">On Hold</div>
+                <div class="settings-dropdown-item" data-value="dropped">Dropped</div>
+                <div class="settings-dropdown-item" data-value="completed">Completed</div>
+              </div>
+            </div>
+          </div>
+          <div class="form-group settings-tags-col" id="settings-tags-group">
+            <label>Tags</label>
+            <button type="button" class="settings-tags-selector" id="settings-tags-selector">
+              <span class="settings-tags-selector-text settings-tags-selector-muted" id="settings-tags-selector-text">Choose a tag</span>
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <div class="settings-tags-menu hidden" id="settings-tags-menu">
+              <div class="settings-tags-list" id="settings-tags-list">
+                <p class="settings-cover-menu-empty">Loading…</p>
+              </div>
+              <div class="settings-cover-menu-divider"></div>
+              <div class="settings-cover-url-row">
+                <input type="text" id="settings-tags-new-input" class="settings-cover-url-input" placeholder="New tag name" maxlength="40" />
+                <button type="button" class="settings-cover-url-apply" id="settings-tags-new-submit">Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-actions-row">
+          <label>Actions</label>
+          <div class="settings-actions-buttons">
+            <button type="button" class="settings-action-btn" id="btn-reset-not-started">Reset to Not Started</button>
+            <button type="button" class="settings-action-btn" id="btn-check-now-modal">Check Now</button>
+          </div>
+          <div class="settings-actions-buttons settings-actions-buttons-secondary">
+            <button type="button" class="settings-action-btn settings-action-btn-danger" id="btn-delete-series">Delete Series</button>
+          </div>
+        </div>
+
         <button type="button" class="btn-primary settings-save-btn" id="btn-save-chapter">Save</button>
       </div>
     </div>
@@ -334,6 +485,24 @@
     <div class="modal-buttons">
       <button id="btn-bulk-delete-cancel">Cancel</button>
       <button id="btn-bulk-delete-confirm" class="btn-confirm-danger">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div id="series-delete-modal" class="modal confirm-modal hidden">
+  <div class="modal-content">
+    <div class="warning-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+        <polygon style="fill:#FFFFFF;" points="13.728,473.992 256,46.24 498.272,473.992 "/>
+        <path style="fill:#DB2B42;" d="M256,62.472l228.552,403.52H27.448L256,62.472 M256,30.008L0,481.992h512L256,30.008L256,30.008z"/>
+        <path style="fill:#2D2D2D;" d="M226.112,396.344c0-17.216,12.024-29.56,29.232-29.56c17.216,0,28.584,12.344,28.912,29.56  c0,16.888-11.368,29.552-28.912,29.552C237.808,425.896,226.112,413.232,226.112,396.344z M236.84,350.536l-7.48-147.144h51.648  l-7.152,147.152L236.84,350.536L236.84,350.536z"/>
+      </svg>
+    </div>
+    <h3>Delete Series?</h3>
+    <p id="series-delete-title">This will permanently delete <strong>this series</strong>. This action cannot be undone.</p>
+    <div class="modal-buttons">
+      <button id="btn-series-delete-cancel">Cancel</button>
+      <button id="btn-series-delete-confirm" class="btn-confirm-danger">Delete</button>
     </div>
   </div>
 </div>

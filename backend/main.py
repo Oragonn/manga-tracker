@@ -584,10 +584,11 @@ def api_add_source(series_id):
         # Add source to database
         from .database import add_source_to_series, get_db, release_db
         source_id = add_source_to_series(
-            series_id, 
-            source_url, 
-            source_type, 
-            is_primary=False
+            series_id,
+            source_url,
+            source_type,
+            is_primary=False,
+            cover_url=new_metadata.get('cover_url') if new_metadata else None
         )
         
         if not source_id:

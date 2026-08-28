@@ -1,5 +1,6 @@
 // web/static/js/dashboard.js
 let loadGenres;
+let loadCustomTagsFilterSection;
 
 // ─── Constants ───────────────────────────────────────────────
 const SORT_ICONS = {
@@ -55,6 +56,7 @@ const state = {
 	],
 	pubStatus: [],
 	readableOn: [],
+	customTags: [], // custom_tags.id list, simple include-only (no exclude mode)
 	allSeries: [], // Store fetched series
 	hasLoadedOnce: false, // Track if initial load completed
 	lastPage: undefined // Track page changes for scroll behavior
@@ -150,17 +152,87 @@ function saveChapter(seriesId, chapter, oldChapter = null) {
 let currentSeriesIdForEdit = null;
 // Store original values for comparison
 let originalSeriesValues = null;
+// Staged cover pick from the settings modal's cover-edit menu -- null means
+// "no change staged", same convention as the title/chapter staging below.
+let pendingCoverUrl = null;
+// Resolves to this series' sources (with per-source cover_url) once fetched
+// in openEditModal; the cover menu awaits it so it doesn't need its own fetch.
+let currentSeriesSourcesPromise = null;
+// Same idea for previously-uploaded covers, so re-picking one doesn't require
+// re-uploading. currentSeriesUploadsCache is kept in sync so a fresh upload
+// can be prepended without waiting on another round-trip to the server.
+let currentSeriesUploadsPromise = null;
+let currentSeriesUploadsCache = [];
+// Aggregate chapter count shown next to the source name in the Source
+// selector -- we don't track a per-source chapter count, so this is the
+// series-wide latest_chapter as a reasonable stand-in.
+let currentSeriesLatestChapter = null;
+// Custom tags (user-defined, separate from scraped genres): allCustomTagsCache
+// is the shared global tag vocabulary. Creating/deleting a tag is a global
+// action and commits immediately (like Source add/remove). But which tags
+// apply to *this* series is staged like title/chapter/cover/status --
+// currentSeriesTagIds is the saved baseline (fetched on modal open),
+// pendingSeriesTagIds is what the checkboxes currently show; Save diffs the
+// two and only then calls the attach/detach endpoints.
+let allCustomTagsCache = [];
+let currentSeriesTagIds = [];
+let pendingSeriesTagIds = [];
+// Series Settings modal: 'select' (dropdown, picks an actually-tracked
+// chapter) or 'manual' (free-entry Volume/Chapter steppers, for chapters
+// read ahead of what's been scraped). manualChapterValue/manualVolumeValue
+// are seeded from the current series values the first time manual mode is
+// entered (manualValuesSeeded guards against re-seeding on a later toggle,
+// which would stomp whatever the user already typed).
+let chapterInputMode = 'select';
+let manualValuesSeeded = false;
+let manualChapterValue = 0;
+let manualVolumeValue = null;
 
 function openEditModal(series) {
 	currentSeriesIdForEdit = series.id;
+	pendingCoverUrl = null;
+	// closeCoverMenu() lives inside the DOMContentLoaded closure below and
+	// isn't reachable from this top-level function, so reset directly.
+	document.getElementById('settings-cover-menu')?.classList.add('hidden');
+	document.getElementById('settings-cover-col')?.classList.remove('cover-menu-open');
 
 	// Store original values including current chapter
 	originalSeriesValues = {
 		title: series.title || '',
 		cover_url: series.cover_url || '',
 		status: series.status || 'plan_to_read',
-		current_chapter: series.current_chapter
+		current_chapter: series.current_chapter,
+		current_volume: series.current_volume ?? null
 	};
+
+	const statusSelect = document.getElementById('edit-status');
+	if (statusSelect) statusSelect.value = originalSeriesValues.status;
+	syncStatusCustomUI();
+
+	// Reset the manual chapter/volume entry mode -- closeManualChapterMode()
+	// lives inside the DOMContentLoaded closure below and isn't reachable
+	// from this top-level function, so reset directly.
+	chapterInputMode = 'select';
+	manualValuesSeeded = false;
+	document.getElementById('chapter-manual-group')?.classList.add('hidden');
+	document.getElementById('chapter-select-group')?.classList.remove('hidden');
+	const chapterModeToggle = document.getElementById('chapter-mode-toggle');
+	if (chapterModeToggle) chapterModeToggle.textContent = 'manually';
+
+	// Reset the Source selector's dropdown -- closeSourceMenu() lives inside
+	// the DOMContentLoaded closure below, same reason as the two resets above.
+	document.getElementById('settings-source-menu')?.classList.add('hidden');
+	document.getElementById('settings-source-selector')?.classList.remove('open');
+	currentSeriesLatestChapter = series.latest_chapter ?? null;
+
+	// Same reset for the Tags picker.
+	document.getElementById('settings-tags-menu')?.classList.add('hidden');
+
+	// Same reset for the Chapter and Status custom dropdowns.
+	document.getElementById('chapter-select-menu')?.classList.add('hidden');
+	document.getElementById('chapter-select-trigger')?.classList.remove('open');
+	document.getElementById('settings-status-menu')?.classList.add('hidden');
+	document.getElementById('settings-status-selector')?.classList.remove('open');
 
 	document.getElementById('edit-series-id').value = series.id;
 	document.getElementById('edit-series-title-heading').textContent = series.title || 'Series Settings';
@@ -168,6 +240,37 @@ function openEditModal(series) {
 	const coverImg = document.getElementById('edit-series-cover-img');
 	coverImg.src = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
 	coverImg.alt = series.title || '';
+
+	currentSeriesSourcesPromise = fetch(`/api/series/${series.id}/sources`)
+		.then(r => r.json())
+		.then(data => data.sources || [])
+		.catch(() => []);
+	currentSeriesSourcesPromise.then(sources => {
+		renderSourceSelector(sources);
+		renderSourceList(sources);
+	});
+
+	currentSeriesUploadsPromise = fetch(`/api/series/${series.id}/uploaded-covers`)
+		.then(r => r.json())
+		.then(data => {
+			currentSeriesUploadsCache = data.covers || [];
+			return currentSeriesUploadsCache;
+		})
+		.catch(() => {
+			currentSeriesUploadsCache = [];
+			return currentSeriesUploadsCache;
+		});
+
+	Promise.all([
+		fetch('/api/custom-tags').then(r => r.json()).catch(() => []),
+		fetch(`/api/series/${series.id}/custom-tags`).then(r => r.json()).catch(() => ({ tag_ids: [] }))
+	]).then(([allTags, seriesTags]) => {
+		allCustomTagsCache = allTags || [];
+		currentSeriesTagIds = seriesTags.tag_ids || [];
+		pendingSeriesTagIds = [...currentSeriesTagIds];
+		renderTagsList();
+		renderTagsSelectorText();
+	});
 
 	// Load chapters (existing code)
 	fetch(`/api/series/${series.id}/chapters`)
@@ -202,12 +305,14 @@ function openEditModal(series) {
 				}
 				return `Ch.${ch.chapter_number}`;
 			}
+			let hasExactMatch = false;
 			numeric.forEach(ch => {
 				const opt = document.createElement('option');
 				opt.value = ch.chapter_number;
 				opt.textContent = formatLabel(ch);
 				if (ch.chapter_number === parseFloat(series.current_chapter)) {
 					opt.selected = true;
+					hasExactMatch = true;
 				}
 				select.appendChild(opt);
 			});
@@ -217,9 +322,21 @@ function openEditModal(series) {
 				opt.textContent = formatLabel(ch);
 				if (ch.chapter_number === parseFloat(series.current_chapter)) {
 					opt.selected = true;
+					hasExactMatch = true;
 				}
 				select.appendChild(opt);
 			});
+
+			// The current chapter was set manually (past what's tracked, or
+			// into a gap) if it's not "not started" and doesn't match any
+			// real tracked chapter -- open straight into manual mode instead
+			// of showing a dropdown that can't actually represent it.
+			const savedChapter = parseFloat(series.current_chapter);
+			if (!isNaN(savedChapter) && savedChapter >= 0 && !hasExactMatch) {
+				enterManualChapterMode();
+			}
+
+			syncChapterCustomList();
 			updateSaveButtonState();
 		})
 		.catch(err => console.error('Chapter load error:', err));
@@ -228,18 +345,135 @@ function openEditModal(series) {
 	document.body.style.overflow = 'hidden';
 }
 
-// Save button is only actionable once the pending chapter and/or title
-// actually differ from what's saved -- nothing to submit otherwise.
-function updateSaveButtonState() {
+// Effective chapter/volume the Save button would submit, depending on
+// whether the modal is in dropdown ('select') or manual-entry mode. The
+// dropdown never touches volume (matches its pre-existing behavior), so
+// volume changes only ever come from manual mode.
+function getPendingChapterAndVolume() {
+	if (chapterInputMode === 'manual') {
+		return { chapter: manualChapterValue, volume: manualVolumeValue };
+	}
 	const select = document.getElementById('edit-current-chapter');
+	return { chapter: select ? parseFloat(select.value) : NaN, volume: null };
+}
+
+// Save button is only actionable once the pending chapter/volume and/or
+// title actually differ from what's saved -- nothing to submit otherwise.
+// Order-independent set comparison for the two custom-tag id lists.
+function tagIdSetsDiffer(a, b) {
+	if (a.length !== b.length) return true;
+	const sortedA = [...a].sort((x, y) => x - y);
+	const sortedB = [...b].sort((x, y) => x - y);
+	return sortedA.some((id, i) => id !== sortedB[i]);
+}
+
+function updateSaveButtonState() {
 	const btn = document.getElementById('btn-save-chapter');
 	const heading = document.getElementById('edit-series-title-heading');
-	if (!select || !btn) return;
+	if (!btn) return;
 
-	const chapterChanged = parseFloat(select.value) !== (originalSeriesValues?.current_chapter ?? null);
+	const { chapter: pendingChapter, volume: pendingVolume } = getPendingChapterAndVolume();
+	const chapterChanged = pendingChapter !== (originalSeriesValues?.current_chapter ?? null);
+	const volumeChanged = chapterInputMode === 'manual' && pendingVolume !== (originalSeriesValues?.current_volume ?? null);
 	const titleChanged = heading && heading.textContent !== (originalSeriesValues?.title || '');
+	const coverChanged = pendingCoverUrl !== null && pendingCoverUrl !== (originalSeriesValues?.cover_url || '');
+	const statusSelect = document.getElementById('edit-status');
+	const statusChanged = statusSelect && statusSelect.value !== (originalSeriesValues?.status || '');
+	const tagsChanged = tagIdSetsDiffer(pendingSeriesTagIds, currentSeriesTagIds);
 
-	btn.disabled = !(chapterChanged || titleChanged);
+	btn.disabled = !(chapterChanged || volumeChanged || titleChanged || coverChanged || statusChanged || tagsChanged);
+}
+
+function formatManualStepperValues() {
+	const chapEl = document.getElementById('manual-chapter-value');
+	if (chapEl) chapEl.value = String(manualChapterValue);
+
+	const volEl = document.getElementById('manual-volume-value');
+	if (volEl) {
+		volEl.value = manualVolumeValue === null ? '' : manualVolumeValue;
+		volEl.classList.toggle('settings-stepper-value-muted', manualVolumeValue === null);
+	}
+}
+
+// Seed manual values from the series' actual saved values (only once per
+// modal open) rather than reading the dropdown's live selection, since
+// the chapter list loads asynchronously and might not be populated yet
+// if the user clicks "manually" right after opening the modal.
+function seedManualValuesIfNeeded() {
+	if (manualValuesSeeded) return;
+	const savedChapter = originalSeriesValues?.current_chapter;
+	manualChapterValue = typeof savedChapter === 'number' && savedChapter >= 0 ? savedChapter : 0;
+	manualVolumeValue = originalSeriesValues?.current_volume || null;
+	manualValuesSeeded = true;
+}
+
+function enterManualChapterMode() {
+	chapterInputMode = 'manual';
+	seedManualValuesIfNeeded();
+	formatManualStepperValues();
+	document.getElementById('chapter-select-group')?.classList.add('hidden');
+	document.getElementById('chapter-manual-group')?.classList.remove('hidden');
+	const toggle = document.getElementById('chapter-mode-toggle');
+	if (toggle) toggle.textContent = 'automatically';
+	updateSaveButtonState();
+}
+
+function enterSelectChapterMode() {
+	chapterInputMode = 'select';
+	document.getElementById('chapter-manual-group')?.classList.add('hidden');
+	document.getElementById('chapter-select-group')?.classList.remove('hidden');
+	const toggle = document.getElementById('chapter-mode-toggle');
+	if (toggle) toggle.textContent = 'manually';
+	updateSaveButtonState();
+}
+
+// Mirrors the hidden #edit-current-chapter <select> (still the source of
+// truth -- all the volume/oneshot/matching logic that populates it is
+// untouched) into a custom dropdown matching Source/Tags' visual style.
+// Called after the select's options are (re)built, and after picking a row.
+function syncChapterCustomList() {
+	const select = document.getElementById('edit-current-chapter');
+	const list = document.getElementById('chapter-select-list');
+	const triggerText = document.getElementById('chapter-select-trigger-text');
+	if (!select || !list || !triggerText) return;
+
+	// "Not started" is the fallback, not usually what you're scanning a long
+	// chapter list for -- sort it to the bottom instead of leaving it first.
+	const options = Array.from(select.options);
+	const notStarted = options.filter(opt => opt.value === '-1');
+	const rest = options.filter(opt => opt.value !== '-1');
+	const orderedOptions = [...rest, ...notStarted];
+
+	list.innerHTML = orderedOptions.map(opt => `
+		<div class="settings-dropdown-item ${opt.selected ? 'selected' : ''}" data-value="${opt.value}" data-search="${opt.textContent.toLowerCase()}">${opt.textContent}</div>
+	`).join('');
+
+	const selectedOption = select.options[select.selectedIndex];
+	triggerText.textContent = selectedOption ? selectedOption.textContent : 'Not started';
+
+	list.querySelectorAll('.settings-dropdown-item').forEach(item => {
+		item.addEventListener('click', () => {
+			select.value = item.dataset.value;
+			select.dispatchEvent(new Event('change', { bubbles: true }));
+			syncChapterCustomList();
+			// closeChapterSelectMenu() lives inside the DOMContentLoaded
+			// closure below and isn't reachable from this top-level function.
+			document.getElementById('chapter-select-menu')?.classList.add('hidden');
+			document.getElementById('chapter-select-trigger')?.classList.remove('open');
+		});
+	});
+}
+
+// Same idea for the hidden #edit-status <select>.
+function syncStatusCustomUI() {
+	const select = document.getElementById('edit-status');
+	const triggerText = document.getElementById('settings-status-selector-text');
+	if (!select || !triggerText) return;
+	const selectedOption = select.options[select.selectedIndex];
+	triggerText.textContent = selectedOption ? selectedOption.textContent : 'Reading';
+	document.querySelectorAll('#settings-status-list .settings-dropdown-item').forEach(item => {
+		item.classList.toggle('selected', item.dataset.value === select.value);
+	});
 }
 
 // ─── Source Management Functions ─────────────────────────────
@@ -526,6 +760,283 @@ async function addNewSource() {
 	}
 }
 
+// ─── Series Settings modal: Source selector (Kenmei-style dropdown,
+// plus add/remove/set-primary which Kenmei doesn't need to support) ──
+const SOURCE_TYPE_LABELS = {
+	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', unknown: 'Unknown'
+};
+
+function renderSourceSelector(sources) {
+	const dot = document.getElementById('settings-source-dot');
+	const nameEl = document.getElementById('settings-source-name');
+	const chapEl = document.getElementById('settings-source-chapter');
+	if (!dot || !nameEl || !chapEl) return;
+
+	if (!sources || sources.length === 0) {
+		dot.classList.add('inactive');
+		nameEl.textContent = 'No source';
+		chapEl.textContent = '';
+		return;
+	}
+
+	const primary = sources.find(s => s.is_primary) || sources[0];
+	dot.classList.toggle('inactive', !primary.is_primary);
+	nameEl.textContent = SOURCE_TYPE_LABELS[primary.source_type] || primary.source_type;
+	chapEl.textContent = (currentSeriesLatestChapter !== null && currentSeriesLatestChapter !== undefined)
+		? `Ch. ${currentSeriesLatestChapter}` : '';
+}
+
+function renderSourceList(sources) {
+	const list = document.getElementById('settings-source-list');
+	if (!list) return;
+
+	if (!sources || sources.length === 0) {
+		list.innerHTML = '<p class="settings-cover-menu-empty">No sources linked.</p>';
+		return;
+	}
+
+	list.innerHTML = sources.map(s => {
+		const label = SOURCE_TYPE_LABELS[s.source_type] || s.source_type;
+		return `
+			<div class="settings-source-item">
+				<span class="settings-source-dot ${s.is_primary ? '' : 'inactive'}"></span>
+				<span class="settings-source-item-name">${label}</span>
+				${s.is_primary ? '<span class="settings-source-item-badge">PRIMARY</span>' : ''}
+				<div class="settings-source-item-actions">
+					${!s.is_primary ? `
+						<button type="button" class="btn-icon" data-action="primary" data-source-id="${s.id}" title="Set as primary">
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/>
+							</svg>
+						</button>
+					` : ''}
+					<button type="button" class="btn-icon" data-action="open" data-url="${s.source_url}" title="Open source">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+						</svg>
+					</button>
+					${!s.is_primary ? `
+						<button type="button" class="btn-icon danger" data-action="remove" data-source-id="${s.id}" title="Remove source">
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+							</svg>
+						</button>
+					` : ''}
+				</div>
+			</div>
+		`;
+	}).join('');
+
+	list.querySelectorAll('[data-action="open"]').forEach(btn => {
+		btn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			window.open(btn.dataset.url, '_blank');
+		});
+	});
+	list.querySelectorAll('[data-action="primary"]').forEach(btn => {
+		btn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			setSeriesSourceAsPrimary(btn.dataset.sourceId);
+		});
+	});
+	list.querySelectorAll('[data-action="remove"]').forEach(btn => {
+		btn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			removeSeriesSource(btn.dataset.sourceId);
+		});
+	});
+}
+
+async function refreshSourcesUI() {
+	if (!currentSeriesIdForEdit) return;
+	try {
+		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources`);
+		const data = await res.json();
+		const sources = data.sources || [];
+		currentSeriesSourcesPromise = Promise.resolve(sources);
+		renderSourceSelector(sources);
+		renderSourceList(sources);
+	} catch (e) {
+		showNotification('Failed to refresh sources', 'error');
+	}
+}
+
+async function setSeriesSourceAsPrimary(sourceId) {
+	if (!currentSeriesIdForEdit) return;
+	try {
+		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources/${sourceId}/primary`, { method: 'POST' });
+		if (res.ok) {
+			await refreshSourcesUI();
+			showNotification('Primary source updated', 'read');
+			loadPage();
+		} else {
+			showNotification('Failed to set primary source', 'error');
+		}
+	} catch (e) {
+		showNotification('Failed to set primary source', 'error');
+	}
+}
+
+async function removeSeriesSource(sourceId) {
+	if (!currentSeriesIdForEdit) return;
+	if (!confirm('Remove this source? Chapters already tracked from it will stay, but it will stop being scanned.')) return;
+	try {
+		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources/${sourceId}`, { method: 'DELETE' });
+		if (res.ok) {
+			await refreshSourcesUI();
+			showNotification('Source removed', 'read');
+			loadPage();
+		} else {
+			const data = await res.json().catch(() => ({}));
+			showNotification(data.error || 'Failed to remove source', 'error');
+		}
+	} catch (e) {
+		showNotification('Failed to remove source', 'error');
+	}
+}
+
+async function addSeriesSource(url) {
+	if (!currentSeriesIdForEdit || !url) return;
+	try {
+		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ source_url: url })
+		});
+		const data = await res.json().catch(() => ({}));
+		if (res.ok) {
+			await refreshSourcesUI();
+			showNotification('Source added', 'read');
+			loadPage();
+		} else {
+			showNotification(data.error || 'Failed to add source', 'error');
+		}
+	} catch (e) {
+		showNotification('Failed to add source', 'error');
+	}
+}
+
+// ─── Series Settings modal: custom Tags picker ───────────────────
+function renderTagsSelectorText() {
+	const textEl = document.getElementById('settings-tags-selector-text');
+	if (!textEl) return;
+	const names = pendingSeriesTagIds
+		.map(id => allCustomTagsCache.find(t => t.id === id)?.name)
+		.filter(Boolean);
+
+	if (names.length === 0) {
+		textEl.textContent = 'Choose a tag';
+		textEl.classList.add('settings-tags-selector-muted');
+	} else if (names.length === 1) {
+		textEl.textContent = names[0];
+		textEl.classList.remove('settings-tags-selector-muted');
+	} else {
+		textEl.textContent = `${names[0]} +${names.length - 1}`;
+		textEl.classList.remove('settings-tags-selector-muted');
+	}
+}
+
+function renderTagsList() {
+	const list = document.getElementById('settings-tags-list');
+	if (!list) return;
+
+	if (allCustomTagsCache.length === 0) {
+		list.innerHTML = '<p class="settings-cover-menu-empty">No tags yet -- create one below.</p>';
+		return;
+	}
+
+	list.innerHTML = allCustomTagsCache.map(t => {
+		const checked = pendingSeriesTagIds.includes(t.id);
+		return `
+			<div class="settings-tag-item ${checked ? 'checked' : ''}" data-tag-id="${t.id}">
+				<span class="settings-tag-checkbox">
+					${checked ? '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>' : ''}
+				</span>
+				<span class="settings-tag-item-name">${t.name}</span>
+				<button type="button" class="btn-icon danger settings-tag-delete" data-tag-id="${t.id}" title="Delete tag">
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+					</svg>
+				</button>
+			</div>
+		`;
+	}).join('');
+
+	list.querySelectorAll('.settings-tag-item').forEach(item => {
+		item.addEventListener('click', (e) => {
+			if (e.target.closest('.settings-tag-delete')) return;
+			toggleSeriesCustomTag(parseInt(item.dataset.tagId, 10));
+		});
+	});
+
+	list.querySelectorAll('.settings-tag-delete').forEach(btn => {
+		btn.addEventListener('click', async (e) => {
+			e.stopPropagation();
+			const tagId = parseInt(btn.dataset.tagId, 10);
+			const tag = allCustomTagsCache.find(t => t.id === tagId);
+			if (!confirm(`Delete the tag "${tag ? tag.name : ''}"? This removes it from every series, not just this one.`)) return;
+
+			try {
+				const res = await fetch(`/api/custom-tags/${tagId}`, { method: 'DELETE' });
+				if (res.ok) {
+					allCustomTagsCache = allCustomTagsCache.filter(t => t.id !== tagId);
+					// Deleting the tag globally is immediate and independent of
+					// Save -- scrub it from both the baseline and the staged
+					// selection so it can't linger as a false "pending change".
+					currentSeriesTagIds = currentSeriesTagIds.filter(id => id !== tagId);
+					pendingSeriesTagIds = pendingSeriesTagIds.filter(id => id !== tagId);
+					renderTagsList();
+					renderTagsSelectorText();
+					updateSaveButtonState();
+					if (typeof loadCustomTagsFilterSection === 'function') loadCustomTagsFilterSection();
+				} else {
+					showNotification('Failed to delete tag', 'error');
+				}
+			} catch (err) {
+				showNotification('Failed to delete tag', 'error');
+			}
+		});
+	});
+}
+
+// Selecting/deselecting which tags apply to this series only stages the
+// change locally (like title/chapter) -- committed on Save, unlike tag
+// creation/deletion which are immediate global actions.
+function toggleSeriesCustomTag(tagId) {
+	pendingSeriesTagIds = pendingSeriesTagIds.includes(tagId)
+		? pendingSeriesTagIds.filter(id => id !== tagId)
+		: [...pendingSeriesTagIds, tagId];
+	renderTagsList();
+	renderTagsSelectorText();
+	updateSaveButtonState();
+}
+
+async function createAndApplyCustomTag(name) {
+	if (!currentSeriesIdForEdit || !name) return;
+	try {
+		const res = await fetch('/api/custom-tags', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name })
+		});
+		const data = await res.json().catch(() => ({}));
+		if (res.ok) {
+			if (!allCustomTagsCache.find(t => t.id === data.id)) {
+				allCustomTagsCache = [...allCustomTagsCache, { id: data.id, name: data.name }]
+					.sort((a, b) => a.name.localeCompare(b.name));
+			}
+			// The tag itself is created immediately, but applying it to this
+			// series is staged like any other tag selection -- Save required.
+			toggleSeriesCustomTag(data.id);
+			if (typeof loadCustomTagsFilterSection === 'function') loadCustomTagsFilterSection();
+		} else {
+			showNotification(data.error || 'Failed to create tag', 'error');
+		}
+	} catch (err) {
+		showNotification('Failed to create tag', 'error');
+	}
+}
+
 // ─── Skeleton Card Creation ──────────────────────────────────────
 function createSkeletonCard() {
 	const skeleton = document.createElement('div');
@@ -703,18 +1214,40 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 			card.sortedChapters = sortedChapters;
 			card.useVolumeSorting = useVolumeSorting;
 			let pendingIndex = -1;
+			let pendingChapterNumber = null;
+			let pendingHasExactMatch = false;
 			if (isNotStarted) {
 			pendingIndex = -1;
 			} else {
 				const targetNum = initialCurrent;
+				pendingChapterNumber = targetNum;
 				const matches = sortedChapters
 					.map((ch, idx) => ({ ch, idx }))
 					.filter(item => item.ch.chapter_number === targetNum);
 				if (matches.length === 0) {
-					pendingIndex = -1;
+					// No chapter tracked with this exact number -- happens when
+					// current_chapter was set manually ahead of (or into a gap
+					// in) what's actually been scraped. Fall back to whichever
+					// tracked chapter is the highest one at or below the target,
+					// so the card reads as "caught up" instead of "not started"
+					// until a chapter past the target actually gets tracked.
+					// pendingHasExactMatch stays false so updateChapterDisplay()
+					// knows to show the literal manually-set number instead of
+					// whatever chapter this fallback index actually points to.
+					let fallbackIdx = -1;
+					let fallbackChapterNum = -Infinity;
+					sortedChapters.forEach((ch, idx) => {
+						if (ch.chapter_number <= targetNum && ch.chapter_number >= fallbackChapterNum) {
+							fallbackChapterNum = ch.chapter_number;
+							fallbackIdx = idx;
+						}
+					});
+					pendingIndex = fallbackIdx;
 				} else if (matches.length === 1) {
 					pendingIndex = matches[0].idx;
+					pendingHasExactMatch = true;
 				} else {
+					pendingHasExactMatch = true;
 					if (useVolumeSorting) {
 						const best = matches.reduce((a, b) => {
 							const volA = a.ch.volume ? parseFloat(a.ch.volume) || 0 : 0;
@@ -729,6 +1262,8 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 			}
 			card.pendingIndex = pendingIndex;
 			card.originalIndex = pendingIndex;
+			card.pendingChapterNumber = pendingChapterNumber;
+			card.pendingHasExactMatch = pendingHasExactMatch;
 			const coverContainer = card.querySelector('.series-cover-container');
 			const existingBadge = coverContainer.querySelector('.unread-badge');
 			if (existingBadge) existingBadge.remove();
@@ -768,9 +1303,19 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 	function updateChapterDisplay() {
 		const sorted = card.sortedChapters || [];
 		const useVolume = card.useVolumeSorting;
-		const isNowNotStarted = (card.pendingIndex === -1);
+		// A manually-set chapter with no exact tracked match still shows its
+		// literal number (not the fallback index's chapter, and not "Not
+		// started") as long as the card is still showing that original state
+		// -- once the user starts clicking +/-, they're browsing the real
+		// tracked list and normal index-based display takes back over.
+		const showingManualFallback = card.pendingChapterNumber != null
+			&& !card.pendingHasExactMatch
+			&& card.pendingIndex === card.originalIndex;
+		const isNowNotStarted = (card.pendingIndex === -1) && !showingManualFallback;
 		let currentHtml;
-		if (isNowNotStarted) {
+		if (showingManualFallback) {
+			currentHtml = `<span class="chapter-link" title="Manually set -- not yet tracked from a source">Ch.${card.pendingChapterNumber}</span>`;
+		} else if (isNowNotStarted) {
 			currentHtml = `<span class="chapter-not-started">Not started</span>`;
 		} else {
 			const currentCh = sorted[card.pendingIndex];
@@ -1293,7 +1838,10 @@ async function loadPage() {
 	if (Array.isArray(state.readableOn) && state.readableOn.length > 0) {
 		url += `&readable_on=${encodeURIComponent(state.readableOn.join(','))}`;
 	}
-	
+	if (Array.isArray(state.customTags) && state.customTags.length > 0) {
+		url += `&custom_tags=${encodeURIComponent(state.customTags.join(','))}`;
+	}
+
 	try {
 		// Fetch data (preload)
 		const res = await fetch(url);
@@ -1562,9 +2110,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			return true;
 		});
 		const ratingCount = nonDefaultRatings.length;
-		
-		const totalCount = genreCount + ratingCount;
-		
+		const customTagCount = state.customTags.length;
+
+		const totalCount = genreCount + ratingCount + customTagCount;
+
 		if (totalCount === 0) {
 			genreTrigger.textContent = 'Tags';
 		} else {
@@ -1607,10 +2156,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-	// Clear All button (clears genres, restores ratings to their default: Mature/Explicit excluded)
+	// Clear All button (clears genres + custom tags, restores ratings to their default: Mature/Explicit excluded)
 	clearAllBtn.addEventListener('click', () => {
 		state.genre = [];
 		state.rating = getDefaultRatingState();
+		state.customTags = [];
 		state.page = 1;
 
 		// Reset all checkboxes data-mode
@@ -1623,6 +2173,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			} else {
 				delete cb.dataset.mode;
 			}
+		});
+		document.querySelectorAll('.custom-tags-section input[type="checkbox"]').forEach(cb => {
+			cb.checked = false;
 		});
 
 		loadPage();
@@ -1720,6 +2273,48 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	};
 
+	// Load custom tags (user-defined, from the Series Settings modal) into
+	// the same combined dropdown, between genres and rating. Simple
+	// checked/unchecked -- unlike genres this has no exclude mode.
+	const customTagsSection = genreMenu.querySelector('.custom-tags-section');
+	loadCustomTagsFilterSection = async function() {
+		if (!customTagsSection) return;
+		try {
+			const res = await fetch('/api/custom-tags');
+			if (!res.ok) return;
+			const tags = await res.json();
+			customTagsSection.innerHTML = '';
+			tags.forEach(tag => {
+				const label = document.createElement('label');
+				const cb = document.createElement('input');
+				cb.type = 'checkbox';
+				cb.value = tag.id;
+				cb.checked = state.customTags.includes(tag.id);
+
+				label.appendChild(cb);
+				label.appendChild(document.createTextNode(tag.name));
+
+				label.addEventListener('click', (e) => {
+					e.preventDefault();
+					if (state.customTags.includes(tag.id)) {
+						state.customTags = state.customTags.filter(id => id !== tag.id);
+						cb.checked = false;
+					} else {
+						state.customTags = [...state.customTags, tag.id];
+						cb.checked = true;
+					}
+					state.page = 1;
+					loadPage();
+					updateTagsTriggerText();
+				});
+
+				customTagsSection.appendChild(label);
+			});
+		} catch (e) {
+			console.error('Failed to load custom tags:', e);
+		}
+	};
+
 	// Publication Status
 	const pubStatusTrigger = document.getElementById('filter-pub-status-trigger');
 	const pubStatusMenu = document.querySelector('#filter-pub-status-container .multi-select-menu');
@@ -1733,6 +2328,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	}, 'Publication Status');
 
 	loadGenres();
+	loadCustomTagsFilterSection();
 
 	if (searchInput) {
 	let searchTimeout;
@@ -1816,41 +2412,602 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 
+// ─── Series Settings modal: hover-reveal cover-edit menu ─────────
+// Picking a source thumbnail or applying a URL only stages pendingCoverUrl
+// (same convention as the title) -- nothing is sent until Save is clicked.
+// Uploading is the one exception: the file has to reach the server to get a
+// URL at all, so that upload happens immediately, but the series row itself
+// is still untouched until Save.
+	function openCoverMenu() {
+		document.getElementById('settings-cover-menu')?.classList.remove('hidden');
+		document.getElementById('settings-cover-col')?.classList.add('cover-menu-open');
+		renderCoverSourceList();
+		renderCoverUploadsList();
+	}
+
+	function closeCoverMenu() {
+		document.getElementById('settings-cover-menu')?.classList.add('hidden');
+		document.getElementById('settings-cover-col')?.classList.remove('cover-menu-open');
+	}
+
+	// Stages a cover without closing the menu -- used for the auto-replace
+	// that happens when the cover currently on screen gets deleted out from
+	// under it, while the user may still be browsing/deleting other uploads.
+	function stageCover(url) {
+		if (!url) return;
+		pendingCoverUrl = url;
+		document.getElementById('edit-series-cover-img').src = url;
+		updateSaveButtonState();
+	}
+
+	function applyPendingCover(url) {
+		if (!url) return;
+		stageCover(url);
+		closeCoverMenu();
+	}
+
+	// Unlike stageCover, this commits straight to the server instead of
+	// waiting for Save -- used when the cover just got auto-replaced because
+	// the file backing it was deleted, so the DB shouldn't be left pointing
+	// at a now-dead URL until the user happens to hit Save.
+	async function commitCoverChange(url) {
+		if (!url || !currentSeriesIdForEdit) return;
+		document.getElementById('edit-series-cover-img').src = url;
+		try {
+			const res = await fetch(`/api/series/${currentSeriesIdForEdit}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ cover_url: url })
+			});
+			if (res.ok) {
+				if (originalSeriesValues) originalSeriesValues.cover_url = url;
+				pendingCoverUrl = null;
+				updateSaveButtonState();
+				showNotification('Cover replaced and saved', 'read');
+				loadPage();
+			} else {
+				showNotification('Failed to auto-save replacement cover', 'error');
+				stageCover(url);
+			}
+		} catch (err) {
+			showNotification('Failed to auto-save replacement cover', 'error');
+			stageCover(url);
+		}
+	}
+
+	// Picks a replacement when the cover currently staged/shown gets deleted:
+	// prefer another upload, then a source's cover, then the placeholder.
+	async function pickFallbackCover() {
+		if (currentSeriesUploadsCache.length > 0) {
+			return currentSeriesUploadsCache[0].cover_url;
+		}
+		const sources = currentSeriesSourcesPromise ? await currentSeriesSourcesPromise : [];
+		const withCovers = sources.filter(s => s.cover_url);
+		if (withCovers.length > 0) {
+			const primary = withCovers.find(s => s.is_primary);
+			return (primary || withCovers[0]).cover_url;
+		}
+		return '/static/placeholder.png';
+	}
+
+	async function renderCoverSourceList() {
+		const list = document.getElementById('settings-cover-source-list');
+		if (!list) return;
+		list.innerHTML = '<p class="settings-cover-menu-empty">Loading…</p>';
+		const sources = currentSeriesSourcesPromise ? await currentSeriesSourcesPromise : [];
+		const withCovers = sources.filter(s => s.cover_url);
+
+		if (withCovers.length === 0) {
+			list.innerHTML = '<p class="settings-cover-menu-empty">No source covers saved yet.</p>';
+			return;
+		}
+
+		const sourceTypeLabel = {
+			mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru',
+			asura: 'AsuraScans', unknown: 'Unknown'
+		};
+
+		list.innerHTML = withCovers.map(s => `
+			<img src="${s.cover_url}" class="settings-cover-source-thumb"
+				data-cover-url="${s.cover_url}"
+				title="${sourceTypeLabel[s.source_type] || s.source_type}" />
+		`).join('');
+
+		list.querySelectorAll('.settings-cover-source-thumb').forEach(thumb => {
+			thumb.addEventListener('click', () => applyPendingCover(thumb.dataset.coverUrl));
+		});
+	}
+
+	async function renderCoverUploadsList() {
+		const list = document.getElementById('settings-cover-uploads-list');
+		if (!list) return;
+		list.innerHTML = '<p class="settings-cover-menu-empty">Loading…</p>';
+		const uploads = currentSeriesUploadsPromise ? await currentSeriesUploadsPromise : currentSeriesUploadsCache;
+
+		if (uploads.length === 0) {
+			list.innerHTML = '<p class="settings-cover-menu-empty">No uploads yet.</p>';
+			return;
+		}
+
+		list.innerHTML = uploads.map(u => `
+			<div class="settings-cover-upload-item">
+				<img src="${u.cover_url}" class="settings-cover-source-thumb"
+					data-cover-url="${u.cover_url}" title="Uploaded" />
+				<button type="button" class="settings-cover-upload-delete"
+					data-cover-id="${u.id}" title="Delete this upload">×</button>
+			</div>
+		`).join('');
+
+		list.querySelectorAll('.settings-cover-upload-item .settings-cover-source-thumb').forEach(thumb => {
+			thumb.addEventListener('click', () => applyPendingCover(thumb.dataset.coverUrl));
+		});
+
+		list.querySelectorAll('.settings-cover-upload-delete').forEach(delBtn => {
+			delBtn.addEventListener('click', async (e) => {
+				e.stopPropagation();
+				if (!currentSeriesIdForEdit) return;
+				if (!confirm('Delete this uploaded cover? This cannot be undone.')) return;
+
+				const coverId = delBtn.dataset.coverId;
+				const deletedEntry = currentSeriesUploadsCache.find(u => String(u.id) === coverId);
+
+				try {
+					const res = await fetch(`/api/series/${currentSeriesIdForEdit}/uploaded-covers/${coverId}`, {
+						method: 'DELETE'
+					});
+					if (res.ok) {
+						currentSeriesUploadsCache = currentSeriesUploadsCache.filter(u => String(u.id) !== coverId);
+						currentSeriesUploadsPromise = Promise.resolve(currentSeriesUploadsCache);
+
+						// If the cover on screen right now is the one just deleted,
+						// don't leave it showing a broken image -- swap in a fallback
+						// and save it immediately (the old file is already gone, so
+						// there's nothing to "undo" by waiting for manual Save).
+						const currentEffectiveCover = pendingCoverUrl !== null ? pendingCoverUrl : (originalSeriesValues?.cover_url || '');
+						if (deletedEntry && currentEffectiveCover === deletedEntry.cover_url) {
+							await commitCoverChange(await pickFallbackCover());
+						}
+
+						renderCoverUploadsList();
+					} else {
+						showNotification('Failed to delete cover', 'error');
+					}
+				} catch (err) {
+					showNotification('Failed to delete cover', 'error');
+				}
+			});
+		});
+	}
+
+	document.getElementById('settings-cover-edit-btn')?.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const menu = document.getElementById('settings-cover-menu');
+		const wasHidden = menu?.classList.contains('hidden');
+		closeAllSettingsPopovers();
+		if (wasHidden) openCoverMenu();
+	});
+
+	document.getElementById('settings-cover-menu')?.addEventListener('click', (e) => e.stopPropagation());
+
+	document.addEventListener('click', (e) => {
+		const menu = document.getElementById('settings-cover-menu');
+		if (!menu || menu.classList.contains('hidden')) return;
+		if (!menu.contains(e.target) && e.target.id !== 'settings-cover-edit-btn') {
+			closeCoverMenu();
+		}
+	});
+
+	document.getElementById('settings-cover-url-apply')?.addEventListener('click', () => {
+		const input = document.getElementById('settings-cover-url-input');
+		const url = input.value.trim();
+		if (!url) return;
+		applyPendingCover(url);
+		input.value = '';
+	});
+
+	document.getElementById('settings-cover-url-input')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			document.getElementById('settings-cover-url-apply')?.click();
+		}
+	});
+
+	document.getElementById('settings-cover-upload-btn')?.addEventListener('click', () => {
+		document.getElementById('settings-cover-upload-input')?.click();
+	});
+
+	document.getElementById('settings-cover-upload-input')?.addEventListener('change', async (e) => {
+		const file = e.target.files[0];
+		e.target.value = '';
+		if (!file || !currentSeriesIdForEdit) return;
+
+		const btn = document.getElementById('settings-cover-upload-btn');
+		const originalLabel = btn.textContent;
+		btn.textContent = 'Uploading…';
+		btn.disabled = true;
+
+		try {
+			const formData = new FormData();
+			formData.append('cover', file);
+			const res = await fetch(`/api/series/${currentSeriesIdForEdit}/cover-upload`, {
+				method: 'POST',
+				body: formData
+			});
+			const data = await res.json();
+			if (res.ok && data.cover_url) {
+				currentSeriesUploadsCache = [
+					{ id: data.id, cover_url: data.cover_url, uploaded_at: new Date().toISOString() },
+					...currentSeriesUploadsCache
+				];
+				currentSeriesUploadsPromise = Promise.resolve(currentSeriesUploadsCache);
+				applyPendingCover(data.cover_url);
+			} else {
+				showNotification(data.error || 'Upload failed', 'error');
+			}
+		} catch (err) {
+			showNotification('Upload failed', 'error');
+		} finally {
+			btn.textContent = originalLabel;
+			btn.disabled = false;
+		}
+	});
+
+// ─── Series Settings modal: manual chapter/volume entry ──────────
+	document.getElementById('chapter-mode-toggle')?.addEventListener('click', (e) => {
+		e.preventDefault();
+		if (chapterInputMode === 'select') enterManualChapterMode();
+		else enterSelectChapterMode();
+	});
+
+	document.getElementById('manual-chapter-minus')?.addEventListener('click', () => {
+		manualChapterValue = Math.max(0, manualChapterValue - 1);
+		formatManualStepperValues();
+		updateSaveButtonState();
+	});
+	document.getElementById('manual-chapter-plus')?.addEventListener('click', () => {
+		manualChapterValue = manualChapterValue + 1;
+		formatManualStepperValues();
+		updateSaveButtonState();
+	});
+	document.getElementById('manual-volume-minus')?.addEventListener('click', () => {
+		if (manualVolumeValue === null) return;
+		const n = parseInt(manualVolumeValue, 10) - 1;
+		manualVolumeValue = n < 1 ? null : String(n);
+		formatManualStepperValues();
+		updateSaveButtonState();
+	});
+	document.getElementById('manual-volume-plus')?.addEventListener('click', () => {
+		const n = manualVolumeValue === null ? 0 : parseInt(manualVolumeValue, 10);
+		manualVolumeValue = String(n + 1);
+		formatManualStepperValues();
+		updateSaveButtonState();
+	});
+
+	// Typing directly into either field: track the value live so the Save
+	// button reacts immediately, but only clamp/reformat on blur or Enter --
+	// reformatting on every keystroke would fight the cursor mid-edit.
+	document.getElementById('manual-chapter-value')?.addEventListener('input', (e) => {
+		const val = parseFloat(e.target.value);
+		if (!isNaN(val)) manualChapterValue = val;
+		updateSaveButtonState();
+	});
+	document.getElementById('manual-chapter-value')?.addEventListener('blur', () => {
+		manualChapterValue = Math.max(0, manualChapterValue || 0);
+		formatManualStepperValues();
+		updateSaveButtonState();
+	});
+	document.getElementById('manual-chapter-value')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+	});
+
+	document.getElementById('manual-volume-value')?.addEventListener('input', (e) => {
+		const raw = e.target.value.trim();
+		if (raw === '') {
+			manualVolumeValue = null;
+		} else {
+			const n = parseInt(raw, 10);
+			if (!isNaN(n)) manualVolumeValue = String(n);
+		}
+		updateSaveButtonState();
+	});
+	document.getElementById('manual-volume-value')?.addEventListener('blur', () => {
+		if (manualVolumeValue !== null) {
+			const n = parseInt(manualVolumeValue, 10);
+			manualVolumeValue = (isNaN(n) || n < 1) ? null : String(n);
+		}
+		formatManualStepperValues();
+		updateSaveButtonState();
+	});
+	document.getElementById('manual-volume-value')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+	});
+
+// ─── Series Settings modal: Source selector open/close + add-source form ──
+	function openSourceMenu() {
+		document.getElementById('settings-source-menu')?.classList.remove('hidden');
+		document.getElementById('settings-source-selector')?.classList.add('open');
+	}
+
+	function closeSourceMenu() {
+		document.getElementById('settings-source-menu')?.classList.add('hidden');
+		document.getElementById('settings-source-selector')?.classList.remove('open');
+	}
+
+	document.getElementById('settings-source-selector')?.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const menu = document.getElementById('settings-source-menu');
+		const wasHidden = menu?.classList.contains('hidden');
+		closeAllSettingsPopovers();
+		if (wasHidden) openSourceMenu();
+	});
+
+	document.getElementById('settings-source-menu')?.addEventListener('click', (e) => e.stopPropagation());
+
+	document.addEventListener('click', (e) => {
+		const menu = document.getElementById('settings-source-menu');
+		if (!menu || menu.classList.contains('hidden')) return;
+		const selector = document.getElementById('settings-source-selector');
+		if (!menu.contains(e.target) && !selector?.contains(e.target)) {
+			closeSourceMenu();
+		}
+	});
+
+	document.getElementById('settings-source-add-submit')?.addEventListener('click', async () => {
+		const input = document.getElementById('settings-source-url-input');
+		const url = input.value.trim();
+		if (!url) return;
+		input.value = '';
+		await addSeriesSource(url);
+	});
+
+	document.getElementById('settings-source-url-input')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') { e.preventDefault(); document.getElementById('settings-source-add-submit')?.click(); }
+	});
+
+// ─── Series Settings modal: Tags picker open/close + create form ──
+	function openTagsMenu() {
+		// Plain left-aligned popover, full stop -- no dynamic width/position
+		// juggling; left:0/width are fixed in CSS. It's meant to be allowed
+		// to extend past the modal's edge, but .settings-modal has
+		// overflow-y:auto, and per the CSS spec that forces overflow-x to
+		// auto too (the "visible pairs with visible only" rule) -- so
+		// anything that overflows horizontally gets clipped instead of
+		// rendering on top. Escape that by reparenting to <body> as
+		// position:fixed, positioned from the trigger's live coordinates.
+		const menu = document.getElementById('settings-tags-menu');
+		const trigger = document.getElementById('settings-tags-selector');
+		if (!menu || !trigger) return;
+		if (menu.parentElement !== document.body) {
+			document.body.appendChild(menu);
+			menu.classList.add('settings-tags-menu-portal');
+		}
+		const rect = trigger.getBoundingClientRect();
+		menu.style.top = `${rect.bottom + 4}px`;
+		menu.style.left = `${rect.left}px`;
+		menu.classList.remove('hidden');
+	}
+
+	function closeTagsMenu() {
+		document.getElementById('settings-tags-menu')?.classList.add('hidden');
+	}
+
+	function openChapterSelectMenu() {
+		document.getElementById('chapter-select-menu')?.classList.remove('hidden');
+		document.getElementById('chapter-select-trigger')?.classList.add('open');
+		const search = document.getElementById('chapter-select-search');
+		if (search) {
+			search.value = '';
+			document.querySelectorAll('#chapter-select-list .settings-dropdown-item').forEach(item => {
+				item.style.display = '';
+			});
+			search.focus();
+		}
+	}
+
+	function closeChapterSelectMenu() {
+		document.getElementById('chapter-select-menu')?.classList.add('hidden');
+		document.getElementById('chapter-select-trigger')?.classList.remove('open');
+	}
+
+	function openStatusMenu() {
+		document.getElementById('settings-status-menu')?.classList.remove('hidden');
+		document.getElementById('settings-status-selector')?.classList.add('open');
+	}
+
+	function closeStatusMenu() {
+		document.getElementById('settings-status-menu')?.classList.add('hidden');
+		document.getElementById('settings-status-selector')?.classList.remove('open');
+	}
+
+	// All five Series Settings popovers (cover, source, tags, chapter, status)
+	// are mutually exclusive. Each trigger's own stopPropagation() keeps its
+	// click from ever reaching the document-level "close if clicked outside"
+	// listeners the OTHERS rely on, so without this they'd stay open forever
+	// once a different popover opens -- close everything before toggling.
+	function closeAllSettingsPopovers() {
+		closeCoverMenu();
+		closeSourceMenu();
+		closeTagsMenu();
+		closeChapterSelectMenu();
+		closeStatusMenu();
+	}
+
+	document.getElementById('settings-tags-selector')?.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const menu = document.getElementById('settings-tags-menu');
+		const wasHidden = menu?.classList.contains('hidden');
+		closeAllSettingsPopovers();
+		if (wasHidden) openTagsMenu();
+	});
+
+	document.getElementById('settings-tags-menu')?.addEventListener('click', (e) => e.stopPropagation());
+
+	document.addEventListener('click', (e) => {
+		const menu = document.getElementById('settings-tags-menu');
+		if (!menu || menu.classList.contains('hidden')) return;
+		const selector = document.getElementById('settings-tags-selector');
+		if (!menu.contains(e.target) && !selector?.contains(e.target)) {
+			closeTagsMenu();
+		}
+	});
+
+	document.getElementById('settings-tags-new-submit')?.addEventListener('click', async () => {
+		const input = document.getElementById('settings-tags-new-input');
+		const name = input.value.trim();
+		if (!name) return;
+		input.value = '';
+		await createAndApplyCustomTag(name);
+	});
+
+	document.getElementById('settings-tags-new-input')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') { e.preventDefault(); document.getElementById('settings-tags-new-submit')?.click(); }
+	});
+
+// ─── Series Settings modal: Chapter + Status custom dropdown open/close ──
+	document.getElementById('chapter-select-trigger')?.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const menu = document.getElementById('chapter-select-menu');
+		const wasHidden = menu?.classList.contains('hidden');
+		closeAllSettingsPopovers();
+		if (wasHidden) openChapterSelectMenu();
+	});
+
+	document.getElementById('chapter-select-menu')?.addEventListener('click', (e) => e.stopPropagation());
+
+	document.addEventListener('click', (e) => {
+		const menu = document.getElementById('chapter-select-menu');
+		if (!menu || menu.classList.contains('hidden')) return;
+		const trigger = document.getElementById('chapter-select-trigger');
+		if (!menu.contains(e.target) && !trigger?.contains(e.target)) {
+			closeChapterSelectMenu();
+		}
+	});
+
+	document.getElementById('chapter-select-search')?.addEventListener('input', (e) => {
+		const query = e.target.value.toLowerCase().trim();
+		document.querySelectorAll('#chapter-select-list .settings-dropdown-item').forEach(item => {
+			const matches = !query || item.dataset.search.includes(query);
+			item.style.display = matches ? '' : 'none';
+		});
+	});
+
+	// Stages "Not started" the same way picking it from the dropdown would --
+	// nothing is sent until Save, consistent with the rest of the chapter
+	// controls. Switches out of manual mode first since "not started" has no
+	// manual-entry equivalent (the steppers bottom out at chapter 0).
+	document.getElementById('btn-reset-not-started')?.addEventListener('click', () => {
+		if (chapterInputMode === 'manual') enterSelectChapterMode();
+		const select = document.getElementById('edit-current-chapter');
+		if (!select) return;
+		select.value = '-1';
+		select.dispatchEvent(new Event('change', { bubbles: true }));
+		syncChapterCustomList();
+	});
+
+	document.getElementById('settings-status-selector')?.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const menu = document.getElementById('settings-status-menu');
+		const wasHidden = menu?.classList.contains('hidden');
+		closeAllSettingsPopovers();
+		if (wasHidden) openStatusMenu();
+	});
+
+	document.getElementById('settings-status-menu')?.addEventListener('click', (e) => e.stopPropagation());
+
+	document.addEventListener('click', (e) => {
+		const menu = document.getElementById('settings-status-menu');
+		if (!menu || menu.classList.contains('hidden')) return;
+		const selector = document.getElementById('settings-status-selector');
+		if (!menu.contains(e.target) && !selector?.contains(e.target)) {
+			closeStatusMenu();
+		}
+	});
+
+	document.querySelectorAll('#settings-status-list .settings-dropdown-item').forEach(item => {
+		item.addEventListener('click', () => {
+			const select = document.getElementById('edit-status');
+			select.value = item.dataset.value;
+			select.dispatchEvent(new Event('change', { bubbles: true }));
+			syncStatusCustomUI();
+			closeStatusMenu();
+		});
+	});
+
 // ─── Series Settings modal: Save button commits title + chapter ──
 	document.getElementById('edit-current-chapter')?.addEventListener('change', updateSaveButtonState);
+	document.getElementById('edit-status')?.addEventListener('change', updateSaveButtonState);
 
 	document.getElementById('btn-save-chapter')?.addEventListener('click', async () => {
 		if (!currentSeriesIdForEdit) return;
 
-		const chapterSelect = document.getElementById('edit-current-chapter');
-		const newChapter = parseFloat(chapterSelect.value);
+		const { chapter: newChapter, volume: newVolume } = getPendingChapterAndVolume();
 		const oldChapter = originalSeriesValues?.current_chapter ?? null;
 		const chapterChanged = newChapter !== oldChapter;
+
+		const oldVolume = originalSeriesValues?.current_volume ?? null;
+		const volumeChanged = chapterInputMode === 'manual' && newVolume !== oldVolume;
 
 		const heading = document.getElementById('edit-series-title-heading');
 		const newTitle = heading.textContent;
 		const oldTitle = originalSeriesValues?.title || '';
 		const titleChanged = newTitle !== oldTitle;
 
-		if (!chapterChanged && !titleChanged) return;
+		const coverChanged = pendingCoverUrl !== null && pendingCoverUrl !== (originalSeriesValues?.cover_url || '');
+
+		const statusSelect = document.getElementById('edit-status');
+		const newStatus = statusSelect ? statusSelect.value : null;
+		const oldStatus = originalSeriesValues?.status || '';
+		const statusChanged = statusSelect && newStatus !== oldStatus;
+
+		const tagsChanged = tagIdSetsDiffer(pendingSeriesTagIds, currentSeriesTagIds);
+		const tagsToAdd = pendingSeriesTagIds.filter(id => !currentSeriesTagIds.includes(id));
+		const tagsToRemove = currentSeriesTagIds.filter(id => !pendingSeriesTagIds.includes(id));
+
+		if (!chapterChanged && !volumeChanged && !titleChanged && !coverChanged && !statusChanged && !tagsChanged) return;
 
 		const payload = {};
 		if (chapterChanged) payload.current_chapter = newChapter;
+		if (volumeChanged) payload.current_volume = newVolume;
 		if (titleChanged) payload.title = newTitle;
+		if (coverChanged) payload.cover_url = pendingCoverUrl;
+		if (statusChanged) payload.status = newStatus;
 
 		try {
-			const res = await fetch(`/api/series/${currentSeriesIdForEdit}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(payload)
+			const requests = [];
+			if (Object.keys(payload).length > 0) {
+				requests.push(fetch(`/api/series/${currentSeriesIdForEdit}`, {
+					method: 'PATCH',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(payload)
+				}));
+			}
+			tagsToAdd.forEach(tagId => {
+				requests.push(fetch(`/api/series/${currentSeriesIdForEdit}/custom-tags/${tagId}`, { method: 'POST' }));
 			});
-			if (res.ok) {
+			tagsToRemove.forEach(tagId => {
+				requests.push(fetch(`/api/series/${currentSeriesIdForEdit}/custom-tags/${tagId}`, { method: 'DELETE' }));
+			});
+
+			const results = await Promise.all(requests);
+			const allOk = results.every(r => r.ok);
+
+			if (allOk) {
 				if (chapterChanged && originalSeriesValues) originalSeriesValues.current_chapter = newChapter;
+				if (volumeChanged && originalSeriesValues) originalSeriesValues.current_volume = newVolume;
 				if (titleChanged && originalSeriesValues) originalSeriesValues.title = newTitle;
+				if (coverChanged && originalSeriesValues) {
+					originalSeriesValues.cover_url = pendingCoverUrl;
+					pendingCoverUrl = null;
+				}
+				if (statusChanged && originalSeriesValues) originalSeriesValues.status = newStatus;
+				if (tagsChanged) currentSeriesTagIds = [...pendingSeriesTagIds];
 				const parts = [];
 				if (titleChanged) parts.push('title');
-				if (chapterChanged) parts.push('chapter');
-				showNotification(`Updated ${parts.join(' and ')}`, 'read');
+				if (chapterChanged || volumeChanged) parts.push('chapter');
+				if (coverChanged) parts.push('cover');
+				if (statusChanged) parts.push('status');
+				if (tagsChanged) parts.push('tags');
+				showNotification(`Updated ${parts.join(', ')}`, 'read');
 				loadPage();
 			} else {
 				showNotification('Failed to save changes', 'error');
@@ -1973,6 +3130,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 			editModal.classList.add('hidden');
 			document.body.style.overflow = ''; // ADDED
+			// The Tags popover gets reparented to <body> while open (see
+			// openTagsMenu) to escape the modal's overflow clipping, so it's
+			// no longer a descendant that hiding the modal auto-hides.
+			closeTagsMenu();
 		}
 	});
 
@@ -1986,6 +3147,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		state.rating = getDefaultRatingState();
 		state.pubStatus = [];
 		state.readableOn = [];
+		state.customTags = [];
 		state.tagsMode = 'include';  // ADDED: Reset to include mode
 		state.page = 1;
 		
@@ -2168,18 +3330,31 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 	// Delete
-	document.getElementById('btn-delete-series')?.addEventListener('click', async () => {
-		if (!confirm('Delete this series?')) return;
+	document.getElementById('btn-delete-series')?.addEventListener('click', () => {
+		const seriesTitle = document.getElementById('edit-series-title-heading')?.textContent || 'this series';
+		document.getElementById('series-delete-title').innerHTML =
+			`This will permanently delete <strong>${seriesTitle}</strong>. This action cannot be undone.`;
+		document.getElementById('series-delete-modal').classList.remove('hidden');
+	});
+	document.getElementById('series-delete-modal')?.addEventListener('click', (e) => {
+		if (e.target.id === 'series-delete-modal') {
+			document.getElementById('series-delete-modal').classList.add('hidden');
+		}
+	});
+	document.getElementById('btn-series-delete-cancel')?.addEventListener('click', () => {
+		document.getElementById('series-delete-modal').classList.add('hidden');
+	});
+	document.getElementById('btn-series-delete-confirm')?.addEventListener('click', async () => {
+		document.getElementById('series-delete-modal').classList.add('hidden');
 		try {
 			const res = await fetch(`/api/series/${currentSeriesIdForEdit}`, {
 				method: 'DELETE',
 				headers: { 'Content-Type': 'application/json' }
 			});
 			if (res.ok) {
-				// ADDED: Show notification for deletion
-				const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
+				const seriesTitle = document.getElementById('edit-series-title-heading')?.textContent || 'Series';
 				showNotification(`${seriesTitle} deleted`, 'delete');
-				
+
 				editModal.classList.add('hidden');
 				document.body.style.overflow = '';
 				document.body.style.position = '';
@@ -2189,28 +3364,13 @@ document.addEventListener('DOMContentLoaded', () => {
 				loadPage();
 				loadGenres();
 			} else {
-				showNotification('Failed to delete series', 'error'); // CHANGED
+				showNotification('Failed to delete series', 'error');
 			}
 		} catch (e) {
 			showNotification('Network error: ' + e.message, 'error');
 		}
 	});
 
-	// Reset to Not Started
-	document.getElementById('btn-reset-not-started')?.addEventListener('click', () => {
-		if (currentSeriesIdForEdit) {
-			const currentSeries = state.allSeries?.find(s => s.id === currentSeriesIdForEdit);
-			saveChapter(currentSeriesIdForEdit, -1, currentSeries?.current_chapter).then(() => {
-				editModal.classList.add('hidden');
-				document.body.style.overflow = '';
-				document.body.style.position = '';
-				document.body.style.width = '';
-				document.body.style.top = '';
-				window.scrollTo(0, mobileState.scrollY || 0);
-				loadPage();
-			});
-		}
-	});
 
 	// Check Now
 	document.getElementById('btn-check-now-modal')?.addEventListener('click', async () => {
@@ -3737,6 +4897,12 @@ function stopHoldRepeat() {
 	// Fetch and store chapters for navigation
 	let sortedChapters = [];
 	let currentChapterIndex = -1;
+	let currentChapterOriginalIndex = -1;
+	// See the desktop card's identical pendingChapterNumber/pendingHasExactMatch:
+	// tracks the literal manually-set chapter number so it can still be shown
+	// even when no tracked chapter matches it exactly.
+	let currentChapterNumber = null;
+	let currentChapterHasExactMatch = false;
 
 	fetch(`/api/series/${series.id}/chapters`)
 	.then(r => r.json())
@@ -3746,20 +4912,34 @@ function stopHoldRepeat() {
 		const useVolume = !hasAnyNullVolume;
 		const comparator = useVolume ? compareChapters : (a, b) => a.chapter_number - b.chapter_number;
 		sortedChapters = [...chapters].sort(comparator);
-		
+
 		// Find current chapter index
 		if (mobileState.pendingChapter === -1) {
 		currentChapterIndex = -1;
 		} else {
+		currentChapterNumber = mobileState.pendingChapter;
 		const matches = sortedChapters
 			.map((ch, idx) => ({ ch, idx }))
 			.filter(item => item.ch.chapter_number === mobileState.pendingChapter);
-		
+
 		if (matches.length === 0) {
-			currentChapterIndex = -1;
+			// See the desktop card's identical fallback: fall back to the
+			// highest tracked chapter at or below the manually-set target so
+			// this reads as "caught up" instead of "not started".
+			let fallbackIdx = -1;
+			let fallbackChapterNum = -Infinity;
+			sortedChapters.forEach((ch, idx) => {
+				if (ch.chapter_number <= mobileState.pendingChapter && ch.chapter_number >= fallbackChapterNum) {
+					fallbackChapterNum = ch.chapter_number;
+					fallbackIdx = idx;
+				}
+			});
+			currentChapterIndex = fallbackIdx;
 		} else if (matches.length === 1) {
 			currentChapterIndex = matches[0].idx;
+			currentChapterHasExactMatch = true;
 		} else {
+			currentChapterHasExactMatch = true;
 			// Multiple matches - pick highest volume if using volumes
 			if (useVolume) {
 			const best = matches.reduce((a, b) => {
@@ -3773,7 +4953,8 @@ function stopHoldRepeat() {
 			}
 		}
 		}
-		
+		currentChapterOriginalIndex = currentChapterIndex;
+
 		// Update chapter display format
 		updateChapterDisplay();
 	})
@@ -3783,7 +4964,12 @@ function stopHoldRepeat() {
 
 	function updateChapterDisplay() {
 	const currentChapterEl = document.getElementById('sheet-current-chapter');
-	if (currentChapterIndex === -1 || sortedChapters.length === 0) {
+	const showingManualFallback = currentChapterNumber != null
+		&& !currentChapterHasExactMatch
+		&& currentChapterIndex === currentChapterOriginalIndex;
+	if (showingManualFallback) {
+		currentChapterEl.textContent = `Ch.${currentChapterNumber}`;
+	} else if (currentChapterIndex === -1 || sortedChapters.length === 0) {
 		currentChapterEl.textContent = 'Not started';
 	} else {
 		const ch = sortedChapters[currentChapterIndex];
@@ -3795,7 +4981,7 @@ function stopHoldRepeat() {
 		currentChapterEl.textContent = `Ch.${ch.chapter_number}`;
 		}
 	}
-	
+
 	// ADDED: Update Search and Continue buttons
 	updateSheetButtons();
 	}

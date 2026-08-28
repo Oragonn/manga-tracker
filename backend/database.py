@@ -50,28 +50,28 @@ def release_db(conn):
         conn.close()
         _db_lock.release()
 
-def add_source_to_series(series_id, source_url, source_type, is_primary=False):
+def add_source_to_series(series_id, source_url, source_type, is_primary=False, cover_url=None):
     """
     Add a new source to an existing series.
     If is_primary=True, demotes the current primary source.
     """
     conn = get_db()
     cursor = conn.cursor()
-    
+
     try:
         # If setting as primary, demote current primary
         if is_primary:
             cursor.execute("""
-                UPDATE series_sources 
-                SET is_primary = 0 
+                UPDATE series_sources
+                SET is_primary = 0
                 WHERE series_id = ?
             """, (series_id,))
-        
+
         # Add new source
         cursor.execute("""
-            INSERT INTO series_sources (series_id, source_url, source_type, is_primary)
-            VALUES (?, ?, ?, ?)
-        """, (series_id, source_url, source_type, int(is_primary)))
+            INSERT INTO series_sources (series_id, source_url, source_type, is_primary, cover_url)
+            VALUES (?, ?, ?, ?, ?)
+        """, (series_id, source_url, source_type, int(is_primary), cover_url))
         
         source_id = cursor.lastrowid
         release_db(conn)
@@ -98,6 +98,13 @@ def migrate_to_multi_source():
         # Check if migration already done
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='series_sources'")
         if cursor.fetchone():
+            # Table exists from an earlier version of this migration -- make
+            # sure newer columns added since then are present too.
+            cursor.execute("PRAGMA table_info(series_sources)")
+            existing_columns = {row[1] for row in cursor.fetchall()}
+            if "cover_url" not in existing_columns:
+                cursor.execute("ALTER TABLE series_sources ADD COLUMN cover_url TEXT")
+                print("[Migration] Added cover_url column to series_sources")
             print("[Migration] Multi-source tables already exist, skipping migration")
             release_db(conn)
             return
@@ -112,6 +119,7 @@ def migrate_to_multi_source():
                 source_url TEXT NOT NULL UNIQUE,
                 source_type TEXT NOT NULL,
                 is_primary BOOLEAN DEFAULT 0,
+                cover_url TEXT,
                 last_check DATETIME,
                 added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
@@ -124,11 +132,11 @@ def migrate_to_multi_source():
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_url ON series_sources(source_url)")
         
         # 3. Migrate existing series.source_url to series_sources
-        cursor.execute("SELECT id, source_url, last_check FROM series WHERE source_url IS NOT NULL")
+        cursor.execute("SELECT id, source_url, last_check, cover_url FROM series WHERE source_url IS NOT NULL")
         existing_series = cursor.fetchall()
-        
+
         migrated_count = 0
-        for series_id, source_url, last_check in existing_series:
+        for series_id, source_url, last_check, cover_url in existing_series:
             # Detect source type
             if 'mangadex.org' in source_url:
                 source_type = 'mangadex'
@@ -142,9 +150,9 @@ def migrate_to_multi_source():
                 source_type = 'unknown'
 
             cursor.execute("""
-                INSERT INTO series_sources (series_id, source_url, source_type, is_primary, last_check)
-                VALUES (?, ?, ?, 1, ?)
-            """, (series_id, source_url, source_type, last_check))
+                INSERT INTO series_sources (series_id, source_url, source_type, is_primary, last_check, cover_url)
+                VALUES (?, ?, ?, 1, ?, ?)
+            """, (series_id, source_url, source_type, last_check, cover_url))
             migrated_count += 1
         
         print(f"[Migration] Migrated {migrated_count} series to multi-source format")
@@ -169,15 +177,15 @@ def get_series_sources(series_id):
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT id, source_url, source_type, is_primary, last_check
+        SELECT id, source_url, source_type, is_primary, last_check, cover_url
         FROM series_sources
         WHERE series_id = ?
         ORDER BY is_primary DESC, added_at ASC
     """, (series_id,))
-    
+
     rows = cursor.fetchall()
     release_db(conn)
-    
+
     sources = []
     for row in rows:
         sources.append({
@@ -185,7 +193,8 @@ def get_series_sources(series_id):
             'source_url': row[1],
             'source_type': row[2],
             'is_primary': bool(row[3]),
-            'last_check': row[4]
+            'last_check': row[4],
+            'cover_url': row[5]
         })
     
     return sources
@@ -267,6 +276,178 @@ def remove_source(source_id):
             pass
         return False
 
+
+def add_series_cover(series_id, cover_url):
+    """Record an uploaded cover so it can be picked again later without re-uploading."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO series_covers (series_id, cover_url)
+            VALUES (?, ?)
+        """, (series_id, cover_url))
+        cover_id = cursor.lastrowid
+        release_db(conn)
+        return cover_id
+    except Exception as e:
+        print(f"[Database] Failed to record series cover: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return None
+
+
+def get_series_covers(series_id):
+    """Get all covers previously uploaded for a series, most recent first."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, cover_url, uploaded_at
+        FROM series_covers
+        WHERE series_id = ?
+        ORDER BY uploaded_at DESC, id DESC
+    """, (series_id,))
+
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [
+        {'id': row[0], 'cover_url': row[1], 'uploaded_at': row[2]}
+        for row in rows
+    ]
+
+
+def delete_series_cover(cover_id, series_id):
+    """Delete a previously-uploaded cover record. Returns its cover_url (so
+    the caller can also remove the file on disk) or None if not found."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            "SELECT cover_url FROM series_covers WHERE id = ? AND series_id = ?",
+            (cover_id, series_id)
+        )
+        row = cursor.fetchone()
+        if not row:
+            release_db(conn)
+            return None
+
+        cursor.execute("DELETE FROM series_covers WHERE id = ?", (cover_id,))
+        release_db(conn)
+        return row[0]
+    except Exception as e:
+        print(f"[Database] Failed to delete series cover: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return None
+
+
+def get_custom_tags():
+    """All custom tags, alphabetical."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, name FROM custom_tags ORDER BY name COLLATE NOCASE")
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [{'id': row[0], 'name': row[1]} for row in rows]
+
+
+def create_custom_tag(name):
+    """Create a tag, or return the id of the existing one with that name
+    (case-insensitive) so re-typing an existing tag never creates a dup."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM custom_tags WHERE name = ? COLLATE NOCASE", (name,))
+        existing = cursor.fetchone()
+        if existing:
+            release_db(conn)
+            return existing[0]
+
+        cursor.execute("INSERT INTO custom_tags (name) VALUES (?)", (name,))
+        tag_id = cursor.lastrowid
+        release_db(conn)
+        return tag_id
+    except Exception as e:
+        print(f"[Database] Failed to create custom tag: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return None
+
+
+def delete_custom_tag(tag_id):
+    """Delete a tag globally -- series_custom_tags rows cascade with it."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM custom_tags WHERE id = ?", (tag_id,))
+        deleted = cursor.rowcount > 0
+        release_db(conn)
+        return deleted
+    except Exception as e:
+        print(f"[Database] Failed to delete custom tag: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False
+
+
+def get_series_custom_tag_ids(series_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT tag_id FROM series_custom_tags WHERE series_id = ?", (series_id,))
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [row[0] for row in rows]
+
+
+def add_custom_tag_to_series(series_id, tag_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT OR IGNORE INTO series_custom_tags (series_id, tag_id) VALUES (?, ?)",
+            (series_id, tag_id)
+        )
+        release_db(conn)
+        return True
+    except Exception as e:
+        print(f"[Database] Failed to attach custom tag: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False
+
+
+def remove_custom_tag_from_series(series_id, tag_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "DELETE FROM series_custom_tags WHERE series_id = ? AND tag_id = ?",
+            (series_id, tag_id)
+        )
+        release_db(conn)
+        return True
+    except Exception as e:
+        print(f"[Database] Failed to detach custom tag: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False
+
+
 def init_db():
     os.makedirs("data", exist_ok=True)
     conn = get_db()
@@ -333,6 +514,42 @@ def init_db():
             value TEXT
         )
     """)
+
+    # Covers a user has uploaded for a series, kept around (even after the
+    # series moves on to a different cover) so the settings-modal cover
+    # picker can offer "one you already uploaded" without re-uploading it.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS series_covers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            cover_url TEXT NOT NULL,
+            uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_covers_series ON series_covers(series_id)")
+
+    # User-defined tags (distinct from the scraped `genres` column) -- a
+    # shared, reusable vocabulary the user builds up from the Series Settings
+    # modal, filterable from the same dropdown as genres/rating.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS custom_tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS series_custom_tags (
+            series_id INTEGER NOT NULL,
+            tag_id INTEGER NOT NULL,
+            PRIMARY KEY (series_id, tag_id),
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+            FOREIGN KEY (tag_id) REFERENCES custom_tags(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_custom_tags_series ON series_custom_tags(series_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_custom_tags_tag ON series_custom_tags(tag_id)")
 
     # --- 2. Add missing columns to existing tables ---
     cursor.execute("PRAGMA table_info(series)")
@@ -507,9 +724,9 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
             detected_source_type = 'unknown'
         
         cursor.execute("""
-            INSERT INTO series_sources (series_id, source_url, source_type, is_primary)
-            VALUES (?, ?, ?, 1)
-        """, (series_id, source_url, detected_source_type))
+            INSERT INTO series_sources (series_id, source_url, source_type, is_primary, cover_url)
+            VALUES (?, ?, ?, 1, ?)
+        """, (series_id, source_url, detected_source_type, cover_url))
         
         release_db(conn)
         return series_id

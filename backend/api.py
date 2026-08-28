@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, render_template
 from datetime import datetime, timezone
 import sqlite3
 import json
+import os
 import threading
 import time
 import uuid
@@ -883,6 +884,20 @@ def api_series():
                 params.append(source_type)
             where_parts.append(f"({' OR '.join(source_conditions)})")
 
+    # Custom tags filter (OR semantics, like ratings' include list -- a
+    # series matches if it has ANY of the selected tags)
+    custom_tags_filter = request.args.get('custom_tags', '').strip()
+    if custom_tags_filter:
+        tag_id_list = [t.strip() for t in custom_tags_filter.split(',') if t.strip().isdigit()]
+        if tag_id_list:
+            placeholders = ','.join(['?'] * len(tag_id_list))
+            where_parts.append(f"""EXISTS (
+                SELECT 1 FROM series_custom_tags
+                WHERE series_custom_tags.series_id = series.id
+                AND series_custom_tags.tag_id IN ({placeholders})
+            )""")
+            params.extend(tag_id_list)
+
     # Search filter
     if search_query:
         query_words = search_query.split()
@@ -1035,6 +1050,59 @@ def api_genres():
         print(f"[Genres API] Error: {e}")
         return jsonify([]), 500
 
+
+# User-defined tags -- separate from the scraped `genres` column above.
+@app.route('/api/custom-tags')
+def api_get_custom_tags():
+    from .database import get_custom_tags
+    return jsonify(get_custom_tags())
+
+
+@app.route('/api/custom-tags', methods=['POST'])
+def api_create_custom_tag():
+    from .database import create_custom_tag
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'name required'}), 400
+    if len(name) > 40:
+        return jsonify({'error': 'name too long (max 40 characters)'}), 400
+
+    tag_id = create_custom_tag(name)
+    if tag_id is None:
+        return jsonify({'error': 'Failed to create tag'}), 500
+    return jsonify({'id': tag_id, 'name': name}), 200
+
+
+@app.route('/api/custom-tags/<int:tag_id>', methods=['DELETE'])
+def api_delete_custom_tag(tag_id):
+    from .database import delete_custom_tag
+    if delete_custom_tag(tag_id):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Tag not found'}), 404
+
+
+@app.route('/api/series/<int:series_id>/custom-tags')
+def api_get_series_custom_tags(series_id):
+    from .database import get_series_custom_tag_ids
+    return jsonify({'tag_ids': get_series_custom_tag_ids(series_id)})
+
+
+@app.route('/api/series/<int:series_id>/custom-tags/<int:tag_id>', methods=['POST'])
+def api_add_series_custom_tag(series_id, tag_id):
+    from .database import add_custom_tag_to_series
+    if add_custom_tag_to_series(series_id, tag_id):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Failed to attach tag'}), 500
+
+
+@app.route('/api/series/<int:series_id>/custom-tags/<int:tag_id>', methods=['DELETE'])
+def api_remove_series_custom_tag(series_id, tag_id):
+    from .database import remove_custom_tag_from_series
+    if remove_custom_tag_from_series(series_id, tag_id):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Failed to detach tag'}), 500
+
 @app.route('/api/unread-reading-count')
 def api_unread_count():
     count = get_unread_reading_count()
@@ -1129,6 +1197,71 @@ def api_update_series(series_id):
     
     # Perform update
     update_series(series_id, updates)
+    return jsonify({'success': True})
+
+
+# Covers uploaded via the Series Settings modal's "Upload image" option --
+# saved under the Flask static folder so they're servable at /static/... like
+# any other asset, filenames namespaced by series id + a random suffix so
+# repeated uploads for the same series never collide or overwrite silently.
+UPLOAD_COVER_DIR = os.path.join(os.path.dirname(__file__), '..', 'web', 'static', 'uploads', 'covers')
+ALLOWED_COVER_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
+MAX_COVER_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
+
+
+@app.route('/api/series/<int:series_id>/cover-upload', methods=['POST'])
+def api_upload_cover(series_id):
+    file = request.files.get('cover')
+    if not file or not file.filename:
+        return jsonify({'error': 'No file provided'}), 400
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_COVER_EXTENSIONS:
+        return jsonify({'error': 'Unsupported image type'}), 400
+
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size > MAX_COVER_UPLOAD_BYTES:
+        return jsonify({'error': 'File too large (max 8MB)'}), 400
+
+    os.makedirs(UPLOAD_COVER_DIR, exist_ok=True)
+    filename = f"{series_id}_{uuid.uuid4().hex}{ext}"
+    file.save(os.path.join(UPLOAD_COVER_DIR, filename))
+
+    cover_url = f'/static/uploads/covers/{filename}'
+
+    from .database import add_series_cover
+    cover_id = add_series_cover(series_id, cover_url)
+
+    return jsonify({'cover_url': cover_url, 'id': cover_id}), 200
+
+
+@app.route('/api/series/<int:series_id>/uploaded-covers')
+def api_get_uploaded_covers(series_id):
+    """Covers previously uploaded for this series, so the settings-modal
+    cover picker can offer them again without re-uploading."""
+    from .database import get_series_covers
+    return jsonify({'covers': get_series_covers(series_id)})
+
+
+@app.route('/api/series/<int:series_id>/uploaded-covers/<int:cover_id>', methods=['DELETE'])
+def api_delete_uploaded_cover(series_id, cover_id):
+    from .database import delete_series_cover
+    cover_url = delete_series_cover(cover_id, series_id)
+    if not cover_url:
+        return jsonify({'error': 'Cover not found'}), 404
+
+    # Only ever unlink files we saved ourselves under the uploads dir --
+    # never touch an arbitrary path even if cover_url were ever something else.
+    if cover_url.startswith('/static/uploads/covers/'):
+        file_path = os.path.join(UPLOAD_COVER_DIR, os.path.basename(cover_url))
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            print(f"[Delete Cover] Failed to remove file {file_path}: {e}")
+
     return jsonify({'success': True})
 
 

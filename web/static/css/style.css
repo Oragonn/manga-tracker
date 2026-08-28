@@ -1344,6 +1344,240 @@ html {
 .settings-cover-col {
   flex-shrink: 0;
   width: 322px;
+  position: relative;
+}
+
+.settings-cover-edit-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.settings-cover-col:hover .settings-cover-edit-btn,
+.settings-cover-col.cover-menu-open .settings-cover-edit-btn {
+  opacity: 1;
+}
+
+.settings-cover-edit-btn:hover {
+  background: rgb(2, 60, 191);
+}
+
+.settings-cover-menu {
+  position: absolute;
+  top: 48px;
+  right: 10px;
+  width: 260px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+.settings-cover-menu.hidden {
+  display: none;
+}
+
+.settings-cover-menu-section + .settings-cover-menu-section {
+  margin-top: 0;
+}
+
+.settings-cover-menu-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  margin: 0 0 8px;
+}
+
+.settings-cover-menu-divider {
+  height: 1px;
+  background: #334155;
+  margin: 14px 0;
+}
+
+.settings-cover-menu-empty {
+  font-size: 12px;
+  color: #64748b;
+  margin: 0;
+}
+
+.settings-cover-source-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-cover-source-thumb {
+  width: 50px;
+  height: 71px;
+  border-radius: 4px;
+  object-fit: cover;
+  cursor: pointer;
+  border: 2px solid transparent;
+  background: #0f172a;
+}
+
+.settings-cover-source-thumb:hover {
+  border-color: rgb(2, 60, 191);
+}
+
+.settings-cover-upload-item {
+  position: relative;
+  width: 50px;
+  height: 71px;
+  flex-shrink: 0;
+}
+
+.settings-cover-upload-item .settings-cover-source-thumb {
+  width: 100%;
+  height: 100%;
+}
+
+.settings-cover-upload-delete {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #db2b42;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  font-size: 12px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.settings-cover-upload-item:hover .settings-cover-upload-delete {
+  opacity: 1;
+}
+
+.settings-cover-upload-delete:hover {
+  background: #b91c3c;
+}
+
+.settings-cover-url-row {
+  display: flex;
+  gap: 6px;
+}
+
+.settings-cover-url-input {
+  flex: 1;
+  min-width: 0;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: white;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.settings-cover-url-input:focus {
+  outline: none;
+  border-color: #678ec9;
+}
+
+.settings-cover-url-apply,
+.settings-cover-upload-btn {
+  background: #263449;
+  border: 1px solid #334155;
+  color: white;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.settings-cover-url-apply:hover,
+.settings-cover-upload-btn:hover {
+  background: #334155;
+}
+
+.settings-cover-upload-btn {
+  width: 100%;
+}
+
+.settings-cover-upload-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ─── Series Settings modal: Actions row (Reset to Not Started / Check Now) ─── */
+.settings-actions-row > label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: #cbd5e1;
+  margin-bottom: 4px;
+}
+
+.settings-actions-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-actions-buttons-secondary {
+  margin-top: 8px;
+}
+
+.settings-action-btn {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  height: 40px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: white;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.settings-action-btn:hover {
+  border-color: #678ec9;
+  background: #1e2c40;
+}
+
+.settings-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.settings-action-btn-danger {
+  color: #f87171;
+  border-color: #7f1d1d;
+}
+
+.settings-action-btn-danger:hover {
+  color: white;
+  background: #e53e3e;
+  border-color: #e53e3e;
 }
 
 /* Series Settings modal only: sit higher in the viewport (like Kenmei)
@@ -1383,6 +1617,10 @@ html {
   margin-bottom: 6px;
 }
 
+#chapter-select-group {
+  position: relative;
+}
+
 .settings-chapter-col .form-group label {
   margin-bottom: 4px;
 }
@@ -1392,6 +1630,462 @@ html {
   text-align: center;
   font-size: 13px;
   color: #64748b;
+}
+
+.settings-manual-hint a {
+  color: #678ec9;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.settings-manual-hint a:hover {
+  text-decoration: underline;
+}
+
+.settings-manual-group {
+  display: flex;
+  justify-content: center;
+}
+
+.settings-manual-group.hidden {
+  display: none;
+}
+
+.settings-stepper-row {
+  display: flex;
+  gap: 12px;
+}
+
+.settings-stepper-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.settings-chapter-col .settings-stepper-col label {
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+/* Boxed the same way as .form-input (the "Last Read Chapter" select this
+   replaces) so auto/manual mode read as the same weight of control. */
+.settings-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 6px 12px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 4px;
+}
+
+.settings-stepper-btn {
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: white;
+  font-size: 20px;
+  font-weight: 300;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.settings-stepper-btn:hover {
+  background: #334155;
+}
+
+.settings-stepper-value {
+  min-width: 28px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+}
+
+.settings-stepper-value-muted {
+  color: #64748b;
+  font-weight: 600;
+}
+
+/* Specificity note: .modal-content input has (0,1,1) via the element part
+   of the selector, which beats a bare .settings-stepper-input class alone
+   -- scope to the parent class too so this actually wins the cascade. The
+   box itself now lives on .settings-stepper (above), so the input stays
+   borderless/transparent and just fills the space between the +/- buttons. */
+.settings-manual-group .settings-stepper-input {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  outline: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.settings-stepper-input::placeholder {
+  color: #64748b;
+  opacity: 1;
+  font-weight: 600;
+}
+
+/* Hide native number spinner arrows -- the +/- buttons already do that job */
+.settings-stepper-input::-webkit-outer-spin-button,
+.settings-stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* ─── Series Settings modal: Source selector ─── */
+.settings-source-group {
+  position: relative;
+}
+
+.settings-source-selector {
+  width: 100%;
+  box-sizing: border-box;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: white;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.settings-source-selector:hover {
+  border-color: #678ec9;
+}
+
+.settings-source-selector.open .settings-source-chevron {
+  transform: rotate(180deg);
+}
+
+.settings-source-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4ade80;
+  flex-shrink: 0;
+}
+
+.settings-source-dot.inactive {
+  background: #64748b;
+}
+
+.settings-source-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-source-chapter {
+  margin-left: auto;
+  padding-left: 8px;
+  color: #64748b;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.settings-source-chevron {
+  flex-shrink: 0;
+  color: #64748b;
+  transition: transform 0.15s;
+}
+
+.settings-source-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+.settings-source-menu.hidden {
+  display: none;
+}
+
+/* Narrow variant for popovers that sit in a half-width column (Status) --
+   overrides the full-width left:0;right:0 above with a fixed width anchored
+   to the left edge, so it doesn't stretch to match its cramped trigger. */
+.settings-dropdown-menu-narrow {
+  right: auto;
+  width: 200px;
+}
+
+.settings-dropdown-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.settings-dropdown-search:focus {
+  outline: none;
+  border-color: #678ec9;
+}
+
+.settings-dropdown-search::placeholder {
+  color: #64748b;
+}
+
+.settings-dropdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.settings-dropdown-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: white;
+}
+
+.settings-dropdown-item:hover {
+  background: #263449;
+}
+
+.settings-dropdown-item.selected {
+  background: rgb(2, 60, 191);
+}
+
+.settings-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.settings-source-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+.settings-source-item:hover {
+  background: #263449;
+}
+
+.settings-source-item-name {
+  font-weight: 600;
+  color: white;
+  font-size: 14px;
+}
+
+.settings-source-item-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #4ade80;
+  border: 1px solid #4ade80;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.settings-source-item-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.settings-source-item-actions .btn-icon {
+  padding: 5px;
+}
+
+/* ─── Series Settings modal: Status + Tags row ─── */
+.settings-status-tags-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.settings-status-col,
+.settings-tags-col {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+/* #edit-status is a <select>, which defaults to inline-block and so doesn't
+   margin-collapse with the label above it the way the Tags box's block-level
+   div does -- the two 4px margins stacked instead of collapsing, leaving
+   Status sitting 4px lower. Zero it out so both rely solely on the label's
+   margin-bottom for spacing, which does collapse identically either way. */
+#edit-status {
+  margin-top: 0;
+}
+
+.settings-tags-col {
+  position: relative;
+}
+
+.settings-tags-selector {
+  width: 100%;
+  box-sizing: border-box;
+  height: 36px;
+  margin-top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: white;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.settings-tags-selector:hover {
+  border-color: #678ec9;
+}
+
+.settings-tags-selector-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-tags-selector-muted {
+  color: #64748b;
+}
+
+.settings-tags-selector svg {
+  flex-shrink: 0;
+  color: #64748b;
+}
+
+/* Wider than the Tags column itself (which only gets half the row, split
+   with Status) so it needs an explicit width rather than left:0;right:0;
+   anchored to the left edge to line up with Status's popover next to it. */
+.settings-tags-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 280px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+/* Applied once openTagsMenu() reparents the menu to <body> to escape the
+   modal's overflow-x clipping (see that function for why). top/left are set
+   inline from the trigger's live position at that point; position just
+   needs to switch from absolute (relative to .settings-tags-col) to fixed
+   (relative to the viewport), and z-index needs to clear the modal
+   backdrop's 1000. */
+.settings-tags-menu-portal {
+  position: fixed;
+  z-index: 1001;
+}
+
+.settings-tags-menu.hidden {
+  display: none;
+}
+
+.settings-tags-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.settings-tag-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.settings-tag-item:hover {
+  background: #263449;
+}
+
+.settings-tag-checkbox {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  border: 1px solid #334155;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.settings-tag-item.checked .settings-tag-checkbox {
+  background: rgb(2, 60, 191);
+  border-color: rgb(2, 60, 191);
+}
+
+.settings-tag-item-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: white;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-tag-delete {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 5px;
 }
 
 .settings-save-btn {
