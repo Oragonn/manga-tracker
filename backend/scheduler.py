@@ -2,6 +2,7 @@ import threading
 import time
 import sqlite3
 import os
+import concurrent.futures
 from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
 from .trackers.mangadex import extract_manga_id, get_latest_chapters
@@ -58,6 +59,26 @@ class MangaScheduler:
         }
         return intervals.get(status, 604800)
 
+    # Lower number = scanned first. A freshly bulk-imported library (or a
+    # restart after being offline a while) can put hundreds/thousands of
+    # series in "due" state simultaneously (every series starts with
+    # last_check=NULL, which is always due); without this, the time-sensitive
+    # "reading" tier would just wait behind whatever order the DB happens to
+    # return, potentially for a long time.
+    STATUS_SCAN_PRIORITY = {
+        'reading': 0,
+        'on_hold': 1,
+        'plan_to_read': 2,
+        'dropped': 3,
+        'completed': 3,
+    }
+
+    # Cap how long a single tick spends scanning, so a large backlog spreads
+    # across multiple ticks (60s apart) instead of one long uninterrupted
+    # burst hammering external APIs. Combined with the priority sort above,
+    # "reading" series always get first crack at this budget every tick.
+    MAX_SCAN_SECONDS_PER_TICK = 30
+
     def _run(self):
         from .database import get_db, release_db  # Ensure consistent import
         while self.active:
@@ -70,14 +91,30 @@ class MangaScheduler:
 
                 now = datetime.now(timezone.utc)
 
+                due = []
                 for (sid, status, last_check) in series_list:
-                    if not self.active:
-                        break
                     if last_check:
                         last = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
                         next_check = last + timedelta(seconds=self.get_check_interval(status))
                         if now < next_check:
                             continue
+                    due.append((sid, status, last_check))
+
+                # Reading first, then most-overdue within the same status
+                # (NULL last_check -- never checked -- sorts as oldest).
+                due.sort(key=lambda row: (
+                    self.STATUS_SCAN_PRIORITY.get(row[1], 4),
+                    row[2] or ''
+                ))
+
+                tick_start = time.time()
+                for i, (sid, status, last_check) in enumerate(due):
+                    if not self.active:
+                        break
+                    if time.time() - tick_start > self.MAX_SCAN_SECONDS_PER_TICK:
+                        print(f"[Scheduler] Tick budget reached, deferring "
+                              f"{len(due) - i} due series to next tick")
+                        break
                     self.scan_series(sid)
                     time.sleep(0.4)
 
@@ -130,6 +167,38 @@ class MangaScheduler:
             self._update_last_check(series_id, conn)
         conn.commit()
 
+    def _fetch_source_chapters(self, source):
+        """Fetch the chapter list for a single source. Runs on a worker
+        thread from scan_series's ThreadPoolExecutor -- raises on failure
+        so the caller's future.result() surfaces the error per-source."""
+        source_url = source['source_url']
+        source_type = source['source_type']
+
+        print(f"[Scheduler] Fetching from {source_type}: {source_url}")
+
+        if source_type == 'mangadex':
+            manga_id = extract_manga_id(source_url)
+            return get_latest_chapters(manga_id, limit=100) if manga_id else None
+        elif source_type == 'kagane':
+            kagane_id = extract_series_id(source_url)
+            if not kagane_id:
+                return None
+            kagane_info = get_series_info(kagane_id)
+            return kagane_info['chapters'] if kagane_info else None
+        elif source_type == 'atsu':
+            atsu_id = atsu_tracker.extract_series_id(source_url)
+            if not atsu_id:
+                return None
+            atsu_info = atsu_tracker.get_series_info(atsu_id)
+            return atsu_info['chapters'] if atsu_info else None
+        elif source_type == 'asura':
+            asura_id = asura_tracker.extract_series_id(source_url)
+            if not asura_id:
+                return None
+            asura_info = asura_tracker.get_series_info(asura_id)
+            return asura_info['chapters'] if asura_info else None
+        return None
+
     def scan_series(self, series_id):
         """
         Scan all sources for a series and merge chapters.
@@ -165,56 +234,37 @@ class MangaScheduler:
             
             all_chapters = []
             successful_sources = 0
-            
-            # Fetch chapters from each source
-            for source in sources:
-                source_url = source['source_url']
-                source_type = source['source_type']
-                
-                print(f"[Scheduler] Fetching from {source_type}: {source_url}")
-                
-                chapters = None
-                
-                try:
-                    if source_type == 'mangadex':
-                        manga_id = extract_manga_id(source_url)
-                        if manga_id:
-                            chapters = get_latest_chapters(manga_id, limit=100)
-                    elif source_type == 'kagane':
-                        kagane_id = extract_series_id(source_url)
-                        if kagane_id:
-                            kagane_info = get_series_info(kagane_id)
-                            if kagane_info:
-                                chapters = kagane_info['chapters']
-                    elif source_type == 'atsu':
-                        atsu_id = atsu_tracker.extract_series_id(source_url)
-                        if atsu_id:
-                            atsu_info = atsu_tracker.get_series_info(atsu_id)
-                            if atsu_info:
-                                chapters = atsu_info['chapters']
-                    elif source_type == 'asura':
-                        asura_id = asura_tracker.extract_series_id(source_url)
-                        if asura_id:
-                            asura_info = asura_tracker.get_series_info(asura_id)
-                            if asura_info:
-                                chapters = asura_info['chapters']
+
+            # Fetch chapters from all sources concurrently instead of one at a
+            # time -- each source is an independent network call, and the
+            # merge step below is already order-independent (it compares
+            # release dates rather than relying on iteration order).
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(sources))) as executor:
+                future_to_source = {
+                    executor.submit(self._fetch_source_chapters, source): source
+                    for source in sources
+                }
+                for future in concurrent.futures.as_completed(future_to_source):
+                    source = future_to_source[future]
+                    source_type = source['source_type']
+                    try:
+                        chapters = future.result()
+                    except Exception as source_error:
+                        print(f"[Scheduler] Error fetching from {source_type}: {source_error}")
+                        continue
 
                     if chapters:
                         # Tag chapters with source info
                         for ch in chapters:
                             ch['source_id'] = source['id']
                             ch['source_type'] = source_type
-                            ch['source_url'] = source_url
+                            ch['source_url'] = source['source_url']
                         all_chapters.extend(chapters)
                         successful_sources += 1
                         print(f"[Scheduler] Got {len(chapters)} chapters from {source_type}")
                     else:
                         print(f"[Scheduler] No chapters from {source_type}")
-                        
-                except Exception as source_error:
-                    print(f"[Scheduler] Error fetching from {source_type}: {source_error}")
-                    continue
-            
+
             print(f"[Scheduler] Total raw chapters: {len(all_chapters)} from {successful_sources} sources")
             
             # *** FIX: Improved chapter merging logic ***
