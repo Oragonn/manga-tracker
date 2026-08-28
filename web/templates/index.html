@@ -262,124 +262,35 @@
   </div>
 </div>
 
-<!-- Series Settings Modal -->
+<!-- Series Settings Modal — being rebuilt piece by piece; only the cover +
+     chapter picker are live for now, the rest (sources, status, delete...)
+     comes back in later passes. -->
 <div id="edit-series-modal" class="modal hidden">
   <div class="modal-content settings-modal">
     <div class="settings-header">
-      <h3>Series Settings</h3>
+      <h3 id="edit-series-title-heading">Series Settings</h3>
       <button class="btn-close-modal" onclick="document.getElementById('edit-series-modal').classList.add('hidden'); document.body.style.overflow = '';">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
       </button>
     </div>
-    
+
     <input type="hidden" id="edit-series-id" />
-    
-    <!-- Sources Management Section - Replace in index.html -->
-    <div class="settings-section">
-      <div class="section-header">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-        </svg>
-        <h4>Sources</h4>
+
+    <div class="settings-section settings-cover-row">
+      <div class="settings-cover-col">
+        <img id="edit-series-cover-img" class="settings-cover-img" src="" alt="" />
       </div>
-      
-      <div id="sources-list" class="sources-list">
-        <p class="loading-text">Loading sources...</p>
-      </div>
-      
-      <button class="btn-add-source" onclick="showAddSourceForm()">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 5v14M5 12h14"/>
-        </svg>
-        Add Another Source
-      </button>
-      
-      <!-- Add Source Form (hidden by default) -->
-      <div id="add-source-form" class="add-source-form hidden">
-        <input type="url" id="new-source-url" placeholder="Paste source URL (MangaDex, Kagane...)" />
-        <div class="form-actions">
-          <button class="btn-cancel" onclick="hideAddSourceForm()">Cancel</button>
-          <button class="btn-primary" onclick="addNewSource()">Add Source</button>
+      <div class="settings-chapter-col">
+        <div class="form-group">
+          <label>Last Read Chapter</label>
+          <select id="edit-current-chapter" class="form-input">
+            <option value="-1">Not started</option>
+          </select>
         </div>
+        <p class="settings-manual-hint">Or track chapter manually</p>
       </div>
-    </div>    
-    
-    <!-- Series Info Section -->
-    <div class="settings-section">
-      <div class="section-header">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-        </svg>
-        <h4>Basic Info</h4>
-      </div>
-      
-      <div class="form-group">
-        <label>Title</label>
-        <input type="text" id="edit-title" class="form-input" />
-      </div>
-      
-      <div class="form-group">
-        <label>Cover URL</label>
-        <input type="url" id="edit-cover-url" class="form-input" />
-      </div>
-    </div>
-    
-    <!-- Reading Progress Section -->
-    <div class="settings-section">
-      <div class="section-header">
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-        </svg>
-        <h4>Reading Progress</h4>
-      </div>
-      
-      <div class="form-group">
-        <label>Status</label>
-        <select id="edit-status" class="form-input">
-          <option value="reading">Reading</option>
-          <option value="plan_to_read">Plan to Read</option>
-          <option value="on_hold">On Hold</option>
-          <option value="dropped">Dropped</option>
-          <option value="completed">Completed</option>
-        </select>
-      </div>
-      
-      <div class="form-group">
-        <label>Current Chapter</label>
-        <select id="edit-current-chapter" class="form-input">
-          <option value="-1">Not started</option>
-        </select>
-      </div>
-      
-      <div class="form-actions-inline">
-        <button class="btn-secondary" id="btn-reset-not-started">
-          Reset to Not Started
-        </button>
-        <button class="btn-secondary" id="btn-check-now-modal">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
-            <path d="M21 3v5h-5"/>
-          </svg>
-          Check Now
-        </button>
-      </div>
-    </div>
-    
-    <!-- Action Buttons -->
-    <div class="settings-footer">
-      <button class="btn-danger" id="btn-delete-series">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-        </svg>
-        Delete Serie
-      </button>
-      <div class="spacer"></div>
-      <button class="btn-cancel" id="btn-edit-cancel">Cancel</button>
-      <button class="btn-primary" id="btn-edit-save">Save Changes</button>
     </div>
   </div>
 </div>

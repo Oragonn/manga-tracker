@@ -153,7 +153,7 @@ let originalSeriesValues = null;
 
 function openEditModal(series) {
 	currentSeriesIdForEdit = series.id;
-	
+
 	// Store original values including current chapter
 	originalSeriesValues = {
 		title: series.title || '',
@@ -161,14 +161,13 @@ function openEditModal(series) {
 		status: series.status || 'plan_to_read',
 		current_chapter: series.current_chapter
 	};
-	
-	document.getElementById('edit-series-id').value = series.id;
-	document.getElementById('edit-title').value = series.title || '';
-	document.getElementById('edit-cover-url').value = series.cover_url || '';
-	document.getElementById('edit-status').value = series.status || 'plan_to_read';
 
-	// Load sources
-	loadSeriesSources(series.id);
+	document.getElementById('edit-series-id').value = series.id;
+	document.getElementById('edit-series-title-heading').textContent = series.title || 'Series Settings';
+
+	const coverImg = document.getElementById('edit-series-cover-img');
+	coverImg.src = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
+	coverImg.alt = series.title || '';
 
 	// Load chapters (existing code)
 	fetch(`/api/series/${series.id}/chapters`)
@@ -1759,6 +1758,16 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (input) input.focus();
 		});
 	}
+
+// ─── Series Settings modal: chapter select auto-saves on change ──
+	document.getElementById('edit-current-chapter')?.addEventListener('change', async (e) => {
+		if (!currentSeriesIdForEdit) return;
+		const newChapter = parseFloat(e.target.value);
+		const oldChapter = originalSeriesValues?.current_chapter ?? null;
+		await saveChapter(currentSeriesIdForEdit, newChapter, oldChapter);
+		if (originalSeriesValues) originalSeriesValues.current_chapter = newChapter;
+		loadPage();
+	});
 
 // ─── Modified Save Button Handler ─────────────────────────────
 	document.getElementById('btn-edit-save')?.addEventListener('click', async () => {

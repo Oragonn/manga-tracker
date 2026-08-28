@@ -1300,6 +1300,40 @@ html {
   border-bottom: none;
 }
 
+.settings-cover-row {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.settings-cover-col {
+  flex-shrink: 0;
+  width: 160px;
+}
+
+.settings-cover-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 221 / 331;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #1a2436;
+  border: 1px solid #334155;
+}
+
+.settings-chapter-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-manual-hint {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 13px;
+  color: #64748b;
+}
+
 .section-header {
   display: flex;
   align-items: center;
