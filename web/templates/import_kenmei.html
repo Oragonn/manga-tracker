@@ -313,10 +313,24 @@
   let allRows = [];   // { title, status, origStatus, chapter, source_site, url, importState: 'pending'|'adding'|'imported'|'error', errorMsg, infoMsg, seriesId }
   let currentPage = 1;
 
-  // --- Persistence: remember progress across page reloads/sessions ---
+  // --- Persistence: remember progress AND the last uploaded CSV across reloads/sessions ---
   const STORAGE_KEY = 'kenmeiImportState_v1';
+  const CSV_STORAGE_KEY = 'kenmeiCsvRows_v1';
   let persisted = {};
   try { persisted = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch (e) { persisted = {}; }
+
+  function saveCsvRows(rawRows) {
+    try { localStorage.setItem(CSV_STORAGE_KEY, JSON.stringify(rawRows)); } catch (e) { /* storage full/blocked, ignore */ }
+  }
+
+  function loadCsvRows() {
+    try {
+      const raw = localStorage.getItem(CSV_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
 
   function rowKey(r) {
     return `${r.title}|||${r.source_site || ''}|||${r.origStatus}`;
@@ -659,6 +673,37 @@
       });
   }
 
+  function buildAllRows(rawRows) {
+    return rawRows.map(r => {
+      const base = {
+        title: r.title,
+        status: r.status,
+        origStatus: r.status,
+        chapter: r.chapter,
+        source_site: r.source_site,
+        url: '',
+        importState: 'pending',
+        errorMsg: '',
+        infoMsg: '',
+        seriesId: null
+      };
+      const saved = persisted[rowKey(base)];
+      return saved ? { ...base, ...saved } : base;
+    });
+  }
+
+  function loadRowsIntoTable(rawRows, summarySuffix) {
+    allRows = buildAllRows(rawRows);
+    currentPage = 1;
+    const importedCount = allRows.filter(r => r.importState === 'imported').length;
+    const base = importedCount
+      ? `${allRows.length} rows (${importedCount} already imported)`
+      : `${allRows.length} rows`;
+    uploadSummary.textContent = summarySuffix ? `${base} ${summarySuffix}` : `Loaded ${base}`;
+    tableSection.style.display = '';
+    render();
+  }
+
   document.getElementById('btn-parse-csv').addEventListener('click', async () => {
     const fileInput = document.getElementById('csv-file-input');
     const file = fileInput.files[0];
@@ -680,34 +725,22 @@
         uploadError.textContent = data.error || 'Failed to parse file';
         return;
       }
-      allRows = data.rows.map(r => {
-        const base = {
-          title: r.title,
-          status: r.status,
-          origStatus: r.status,
-          chapter: r.chapter,
-          source_site: r.source_site,
-          url: '',
-          importState: 'pending',
-          errorMsg: '',
-          infoMsg: '',
-          seriesId: null
-        };
-        const saved = persisted[rowKey(base)];
-        return saved ? { ...base, ...saved } : base;
-      });
-      currentPage = 1;
-      const importedCount = allRows.filter(r => r.importState === 'imported').length;
-      uploadSummary.textContent = importedCount
-        ? `Loaded ${allRows.length} rows (${importedCount} already imported)`
-        : `Loaded ${allRows.length} rows`;
-      tableSection.style.display = '';
-      render();
+      saveCsvRows(data.rows);
+      loadRowsIntoTable(data.rows, '');
     } catch (e) {
       uploadSummary.textContent = '';
       uploadError.textContent = 'Network error while parsing file';
     }
   });
+
+  // Auto-restore the last uploaded CSV on load, so you don't need to
+  // re-pick the file every time you come back to work through more rows.
+  (function restoreLastCsv() {
+    const rawRows = loadCsvRows();
+    if (rawRows && rawRows.length) {
+      loadRowsIntoTable(rawRows, '(remembered from last upload — pick a new file to replace it)');
+    }
+  })();
 
   filterTitle.addEventListener('input', () => { currentPage = 1; render(); });
   filterStatus.addEventListener('change', () => { currentPage = 1; render(); });
