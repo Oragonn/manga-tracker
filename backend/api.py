@@ -716,6 +716,7 @@ def _add_worker():
             except Exception as e:
                 error_msg = str(e)
                 result = {'error': error_msg}
+                task_processed = True
                 try:
                     from .error_logger import log_error
                     title_guess = data.get('title') or "Unknown"

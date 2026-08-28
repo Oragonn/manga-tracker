@@ -1,11 +1,22 @@
 # backend/trackers/kagane.py - FIXED with season offset support
 
 import re
-from ..selenium_kagane import kagane_selenium
+from ..camoufox_kagane import kagane_browser
 
 def extract_series_id(url):
-    """Extract Kagane series ID from URL like https://kagane.to/series/019dda10-c2c5-7dc7-9128-387e20611e51"""
-    match = re.search(r'https://kagane\.(?:to|org)/series/([A-Za-z0-9-]+)', url)
+    """Extract Kagane series ID from a series URL, e.g.
+    https://kagane.to/series/019dda10-c2c5-7dc7-9128-387e20611e51
+    (optionally followed by /reader/... for a chapter-reader link to the
+    same series). The UUID must come immediately after /series/ -- Kagane
+    also has non-series links under that prefix, e.g. /series/similar/{id}
+    ("find similar series" cross-links, where {id} is a tracker_id, not a
+    series_id) -- those are intentionally rejected rather than misparsed.
+    """
+    match = re.search(
+        r'https://kagane\.(?:to|org)/series/'
+        r'([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})',
+        url
+    )
     return match.group(1) if match else None
 
 def _is_expected_special(title):
@@ -113,8 +124,8 @@ def get_series_info(series_id):
     if not series_id:
         raise ValueError("Invalid series ID")
 
-    # Fetch via Selenium (bypasses Cloudflare)
-    meta, books = kagane_selenium.get_series_info(series_id)
+    # Fetch via a stealth-hardened browser (clears Cloudflare's Turnstile challenge)
+    meta, books = kagane_browser.get_series_info(series_id)
 
     chapters = []
     books_sorted = sorted(books, key=lambda x: x.get('number_sort', 0))
@@ -175,7 +186,7 @@ def get_series_info(series_id):
     for season_num in sorted_seasons:
         info = season_info[season_num]
         offset = season_offsets.get(season_num, 0)
-        print(f"  Season {season_num}: Ch.{info['first_ch']}-{info['last_ch']} ({info['count']} chapters) → Offset: +{offset}")
+        print(f"  Season {season_num}: Ch.{info['first_ch']}-{info['last_ch']} ({info['count']} chapters) -> Offset: +{offset}")
     
     # Second pass: Create final chapter list with offsets
     last_real_chapter = 0.0
@@ -227,26 +238,26 @@ def get_series_info(series_id):
     raw_genres = meta.get('genres', [])
     clean_genres = [g for g in raw_genres if g not in ('Manhwa', 'Manhua', 'Manga')]
 
-    age_rating = meta.get('age_rating')
-    if age_rating == 19:
-        content_rating = 'explicit'
-    elif age_rating == 18:
-        content_rating = 'mature'
-    elif age_rating == 16:
-        content_rating = 'mild'
-    else:
-        content_rating = 'safe'
+    rating_map = {
+        'safe': 'safe',
+        'suggestive': 'mild',
+        'erotica': 'mature',
+        'pornographic': 'explicit',
+    }
+    content_rating = rating_map.get((meta.get('content_rating') or '').strip().lower(), 'safe')
 
     if 'Manhwa' in raw_genres:
         source_type = 'manhwa'
     elif 'Manhua' in raw_genres:
         source_type = 'manhua'
+    elif 'Manga' in raw_genres:
+        source_type = 'manga'
     else:
         source_type = 'other'
 
     return {
         'title': meta.get('name', 'Unknown Title'),
-        'cover_url': f"https://kagane.to/api/v2/series/{series_id}/thumbnail",
+        'cover_url': meta.get('cover_url'),
         'status': source_status,
         'chapters': chapters,
         'alt_titles': [t['title'] for t in meta.get('alternate_titles', []) if t.get('title')],

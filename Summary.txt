@@ -13,7 +13,7 @@ This file is meant to be handed to a fresh chat/assistant to resume work without
 ### **Tech Stack**
 - **Backend**: Python 3.9+, Flask, SQLite (WAL mode), APScheduler (background jobs)
 - **Frontend**: Vanilla JavaScript, custom CSS (no frameworks/build step)
-- **Special**: Selenium for Kagane (Cloudflare bypass)
+- **Special**: camoufox (stealth Firefox) for Kagane (Cloudflare Turnstile bypass)
 - **Integrations**: MangaDex API, Kagane scraper, Atsumaru (atsu.moe) API, AsuraScans (asurascans.com) API, AniList enrichment
 - **Browser extension**: `extension/` (background.js) — lightweight companion, not actively documented here
 
@@ -27,11 +27,12 @@ manga-tracker/
 │   ├── main.py                   # App entrypoint / extra routes (errors, logs, backups, stats)
 │   ├── error_logger.py           # 7-day rotating error logs
 │   ├── activity_logger.py        # 14-day activity log with undo
-│   ├── backup_manager.py         # Hourly database backups, gzip, retention
-│   ├── selenium_kagane.py        # Singleton Selenium client
+│   ├── backup_manager.py         # Hourly database backups (backups/database/), gzip, 7-day + 2GB-cap retention
+│   ├── series_backup_manager.py  # Daily Kenmei-shaped CSV series export (backups/series_csv/), 30-day retention
+│   ├── camoufox_kagane.py        # Singleton camoufox (stealth Firefox) client for Kagane
 │   └── trackers/
 │       ├── mangadex.py           # MangaDex API integration
-│       ├── kagane.py             # Kagane scraper (Selenium-based, season-aware)
+│       ├── kagane.py             # Kagane scraper (camoufox-based, season-aware)
 │       ├── atsu.py               # Atsumaru (atsu.moe) API integration — plain requests, no auth/browser needed
 │       ├── asura.py              # AsuraScans (asurascans.com) API integration — plain requests, premium chapters excluded
 │       └── anilist.py            # AniList enrichment (covers, titles, genres)
@@ -242,18 +243,47 @@ See `Bugs.txt` for the current list of known issues and unimplemented features.
 
 ---
 
-## ⚠️ **Kagane Cloudflare status (Aug 2026)**
+## ⚠️ **Kagane Cloudflare status (Aug 2026, resolved)**
 kagane.to escalated its bot protection to an interactive Cloudflare Turnstile
-checkbox ("verify you are human") on its API endpoints, not just the old
-passive JS delay check. This blocks the Selenium client's automated fetches
-(confirmed in `logs/error_2026-08-25.log`: "Stuck on Cloudflare challenge
-page after 25s"). A nodriver-based rewrite was tried (per
-`.chief/prds/main/prd.md`) and hit the identical wall — same Cloudflare
-challenge regardless of automation library — so the migration was reverted
-back to Selenium. The app does not attempt to auto-solve the checkbox (that
-would be automating a CAPTCHA); until Cloudflare's risk scoring for this
-traffic relaxes, expect Kagane fetches for affected series to keep failing
-and logging this error rather than succeeding.
+checkbox in mid-2026. A `nodriver`-based rewrite (default settings) hit the
+identical wall Selenium did and was reverted (see PRD at
+`.chief/prds/main/prd.md`, US-003). On 2026-08-28, `camoufox` (a
+stealth-hardened, patched Firefox build — one of US-003's suggested
+stronger free techniques) was tried and reliably clears the Turnstile
+challenge on real page navigation, verified across many repeated live
+requests. The app still does not attempt to auto-solve any CAPTCHA — this
+works because camoufox's fingerprint scores as low-risk enough that
+Cloudflare resolves the challenge without ever presenting an interactive
+checkbox, not because anything is being solved.
+
+Separately, while re-verifying the fetch, kagane.to's API itself turned out
+to have changed since `selenium_kagane.py` was written: `/api/v2/books/{id}`
+(used for the chapter list) no longer exists / is far more strictly gated
+than `/api/v2/series/{id}`. The current site embeds the full chapter list
+(`series_books`) directly in the `/api/v2/series/{id}` response instead, so
+the new client only needs one HTTP call instead of two.
+
+**Current implementation:** `backend/camoufox_kagane.py` (`KaganeBrowserClient`,
+singleton `kagane_browser`) replaces `backend/selenium_kagane.py` (deleted).
+It runs camoufox in a dedicated background thread with its own asyncio event
+loop (camoufox/Playwright are async-only; the rest of the app is sync), and
+exposes the same synchronous `get_series_info(series_id) -> (meta, books)`
+interface the old client did, with the same rate-limiting (0.9s min delay)
+and auto-recovery-on-failure (browser reinit) behavior. Its `_transform()`
+method adapts the new API's field names to the shape
+`backend/trackers/kagane.py`'s existing season-aware chapter-parsing logic
+expects, so that parsing logic itself was **not** touched. Two small,
+necessary adaptations were made in `kagane.py` alongside the client swap:
+content rating now maps from a string (`safe`/`suggestive`/`erotica`/
+`pornographic`, MangaDex-style) instead of a numeric `age_rating` that no
+longer exists in the API response, and the source-type detection now also
+checks for `'Manga'` in the genre list (previously it silently fell through
+to `'other'` for pure manga — a pre-existing bug, fixed as part of the same
+edit since it was the same code block).
+
+`requirements.txt`: `selenium==4.39.0` removed, `camoufox[geoip]==0.5.5`
+added (pulls in `playwright` as its own transitive dependency — not listed
+separately). No paid Turnstile-solving service was needed or added.
 
 ## 📝 **Notes for a fresh chat**
 - The database (`data/tracker.db`) may be wiped/reset between sessions — always sanity check row counts before assuming data exists (`SELECT COUNT(*) FROM series`).
