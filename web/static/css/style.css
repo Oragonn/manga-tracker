@@ -1346,6 +1346,10 @@ html {
   margin-bottom: 6px;
 }
 
+.settings-chapter-col .form-group label {
+  margin-bottom: 4px;
+}
+
 .settings-manual-hint {
   margin-top: 4px;
   text-align: center;
