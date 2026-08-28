@@ -1,4 +1,20 @@
 let currentBackupFilename = null;
+let currentBackupTab = 'database';
+
+function switchBackupTab(tab) {
+  currentBackupTab = tab;
+  document.querySelectorAll('.backup-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  document.getElementById('tab-database')?.classList.toggle('hidden', tab !== 'database');
+  document.getElementById('tab-series-csv')?.classList.toggle('hidden', tab !== 'series-csv');
+
+  if (tab === 'series-csv') {
+    loadSeriesBackups();
+  } else {
+    loadBackups();
+  }
+}
 
 // Format date to DD/MM/YYYY HH:MM
 function formatFullDate(dateObj) {
@@ -23,12 +39,12 @@ async function loadBackups() {
     
     // Update status
     document.getElementById('total-backups').textContent = data.count;
-    // CHANGED: Show X MB / 35 MB format
-    document.getElementById('disk-usage').textContent = 
-      `${data.total_size_mb.toFixed(1)} MB / 35 MB`;
-    
-    // Calculate usage percentage (assuming 35 MB target for 7 days)
-    const usagePercent = Math.min((data.total_size_mb / 35) * 100, 100);
+    const dbTargetMB = 2048; // 2 GB gauge, not a hard limit
+    document.getElementById('disk-usage').textContent =
+      `${data.total_size_mb.toFixed(1)} MB / 2 GB`;
+
+    // Calculate usage percentage against the gauge target
+    const usagePercent = Math.min((data.total_size_mb / dbTargetMB) * 100, 100);
     document.getElementById('usage-fill').style.width = `${usagePercent}%`;
     
     // Calculate last backup time
@@ -187,6 +203,141 @@ function downloadBackup(filename) {
   window.location.href = `/api/backups/download/${filename}`;
 }
 
+async function loadSeriesBackups() {
+  try {
+    const res = await fetch('/api/backups/series-csv');
+    const data = await res.json();
+
+    if (data.error) {
+      document.getElementById('series-backup-list').innerHTML =
+        `<p style="color: #ef4444;">Error: ${data.error}</p>`;
+      return;
+    }
+
+    document.getElementById('csv-total-backups').textContent = data.count;
+    document.getElementById('csv-disk-usage').textContent =
+      `${(data.total_size_mb * 1024).toFixed(1)} KB / 10 MB`;
+
+    const csvTargetMB = 10; // 10 MB gauge, not a hard limit
+    const csvUsagePercent = Math.min((data.total_size_mb / csvTargetMB) * 100, 100);
+    document.getElementById('csv-usage-fill').style.width = `${csvUsagePercent}%`;
+
+    if (data.backups.length > 0) {
+      const ageHours = data.backups[0].age_hours;
+      let lastBackupText;
+      if (ageHours < 1) {
+        lastBackupText = `${Math.floor(ageHours * 60)} min ago`;
+      } else if (ageHours < 24) {
+        lastBackupText = `${Math.floor(ageHours)} hours ago`;
+      } else {
+        lastBackupText = `${Math.floor(ageHours / 24)} days ago`;
+      }
+      document.getElementById('csv-last-backup').textContent = lastBackupText;
+
+      // Calculate next backup (daily)
+      const csvIntervalHours = 24;
+      const nextInHours = csvIntervalHours - (ageHours % csvIntervalHours);
+      let nextBackupText;
+      if (nextInHours < 1) {
+        nextBackupText = `${Math.floor(nextInHours * 60)} min`;
+      } else {
+        nextBackupText = `${Math.floor(nextInHours)}h ${Math.floor((nextInHours % 1) * 60)}m`;
+      }
+      document.getElementById('csv-next-backup').textContent = nextBackupText;
+    } else {
+      document.getElementById('csv-last-backup').textContent = '—';
+      document.getElementById('csv-next-backup').textContent = '—';
+    }
+
+    const grouped = groupByDate(data.backups);
+
+    let html = '';
+    for (const [dateLabel, backups] of Object.entries(grouped)) {
+      html += `
+        <div class="date-group">
+          <div class="date-group-header">📅 ${dateLabel}</div>
+      `;
+      html += `<div class="date-group-content">`;
+
+      for (const backup of backups) {
+        const ageText = backup.age_hours < 1
+          ? `${Math.floor(backup.age_hours * 60)} min ago`
+          : backup.age_hours < 24
+            ? `${Math.floor(backup.age_hours)} hours ago`
+            : `${Math.floor(backup.age_hours / 24)} days ago`;
+
+        const backupDate = new Date(backup.created);
+        const fullDate = formatFullDate(backupDate);
+
+        html += `
+          <div class="backup-entry">
+            <div class="backup-info">
+              <div class="backup-filename">${backup.filename}</div>
+              <div class="backup-meta">
+                Size: ${(backup.size_mb * 1024).toFixed(1)} KB  •
+                <span class="backup-time" data-full-date="${fullDate}">${ageText}</span>
+              </div>
+            </div>
+            <div class="backup-entry-actions">
+              <button class="btn-backup" onclick="downloadSeriesBackup('${backup.filename}')">
+                ⬇️ Download
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      html += `</div></div>`;
+    }
+
+    document.getElementById('series-backup-list').innerHTML = html ||
+      '<p style="color: #94a3b8;">No backups found.</p>';
+
+  } catch (err) {
+    console.error('Failed to load series backups:', err);
+    document.getElementById('series-backup-list').innerHTML =
+      '<p style="color: #ef4444;">Error loading backups.</p>';
+  }
+}
+
+async function createSeriesBackupNow() {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '⏳ Creating...';
+
+  try {
+    const res = await fetch('/api/backups/series-csv/create', { method: 'POST' });
+    const data = await res.json();
+
+    if (data.success) {
+      showNotification('Series backup created successfully', 'backup');
+      btn.textContent = '✅ Created!';
+      setTimeout(() => {
+        btn.textContent = '➕ Create Backup Now';
+        btn.disabled = false;
+        loadSeriesBackups();
+      }, 1500);
+    } else {
+      btn.textContent = '❌ Failed';
+      setTimeout(() => {
+        btn.textContent = '➕ Create Backup Now';
+        btn.disabled = false;
+      }, 1500);
+    }
+  } catch (err) {
+    console.error('Series backup creation failed:', err);
+    btn.textContent = '❌ Error';
+    setTimeout(() => {
+      btn.textContent = '➕ Create Backup Now';
+      btn.disabled = false;
+    }, 1500);
+  }
+}
+
+function downloadSeriesBackup(filename) {
+  window.location.href = `/api/backups/series-csv/download/${filename}`;
+}
+
 function showRestoreModal(filename, ageText, sizeMB) {
   currentBackupFilename = filename;
   
@@ -239,8 +390,14 @@ document.addEventListener('DOMContentLoaded', () => {
   initNotifications();
   loadBackups();
   
-  // Auto-refresh every 60 seconds
-  setInterval(loadBackups, 60000);
+  // Auto-refresh every 60 seconds (whichever tab is active)
+  setInterval(() => {
+    if (currentBackupTab === 'series-csv') {
+      loadSeriesBackups();
+    } else {
+      loadBackups();
+    }
+  }, 60000);
 });
 
 // Mobile collapsible date groups

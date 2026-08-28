@@ -195,6 +195,40 @@
       gap: 8px;
     }
 
+    .backup-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .backup-tab {
+      flex: 1;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #141b2f;
+      color: #94a3b8;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+
+    .backup-tab:hover {
+      background: #1a2436;
+      color: #cbd5e1;
+    }
+
+    .backup-tab.active {
+      background: #1665f4;
+      border-color: #1665f4;
+      color: white;
+    }
+
+    .backup-tab-panel.hidden {
+      display: none;
+    }
+
     .mobile-menu-overlay,
     .mobile-menu {
       display: none;
@@ -533,48 +567,98 @@
 </div>
 
 <div class="backups-container">
-  <h1 style="color: white; margin-bottom: 24px;" class="backups-container-name">📦 Database Backups</h1>
-  
-  <!-- Status Card -->
-  <div class="backup-status-card">
-    <div class="status-grid">
-      <div class="stat-item">
-        <div class="stat-label">Next Backup</div>
-        <div class="stat-value" id="next-backup">Loading...</div>
+  <h1 style="color: white; margin-bottom: 24px;" class="backups-container-name">📦 Backups</h1>
+
+  <div class="backup-tabs" role="tablist">
+    <button type="button" class="backup-tab active" data-tab="database" onclick="switchBackupTab('database')">🗄️ Database</button>
+    <button type="button" class="backup-tab" data-tab="series-csv" onclick="switchBackupTab('series-csv')">📄 Series List (CSV)</button>
+  </div>
+
+  <!-- Database backups tab -->
+  <div id="tab-database" class="backup-tab-panel">
+    <div class="backup-status-card">
+      <div class="status-grid">
+        <div class="stat-item">
+          <div class="stat-label">Next Backup</div>
+          <div class="stat-value" id="next-backup">Loading...</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Last Backup</div>
+          <div class="stat-value" id="last-backup">Loading...</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Total Backups</div>
+          <div class="stat-value" id="total-backups">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Disk Usage</div>
+          <div class="stat-value" id="disk-usage">0 MB</div>
+        </div>
       </div>
-      <div class="stat-item">
-        <div class="stat-label">Last Backup</div>
-        <div class="stat-value" id="last-backup">Loading...</div>
+
+      <div class="usage-bar">
+        <div class="usage-fill" id="usage-fill" style="width: 0%"></div>
       </div>
-      <div class="stat-item">
-        <div class="stat-label">Total Backups</div>
-        <div class="stat-value" id="total-backups">0</div>
-      </div>
-      <div class="stat-item">
-        <div class="stat-label">Disk Usage</div>
-        <div class="stat-value" id="disk-usage">0 MB</div>
+
+      <div class="backup-actions">
+        <button class="btn-backup" onclick="refreshStatus()">
+          ↻ Refresh
+        </button>
+        <button class="btn-backup primary" onclick="createBackupNow()">
+          ➕ Create Backup Now
+        </button>
       </div>
     </div>
-    
-    <div class="usage-bar">
-      <div class="usage-fill" id="usage-fill" style="width: 0%"></div>
-    </div>
-    
-    <div class="backup-actions">
-      <button class="btn-backup" onclick="refreshStatus()">
-        ↻ Refresh Status
-      </button>
-      <button class="btn-backup primary" onclick="createBackupNow()">
-        ➕ Create Backup Now
-      </button>
+
+    <div class="backup-list-card">
+      <h2 style="color: white; margin-bottom: 16px;">🗂️ Available Backups</h2>
+      <div id="backup-list">
+        <p style="color: #94a3b8;">Loading backups...</p>
+      </div>
     </div>
   </div>
-  
-  <!-- Backup List -->
-  <div class="backup-list-card">
-    <h2 style="color: white; margin-bottom: 16px;">🗂️ Available Backups</h2>
-    <div id="backup-list">
-      <p style="color: #94a3b8;">Loading backups...</p>
+
+  <!-- Series CSV backups tab -->
+  <div id="tab-series-csv" class="backup-tab-panel hidden">
+    <div class="backup-status-card">
+      <div class="status-grid">
+        <div class="stat-item">
+          <div class="stat-label">Next Backup</div>
+          <div class="stat-value" id="csv-next-backup">Loading...</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Last Backup</div>
+          <div class="stat-value" id="csv-last-backup">Loading...</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Total Backups</div>
+          <div class="stat-value" id="csv-total-backups">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Disk Usage</div>
+          <div class="stat-value" id="csv-disk-usage">0 KB</div>
+        </div>
+      </div>
+
+      <div class="usage-bar">
+        <div class="usage-fill" id="csv-usage-fill" style="width: 0%"></div>
+      </div>
+
+      <div class="backup-actions">
+        <button class="btn-backup" onclick="loadSeriesBackups()">
+          ↻ Refresh
+        </button>
+        <button class="btn-backup primary" onclick="createSeriesBackupNow()">
+          ➕ Create Backup Now
+        </button>
+      </div>
+    </div>
+
+    <div class="backup-list-card">
+      <h2 style="color: white; margin-bottom: 16px;">🗂️ Available Backups</h2>
+      <div id="series-backup-list">
+        <p style="color: #94a3b8;">Loading backups...</p>
+      </div>
     </div>
   </div>
 </div>
@@ -696,29 +780,37 @@
           // Back to top behavior
           window.scrollTo({ top: 0, behavior: 'smooth' });
         } else {
-          // Refresh backups at top
-          loadBackups();
+          // Refresh backups at top (whichever tab is active)
+          if (typeof currentBackupTab !== 'undefined' && currentBackupTab === 'series-csv') {
+            loadSeriesBackups();
+          } else {
+            loadBackups();
+          }
         }
       });
     }
-    
-    // Primary FAB: Create backup
+
+    // Primary FAB: Create backup (whichever tab is active)
     if (fabPrimary) {
       fabPrimary.addEventListener('click', async () => {
         if (fabPrimary.disabled || fabPrimary.classList.contains('refreshing')) return;
-        
+
+        const isCsvTab = typeof currentBackupTab !== 'undefined' && currentBackupTab === 'series-csv';
+        const createUrl = isCsvTab ? '/api/backups/series-csv/create' : '/api/backups/create';
+        const reload = isCsvTab ? loadSeriesBackups : loadBackups;
+
         fabPrimary.disabled = true;
         fabPrimary.classList.add('refreshing');
-        
+
         try {
-          const res = await fetch('/api/backups/create', { method: 'POST' });
+          const res = await fetch(createUrl, { method: 'POST' });
           const data = await res.json();
-          
+
           if (data.success) {
             // ADDED: Show notification with filename
             const filename = data.filename || data.backup_filename || 'backup';
             showNotification(`Backup created successfully: ${filename}`, 'backup');
-            
+
             // Show checkmark briefly
             const originalHTML = fabPrimary.innerHTML;
             fabPrimary.innerHTML = `
@@ -726,12 +818,12 @@
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
               </svg>
             `;
-            
+
             setTimeout(() => {
               fabPrimary.innerHTML = originalHTML;
               fabPrimary.classList.remove('refreshing');
               fabPrimary.disabled = false;
-              loadBackups();
+              reload();
             }, 1500);
           } else {
             throw new Error('Backup failed');

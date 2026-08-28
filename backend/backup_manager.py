@@ -7,34 +7,38 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 class BackupManager:
-    def __init__(self, db_path="data/tracker.db", backup_dir="backups", 
-                 backup_interval_hours=1, retention_days=7):
+    def __init__(self, db_path="data/tracker.db", backup_dir="backups",
+                 backup_interval_hours=1, retention_days=7, max_size_mb=2048):
         """
         Initialize backup manager.
-        
+
         Args:
             db_path: Path to SQLite database file
             backup_dir: Directory to store backups
             backup_interval_hours: Hours between backups (default: 1)
             retention_days: Days to keep backups (default: 7)
+            max_size_mb: Total size cap in MB; oldest backups are deleted
+                         first once this is exceeded (default: 2048 / 2 GB)
         """
         self.db_path = db_path
         self.backup_dir = backup_dir
         self.backup_interval = backup_interval_hours * 3600  # Convert to seconds
         self.retention_seconds = retention_days * 86400
-        
+        self.max_size_bytes = max_size_mb * 1024 * 1024
+
         self.active = True
         self.backup_thread = None
         self.cleanup_thread = None
-        
+
         # Ensure backup directory exists
         os.makedirs(self.backup_dir, exist_ok=True)
-        
+
         print(f"[Backup Manager] Initialized:")
         print(f"  - Database: {self.db_path}")
         print(f"  - Backup dir: {self.backup_dir}")
         print(f"  - Interval: {backup_interval_hours}h")
         print(f"  - Retention: {retention_days}d")
+        print(f"  - Size cap: {max_size_mb} MB")
     
     def _get_backup_filename(self):
         """Generate timestamped backup filename."""
@@ -75,7 +79,9 @@ class BackupManager:
             # Get file size for logging
             size_mb = os.path.getsize(backup_path) / (1024 * 1024)
             print(f"[Backup] Created: {backup_filename} ({size_mb:.2f} MB)")
-            
+
+            self.enforce_size_limit()
+
             return True
             
         except Exception as e:
@@ -123,7 +129,44 @@ class BackupManager:
             
         except Exception as e:
             print(f"[Backup] Cleanup failed: {e}")
-    
+
+    def enforce_size_limit(self):
+        """Delete the oldest backups (regular + safety) until total size is
+        back under max_size_bytes. Always keeps at least one backup."""
+        try:
+            entries = []
+            for filename in os.listdir(self.backup_dir):
+                if not (filename.startswith("tracker_backup_") or filename.startswith("safety_before_restore_")):
+                    continue
+                if not filename.endswith(".db.gz"):
+                    continue
+
+                filepath = os.path.join(self.backup_dir, filename)
+                entries.append((os.path.getmtime(filepath), filename, filepath, os.path.getsize(filepath)))
+
+            # Oldest first
+            entries.sort(key=lambda e: e[0])
+            total_size = sum(e[3] for e in entries)
+
+            deleted_count = 0
+            freed_space = 0
+            i = 0
+            while total_size > self.max_size_bytes and (len(entries) - i) > 1:
+                _, filename, filepath, size = entries[i]
+                os.remove(filepath)
+                total_size -= size
+                freed_space += size
+                deleted_count += 1
+                i += 1
+                print(f"[Backup] Deleted oldest backup to stay under size cap: {filename}")
+
+            if deleted_count > 0:
+                freed_mb = freed_space / (1024 * 1024)
+                print(f"[Backup] Size cap cleanup: Removed {deleted_count} backups, freed {freed_mb:.2f} MB")
+
+        except Exception as e:
+            print(f"[Backup] Size cap cleanup failed: {e}")
+
     def get_backup_stats(self):
         """Get statistics about current backups."""
         try:
@@ -206,6 +249,9 @@ class BackupManager:
             
             print(f"[Backup] Successfully restored from: {backup_filename}")
             print(f"[Backup] Safety backup available at: backups/{safety_filename}")
+
+            self.enforce_size_limit()
+
             return True
             
         except Exception as e:
@@ -245,6 +291,7 @@ class BackupManager:
                 time.sleep(21600)
                 if self.active:
                     self.cleanup_old_backups()
+                    self.enforce_size_limit()
             except Exception as e:
                 print(f"[Backup] Cleanup loop error: {e}")
                 time.sleep(3600)

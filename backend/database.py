@@ -200,6 +200,35 @@ def get_series_sources(series_id):
     return sources
 
 
+def get_all_series_for_backup():
+    """Get all series with their primary source, shaped for the Kenmei-style CSV backup."""
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT s.title, s.status, s.current_chapter, src.source_type, src.source_url
+        FROM series s
+        LEFT JOIN series_sources src
+            ON src.series_id = s.id AND src.is_primary = 1
+        ORDER BY s.title COLLATE NOCASE
+    """)
+
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    series = []
+    for row in rows:
+        series.append({
+            'title': row[0],
+            'status': row[1],
+            'current_chapter': row[2],
+            'source_type': row[3],
+            'source_url': row[4]
+        })
+
+    return series
+
+
 def set_primary_source(series_id, source_id):
     """Set a source as primary for a series."""
     conn = get_db()

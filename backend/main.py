@@ -521,6 +521,53 @@ def backups_page():
     """Render backups management page."""
     return render_template('backups.html')
 
+# --- Series CSV backups (Kenmei-import-shaped snapshot of the series list) ---
+
+def _is_safe_series_backup_filename(filename):
+    return bool(re.fullmatch(r'series_backup_\d{8}_\d{6}\.csv', filename))
+
+@app.route('/api/backups/series-csv')
+def api_list_series_backups():
+    try:
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            stats = api.manga_scheduler.series_backup_manager.get_backup_stats()
+            return jsonify(stats)
+        return jsonify({'error': 'Backup manager not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/backups/series-csv/create', methods=['POST'])
+def api_create_series_backup():
+    try:
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            success = api.manga_scheduler.series_backup_manager.create_backup()
+            if success:
+                return jsonify({'success': True})
+            return jsonify({'error': 'Backup failed'}), 500
+        return jsonify({'error': 'Backup manager not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/backups/series-csv/download/<filename>')
+def api_download_series_backup(filename):
+    try:
+        if not _is_safe_series_backup_filename(filename):
+            return jsonify({'error': 'Invalid filename'}), 400
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            backup_path = os.path.join(
+                api.manga_scheduler.series_backup_manager.backup_dir,
+                filename
+            )
+            if os.path.exists(backup_path):
+                return send_file(backup_path, as_attachment=True)
+            return jsonify({'error': 'Backup not found'}), 404
+        return jsonify({'error': 'Backup manager not available'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/series/<int:series_id>/sources')
 def api_get_sources(series_id):
     """Get all sources for a series."""

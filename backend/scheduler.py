@@ -9,23 +9,31 @@ from .trackers.kagane import extract_series_id, get_series_info
 from .trackers import atsu as atsu_tracker
 from .trackers import asura as asura_tracker
 from .backup_manager import BackupManager
+from .series_backup_manager import SeriesBackupManager
 
 class MangaScheduler:
     def __init__(self):
         self.active = True
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.cleanup_thread = threading.Thread(target=self._cleanup_logs, daemon=True)
-        
+
         # ✅ FIX: Use absolute paths
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         db_path = os.path.join(project_root, "data", "tracker.db")
-        backup_dir = os.path.join(project_root, "backups")
-        
+        backups_root = os.path.join(project_root, "backups")
+
         self.backup_manager = BackupManager(
             db_path=db_path,
-            backup_dir=backup_dir,
+            backup_dir=os.path.join(backups_root, "database"),
             backup_interval_hours=1,  # Backup every hour
-            retention_days=7          # Keep for 7 days
+            retention_days=7,         # Keep for 7 days
+            max_size_mb=2048          # ...but never let total size pass 2 GB either
+        )
+
+        self.series_backup_manager = SeriesBackupManager(
+            backup_dir=os.path.join(backups_root, "series_csv"),
+            backup_interval_hours=24,  # Kenmei-style CSV snapshot once a day
+            retention_days=30
         )
 
     def _cleanup_logs(self):
@@ -277,8 +285,9 @@ class MangaScheduler:
 
     def start_scanning(self):
         self.thread.start()
-        self.cleanup_thread.start() 
+        self.cleanup_thread.start()
         self.backup_manager.start()
+        self.series_backup_manager.start()
 
     def stop(self):
         self.active = False
