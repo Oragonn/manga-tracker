@@ -1388,8 +1388,8 @@ def save_completed_period_stats():
         if 'day' not in last_saved or last_saved['day'] < yesterday_str:
             # Count series added yesterday
             cursor.execute("""
-                SELECT COUNT(*) FROM series 
-                WHERE created_at >= ? AND created_at <= ?
+                SELECT COUNT(*) FROM series
+                WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
             """, (yesterday.isoformat(), yesterday_end.isoformat()))
             series_added = cursor.fetchone()[0] or 0
             
@@ -1429,8 +1429,8 @@ def save_completed_period_stats():
             
             if 'week' not in last_saved or last_saved['week'] < week_str:
                 cursor.execute("""
-                    SELECT COUNT(*) FROM series 
-                    WHERE created_at >= ? AND created_at <= ?
+                    SELECT COUNT(*) FROM series
+                    WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
                 """, (last_week_start.isoformat(), last_week_end.isoformat()))
                 series_added = cursor.fetchone()[0] or 0
                 
@@ -1468,8 +1468,8 @@ def save_completed_period_stats():
             
             if 'month' not in last_saved or last_saved['month'] < month_str:
                 cursor.execute("""
-                    SELECT COUNT(*) FROM series 
-                    WHERE created_at >= ? AND created_at <= ?
+                    SELECT COUNT(*) FROM series
+                    WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
                 """, (last_month_start.isoformat(), last_month_end.isoformat()))
                 series_added = cursor.fetchone()[0] or 0
                 
@@ -1507,8 +1507,8 @@ def save_completed_period_stats():
             
             if 'year' not in last_saved or last_saved['year'] < year_str:
                 cursor.execute("""
-                    SELECT COUNT(*) FROM series 
-                    WHERE created_at >= ? AND created_at <= ?
+                    SELECT COUNT(*) FROM series
+                    WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
                 """, (last_year_start.isoformat(), last_year_end.isoformat()))
                 series_added = cursor.fetchone()[0] or 0
                 

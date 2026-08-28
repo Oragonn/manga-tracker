@@ -1055,8 +1055,8 @@ def update_current_period_stats():
         week_str = week_start.date().isoformat()
         
         cursor.execute("""
-            SELECT COUNT(*) FROM series 
-            WHERE created_at >= ? AND created_at <= ?
+            SELECT COUNT(*) FROM series
+            WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
         """, (week_start.isoformat(), now.isoformat()))
         series_added_week = cursor.fetchone()[0] or 0
         
@@ -1101,8 +1101,8 @@ def update_current_period_stats():
         month_str = month_start.date().isoformat()
         
         cursor.execute("""
-            SELECT COUNT(*) FROM series 
-            WHERE created_at >= ? AND created_at <= ?
+            SELECT COUNT(*) FROM series
+            WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
         """, (month_start.isoformat(), now.isoformat()))
         series_added_month = cursor.fetchone()[0] or 0
         
@@ -1147,8 +1147,8 @@ def update_current_period_stats():
         year_str = year_start.date().isoformat()
         
         cursor.execute("""
-            SELECT COUNT(*) FROM series 
-            WHERE created_at >= ? AND created_at <= ?
+            SELECT COUNT(*) FROM series
+            WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
         """, (year_start.isoformat(), now.isoformat()))
         series_added_year = cursor.fetchone()[0] or 0
         
@@ -1210,8 +1210,15 @@ def adjust_stats_for_deletion(created_at_str):
     
     conn = None
     try:
-        # Parse created_at to determine which period to adjust
+        # Parse created_at to determine which period to adjust. Series added
+        # via add_series() get created_at from SQLite's DEFAULT
+        # CURRENT_TIMESTAMP, which is UTC but stored with no timezone marker
+        # (e.g. "2026-08-28 15:30:00", not ISO 8601) -- fromisoformat() on
+        # that produces a naive datetime, which can't be compared against
+        # the timezone-aware "now" below without attaching UTC explicitly.
         created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
         
         conn = get_db()
