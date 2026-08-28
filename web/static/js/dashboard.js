@@ -1771,6 +1771,65 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
+// ─── Series Settings modal: click-to-edit title ──────────────
+	function enterTitleEditMode() {
+		const heading = document.getElementById('edit-series-title-heading');
+		const input = document.getElementById('edit-series-title-input');
+		input.value = heading.textContent;
+		heading.classList.add('hidden');
+		document.getElementById('btn-edit-title').classList.add('hidden');
+		input.classList.remove('hidden');
+		input.focus();
+		input.select();
+	}
+
+	function exitTitleEditMode() {
+		document.getElementById('edit-series-title-input').classList.add('hidden');
+		document.getElementById('edit-series-title-heading').classList.remove('hidden');
+		document.getElementById('btn-edit-title').classList.remove('hidden');
+	}
+
+	async function commitTitleEdit() {
+		const input = document.getElementById('edit-series-title-input');
+		if (input.classList.contains('hidden')) return; // already committed/cancelled
+		const newTitle = input.value.trim();
+		const oldTitle = originalSeriesValues?.title || '';
+		exitTitleEditMode();
+		if (!newTitle || newTitle === oldTitle || !currentSeriesIdForEdit) return;
+
+		try {
+			const res = await fetch(`/api/series/${currentSeriesIdForEdit}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ title: newTitle })
+			});
+			if (res.ok) {
+				document.getElementById('edit-series-title-heading').textContent = newTitle;
+				if (originalSeriesValues) originalSeriesValues.title = newTitle;
+				loadPage();
+			} else {
+				showNotification('Failed to rename series', 'error');
+			}
+		} catch (e) {
+			showNotification('Failed to rename series', 'error');
+		}
+	}
+
+	document.getElementById('edit-series-title-heading')?.addEventListener('click', enterTitleEditMode);
+	document.getElementById('btn-edit-title')?.addEventListener('click', enterTitleEditMode);
+
+	document.getElementById('edit-series-title-input')?.addEventListener('click', (e) => e.stopPropagation());
+	document.getElementById('edit-series-title-input')?.addEventListener('blur', commitTitleEdit);
+	document.getElementById('edit-series-title-input')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			commitTitleEdit();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			exitTitleEditMode();
+		}
+	});
+
 // ─── Series Settings modal: Save button commits the chapter select ──
 	document.getElementById('edit-current-chapter')?.addEventListener('change', updateSaveChapterButtonState);
 
