@@ -1782,7 +1782,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		heading.classList.add('hidden');
 		input.classList.remove('hidden');
 		input.focus();
-		input.select();
 	}
 
 	function exitTitleEditMode() {
