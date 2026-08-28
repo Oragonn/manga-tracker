@@ -1357,6 +1357,19 @@ html {
   color: #64748b;
 }
 
+.settings-save-btn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 16px;
+  background: rgb(2, 60, 191);
+  border-color: rgb(2, 60, 191);
+}
+
+.settings-save-btn:hover {
+  background: rgb(2, 48, 153);
+  border-color: rgb(2, 48, 153);
+}
+
 .section-header {
   display: flex;
   align-items: center;

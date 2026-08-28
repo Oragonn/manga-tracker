@@ -1759,11 +1759,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-// ─── Series Settings modal: chapter select auto-saves on change ──
-	document.getElementById('edit-current-chapter')?.addEventListener('change', async (e) => {
+// ─── Series Settings modal: Save button commits the chapter select ──
+	document.getElementById('btn-save-chapter')?.addEventListener('click', async () => {
 		if (!currentSeriesIdForEdit) return;
-		const newChapter = parseFloat(e.target.value);
+		const select = document.getElementById('edit-current-chapter');
+		const newChapter = parseFloat(select.value);
 		const oldChapter = originalSeriesValues?.current_chapter ?? null;
+		if (newChapter === oldChapter) return;
 		await saveChapter(currentSeriesIdForEdit, newChapter, oldChapter);
 		if (originalSeriesValues) originalSeriesValues.current_chapter = newChapter;
 		loadPage();
