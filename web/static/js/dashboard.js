@@ -1114,10 +1114,16 @@ async function createAndApplyCustomTag(name) {
 }
 
 // ─── Skeleton Card Creation ──────────────────────────────────────
+// Mobile cards hide .card-info entirely (title is overlaid on the cover
+// instead, see renderSeriesCard) -- skip that content block here too, or
+// the skeleton shows a block of lines the real card never has on mobile,
+// and the whole area collapses away the instant real data loads in.
 function createSkeletonCard() {
 	const skeleton = document.createElement('div');
 	skeleton.className = 'skeleton-card';
-	skeleton.innerHTML = `
+	skeleton.innerHTML = isMobileDevice() ? `
+		<div class="skeleton-cover"></div>
+	` : `
 		<div class="skeleton-cover"></div>
 		<div class="skeleton-content">
 			<div class="skeleton-line title"></div>
@@ -1879,6 +1885,15 @@ async function loadPage() {
 	for (let i = 0; i < skeletonCount; i++) {
 		seriesGrid.appendChild(createSkeletonCard());
 	}
+
+	// #pagination only reserves visible space (padding) once
+	// renderPagination() knows there's more than one page -- hide it
+	// proactively while its total-pages count is still unknown, instead
+	// of leaving whatever visibility it was left at from the previous
+	// load, so skeletons don't get an extra gap above them that the
+	// eventual loaded cards (single page) won't have.
+	const paginationTop = document.getElementById('pagination');
+	if (paginationTop) paginationTop.style.display = 'none';
 	
 	// Scroll to top smoothly on pagination
 	if (state.page !== state.lastPage && state.lastPage !== undefined) {
@@ -1923,7 +1938,7 @@ async function loadPage() {
 		const res = await fetch(url);
 		if (!res.ok) throw new Error('Failed to load series');
 		const data = await res.json();
-		
+
 		// Store all series for reference
 		state.allSeries = data.items;
 		state.hasLoadedOnce = true;

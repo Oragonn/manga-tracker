@@ -3186,7 +3186,13 @@ html {
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
     padding: 12px;
-    padding-top: 0px !important;
+    /* A fixed, always-on gap rather than 0 -- #pagination sits between
+       the control panel and this grid and only reserves visible space
+       (padding) when there's more than one page of results, so relying
+       on it for spacing meant skeleton cards (pagination not yet hidden)
+       and loaded single-page results (pagination hidden) ended up with
+       two different, inconsistent gaps above the first row. */
+    padding-top: 12px !important;
     padding-bottom: 0px !important;
     margin-top: 0px !important;
     margin-bottom: 0px !important;
@@ -3300,6 +3306,17 @@ html {
   /* Hide all buttons on mobile cards */
   .button-group.single-group,
   .card-buttons-bottom {
+    display: none;
+  }
+
+  /* ================================
+     SKELETON CARD - MOBILE
+     Mirrors .card-info being hidden on mobile (createSkeletonCard()
+     switches to just the cover, no title placeholder, on mobile) --
+     without it the skeleton showed a block of content lines the real
+     card never has here, collapsing away the instant data loads in.
+     ================================ */
+  .skeleton-content {
     display: none;
   }
 
