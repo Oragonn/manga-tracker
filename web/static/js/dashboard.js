@@ -1,4 +1,13 @@
 // web/static/js/dashboard.js
+
+// Chapter/source URLs come from tracked external sources (MangaDex, Kagane,
+// etc.), not from the user -- only allow plain http(s) links through to
+// window.open()/href before opening/rendering them, so a malicious tracked
+// source can't hand back a javascript: URI or similar.
+function isSafeUrl(url) {
+	return typeof url === 'string' && /^https?:\/\//i.test(url);
+}
+
 let loadGenres;
 let loadCustomTagsFilterSection;
 let loadMobileCustomTagsFilterSection;
@@ -595,7 +604,7 @@ function renderSources(sources) {
 		const isPrimary = source.id === pendingSourceChanges.primarySourceId;
 
     return `
-      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" data-source-type="${source.source_type}" draggable="true">
+      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" data-source-type="${escapeHtml(source.source_type)}" draggable="true">
         <div class="source-drag-handle">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="9" cy="5" r="1.5"/>
@@ -608,13 +617,13 @@ function renderSources(sources) {
         </div>
         <div class="source-info">
           <div class="source-type">
-            ${sourceTypeLabel}
+            ${escapeHtml(sourceTypeLabel)}
             ${isPrimary ? '<span class="primary-badge">PRIMARY</span>' : ''}
           </div>
-          <div class="source-url">${source.source_url}</div>
+          <div class="source-url">${escapeHtml(source.source_url)}</div>
         </div>
         <div class="source-actions">
-          <button class="btn-icon" onclick="window.open('${source.source_url}', '_blank')" title="Open Source">
+          <button class="btn-icon" data-action="open" data-url="${escapeHtml(source.source_url)}" title="Open Source">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
             </svg>
@@ -630,6 +639,12 @@ function renderSources(sources) {
       </div>
     `;
 	}).join('');
+
+	container.querySelectorAll('[data-action="open"]').forEach(btn => {
+		btn.addEventListener('click', () => {
+			if (isSafeUrl(btn.dataset.url)) window.open(btn.dataset.url, '_blank');
+		});
+	});
 }
 
 function initializeDragAndDrop() {
@@ -860,7 +875,7 @@ function renderSourceList(sources) {
 		return `
 			<div class="settings-source-item">
 				<span class="settings-source-dot ${s.is_primary ? '' : 'inactive'}"></span>
-				<span class="settings-source-item-name">${label}</span>
+				<span class="settings-source-item-name">${escapeHtml(label)}</span>
 				${s.is_primary ? '<span class="settings-source-item-badge">PRIMARY</span>' : ''}
 				<div class="settings-source-item-actions">
 					${!s.is_primary ? `
@@ -870,7 +885,7 @@ function renderSourceList(sources) {
 							</svg>
 						</button>
 					` : ''}
-					<button type="button" class="btn-icon" data-action="open" data-url="${s.source_url}" title="Open source">
+					<button type="button" class="btn-icon" data-action="open" data-url="${escapeHtml(s.source_url)}" title="Open source">
 						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
 						</svg>
@@ -890,7 +905,7 @@ function renderSourceList(sources) {
 	list.querySelectorAll('[data-action="open"]').forEach(btn => {
 		btn.addEventListener('click', (e) => {
 			e.stopPropagation();
-			window.open(btn.dataset.url, '_blank');
+			if (isSafeUrl(btn.dataset.url)) window.open(btn.dataset.url, '_blank');
 		});
 	});
 	list.querySelectorAll('[data-action="primary"]').forEach(btn => {
@@ -1026,7 +1041,7 @@ function renderTagsList() {
 				<span class="settings-tag-checkbox">
 					${checked ? '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>' : ''}
 				</span>
-				<span class="settings-tag-item-name">${t.name}</span>
+				<span class="settings-tag-item-name">${escapeHtml(t.name)}</span>
 				<button type="button" class="btn-icon danger settings-tag-delete" data-tag-id="${t.id}" title="Delete tag">
 					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 						<path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
@@ -1188,10 +1203,10 @@ function renderSeriesCard(series, chapters = null) {
 </div>
 <img class="series-cover loading" src="${placeholderUrl}" data-src="${cleanCoverUrl}" loading="lazy" onerror="this.src='/static/placeholder.png'">
 ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
-${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span></div>` : ''}
+${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.title)}</span></div>` : ''}
 </div>
 <div class="card-info">
-<div class="card-title">${series.title}</div>
+<div class="card-title">${escapeHtml(series.title)}</div>
 <div class="card-chapters">
 <span class="chapter-not-started">Loading...</span>
 <span class="chapter-not-started">Loading...</span>
@@ -1268,12 +1283,23 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 		};
 	}
 
+	// Chapter/source URLs come from tracked external sources, not from the
+	// user -- reject anything that isn't a plain http(s) link (e.g. a
+	// javascript: URI) before it ever reaches an href, on top of escaping it
+	// for the HTML attribute itself.
+	function safeHref(url) {
+		if (isSafeUrl(url)) {
+			return escapeHtml(url);
+		}
+		return '#';
+	}
+
 	function formatChapterLabel(chapterData, useVolume) {
 		if (chapterData.is_oneshot) {
 			return 'Oneshot';
 		}
 		if (useVolume && chapterData.volume) {
-			return `Ch.${chapterData.chapter_number} (Vol.${chapterData.volume})`;
+			return `Ch.${chapterData.chapter_number} (Vol.${escapeHtml(chapterData.volume)})`;
 		}
 		return `Ch.${chapterData.chapter_number}`;
 	}
@@ -1403,7 +1429,7 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 			const currentCh = sorted[card.pendingIndex];
 			if (currentCh) {
 				const label = formatChapterLabel(currentCh, useVolume);
-				currentHtml = `<a href="${currentCh.chapter_url}" target="_blank" class="chapter-link">${label}</a>`;
+				currentHtml = `<a href="${safeHref(currentCh.chapter_url)}" target="_blank" class="chapter-link">${label}</a>`;
 			} else {
 				currentHtml = `<span class="chapter-not-started">Ch.? (invalid)</span>`;
 			}
@@ -1414,7 +1440,7 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 		} else {
 			const latestCh = sorted[sorted.length - 1];
 			const label = formatChapterLabel(latestCh, useVolume);
-			latestHtml = `<a href="${latestCh.chapter_url}" target="_blank" class="chapter-link">${label}</a>`;
+			latestHtml = `<a href="${safeHref(latestCh.chapter_url)}" target="_blank" class="chapter-link">${label}</a>`;
 		}
 		card.querySelector('.card-chapters').innerHTML = `${currentHtml}${latestHtml}`;
 		
@@ -1441,14 +1467,14 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 			// Handle left-click
 			newBtn.addEventListener('click', (e) => {
 				e.preventDefault();
-				window.open(firstToRead.chapter_url, '_blank');
+				if (isSafeUrl(firstToRead.chapter_url)) window.open(firstToRead.chapter_url, '_blank');
 			});
-			
+
 			// Handle middle-click
 			newBtn.addEventListener('auxclick', (e) => {
 				if (e.button === 1) {
 					e.preventDefault();
-					window.open(firstToRead.chapter_url, '_blank');
+					if (isSafeUrl(firstToRead.chapter_url)) window.open(firstToRead.chapter_url, '_blank');
 				}
 			});
 		} else {
@@ -1461,14 +1487,14 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 				// Handle left-click
 				newBtn.addEventListener('click', (e) => {
 					e.preventDefault();
-					window.open(nextCh.chapter_url, '_blank');
+					if (isSafeUrl(nextCh.chapter_url)) window.open(nextCh.chapter_url, '_blank');
 				});
-				
+
 				// Handle middle-click
 				newBtn.addEventListener('auxclick', (e) => {
 					if (e.button === 1) {
 						e.preventDefault();
-						window.open(nextCh.chapter_url, '_blank');
+						if (isSafeUrl(nextCh.chapter_url)) window.open(nextCh.chapter_url, '_blank');
 					}
 				});
 			} else {
@@ -1674,9 +1700,9 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 				}
 			}
 		}
-		window.open(sourceUrl, '_blank');
+		if (isSafeUrl(sourceUrl)) window.open(sourceUrl, '_blank');
 	});
-	
+
 	// Go to Source button - handle middle-click
 	btnSource.addEventListener('auxclick', (e) => {
 		if (e.button === 1) { // Middle click
@@ -1691,7 +1717,7 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${series.title}</span
 					}
 				}
 			}
-			window.open(sourceUrl, '_blank');
+			if (isSafeUrl(sourceUrl)) window.open(sourceUrl, '_blank');
 		}
 	});
 	
@@ -2597,9 +2623,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		};
 
 		list.innerHTML = withCovers.map(s => `
-			<img src="${s.cover_url}" class="settings-cover-source-thumb"
-				data-cover-url="${s.cover_url}"
-				title="${sourceTypeLabel[s.source_type] || s.source_type}" />
+			<img src="${escapeHtml(s.cover_url)}" class="settings-cover-source-thumb"
+				data-cover-url="${escapeHtml(s.cover_url)}"
+				title="${escapeHtml(sourceTypeLabel[s.source_type] || s.source_type)}" />
 		`).join('');
 
 		list.querySelectorAll('.settings-cover-source-thumb').forEach(thumb => {
@@ -2620,8 +2646,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		list.innerHTML = uploads.map(u => `
 			<div class="settings-cover-upload-item">
-				<img src="${u.cover_url}" class="settings-cover-source-thumb"
-					data-cover-url="${u.cover_url}" title="Uploaded" />
+				<img src="${escapeHtml(u.cover_url)}" class="settings-cover-source-thumb"
+					data-cover-url="${escapeHtml(u.cover_url)}" title="Uploaded" />
 				<button type="button" class="settings-cover-upload-delete"
 					data-cover-id="${u.id}" title="Delete this upload">×</button>
 			</div>
@@ -3442,7 +3468,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.getElementById('btn-delete-series')?.addEventListener('click', () => {
 		const seriesTitle = document.getElementById('edit-series-title-heading')?.textContent || 'this series';
 		document.getElementById('series-delete-title').innerHTML =
-			`This will permanently delete <strong>${seriesTitle}</strong>. This action cannot be undone.`;
+			`This will permanently delete <strong>${escapeHtml(seriesTitle)}</strong>. This action cannot be undone.`;
 		document.getElementById('series-delete-modal').classList.remove('hidden');
 	});
 	document.getElementById('series-delete-modal')?.addEventListener('click', (e) => {
@@ -4719,7 +4745,7 @@ function createBottomSheet() {
 
 		case 'go-to-source':		// CHANGED: Use pre-fetched URL
 		const sourceUrl = mobileState.primarySourceUrl || series.source_url;
-		window.open(sourceUrl, '_blank');
+		if (isSafeUrl(sourceUrl)) window.open(sourceUrl, '_blank');
 		break;
 
 		case 'copy-name':
@@ -5061,7 +5087,7 @@ function setupBottomSheetButtons(series, nextChapter) {
         if (targetChapter) {
           newContinueBtn.disabled = false;
           newContinueBtn.addEventListener('click', () => {
-            window.open(targetChapter.chapter_url, '_blank');
+            if (isSafeUrl(targetChapter.chapter_url)) window.open(targetChapter.chapter_url, '_blank');
           });
         }
       })
@@ -5255,7 +5281,7 @@ function stopHoldRepeat() {
 		continueBtn.parentNode.replaceChild(newContinueBtn, continueBtn);
 		
 		newContinueBtn.addEventListener('click', () => {
-		window.open(nextChapterUrl, '_blank');
+		if (isSafeUrl(nextChapterUrl)) window.open(nextChapterUrl, '_blank');
 		});
 	}
 	}
@@ -5568,7 +5594,7 @@ function renderMobileSources(sources) {
     const isPrimary = source.id === mobilePendingSourceChanges.primarySourceId;
     
     return `
-      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" data-source-type="${source.source_type}" draggable="true">
+      <div class="source-item ${isPrimary ? 'primary' : ''}" data-source-id="${source.id}" data-source-type="${escapeHtml(source.source_type)}" draggable="true">
         <div class="source-drag-handle">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="9" cy="5" r="1.5"/>
@@ -5581,13 +5607,13 @@ function renderMobileSources(sources) {
         </div>
         <div class="source-info">
           <div class="source-type">
-            ${sourceTypeLabel}
+            ${escapeHtml(sourceTypeLabel)}
             ${isPrimary ? '<span class="primary-badge">PRIMARY</span>' : ''}
           </div>
-          <div class="source-url">${source.source_url}</div>
+          <div class="source-url">${escapeHtml(source.source_url)}</div>
         </div>
         <div class="source-actions">
-          <button class="btn-icon" onclick="window.open('${source.source_url}', '_blank')" title="Open Source">
+          <button class="btn-icon" data-action="open" data-url="${escapeHtml(source.source_url)}" title="Open Source">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
             </svg>
@@ -5603,6 +5629,12 @@ function renderMobileSources(sources) {
       </div>
     `;
   }).join('');
+
+  container.querySelectorAll('[data-action="open"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (isSafeUrl(btn.dataset.url)) window.open(btn.dataset.url, '_blank');
+    });
+  });
 }
 
 function initializeMobileDragAndDrop() {

@@ -32,8 +32,8 @@ async function loadBackups() {
     const data = await res.json();
     
     if (data.error) {
-      document.getElementById('backup-list').innerHTML = 
-        `<p style="color: #ef4444;">Error: ${data.error}</p>`;
+      document.getElementById('backup-list').innerHTML =
+        `<p style="color: #ef4444;">Error: ${escapeHtml(data.error)}</p>`;
       return;
     }
     
@@ -95,7 +95,7 @@ async function loadBackups() {
         html += `
           <div class="backup-entry">
             <div class="backup-info">
-              <div class="backup-filename">${backup.filename}</div>
+              <div class="backup-filename">${escapeHtml(backup.filename)}</div>
               <div class="backup-meta">
                 Size: ${backup.size_mb.toFixed(2)} MB  •  
                 <span class="backup-time" data-full-date="${fullDate}">${ageText}</span>
@@ -210,7 +210,7 @@ async function loadSeriesBackups() {
 
     if (data.error) {
       document.getElementById('series-backup-list').innerHTML =
-        `<p style="color: #ef4444;">Error: ${data.error}</p>`;
+        `<p style="color: #ef4444;">Error: ${escapeHtml(data.error)}</p>`;
       return;
     }
 
@@ -272,7 +272,7 @@ async function loadSeriesBackups() {
         html += `
           <div class="backup-entry">
             <div class="backup-info">
-              <div class="backup-filename">${backup.filename}</div>
+              <div class="backup-filename">${escapeHtml(backup.filename)}</div>
               <div class="backup-meta">
                 Size: ${(backup.size_mb * 1024).toFixed(1)} KB  •
                 <span class="backup-time" data-full-date="${fullDate}">${ageText}</span>
@@ -343,7 +343,7 @@ function showRestoreModal(filename, ageText, sizeMB) {
   
   document.getElementById('restore-details').innerHTML = `
     <p>You are about to restore from:</p>
-    <p style="color: white; font-weight: 600; margin: 8px 0;">📦 ${filename}</p>
+    <p style="color: white; font-weight: 600; margin: 8px 0;">📦 ${escapeHtml(filename)}</p>
     <p>Created: ${ageText}</p>
     <p>Size: ${sizeMB} MB</p>
   `;

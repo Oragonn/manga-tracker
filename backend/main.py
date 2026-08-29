@@ -1,6 +1,12 @@
 # backend/main.py
+from dotenv import load_dotenv
+load_dotenv()
+
 from .api import app, run_server
+from .auth import init_auth
 from flask import Flask, request, jsonify, render_template, send_file
+
+init_auth(app)
 import re
 from .activity_logger import get_logs, mark_log_undone
 from .database import add_series as db_add_series
@@ -482,14 +488,20 @@ def api_create_backup():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def _is_safe_db_backup_filename(filename):
+    return bool(re.fullmatch(r'tracker_backup_\d{8}_\d{6}\.db\.gz', filename)
+                or re.fullmatch(r'safety_before_restore_\d+\.db\.gz', filename))
+
 # Download backup
 @app.route('/api/backups/download/<filename>')
 def api_download_backup(filename):
     try:
+        if not _is_safe_db_backup_filename(filename):
+            return jsonify({'error': 'Invalid filename'}), 400
         from . import api
         if hasattr(api, 'manga_scheduler'):
             backup_path = os.path.join(
-                api.manga_scheduler.backup_manager.backup_dir, 
+                api.manga_scheduler.backup_manager.backup_dir,
                 filename
             )
             if os.path.exists(backup_path):
@@ -503,6 +515,8 @@ def api_download_backup(filename):
 @app.route('/api/backups/restore/<filename>', methods=['POST'])
 def api_restore_backup(filename):
     try:
+        if not _is_safe_db_backup_filename(filename):
+            return jsonify({'error': 'Invalid filename'}), 400
         from . import api
         if hasattr(api, 'manga_scheduler'):
             success = api.manga_scheduler.backup_manager.restore_backup(filename)

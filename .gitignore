@@ -10,6 +10,9 @@ backups/
 Task.txt
 Bugs.txt
 
+# Secrets
+.env
+
 # Python
 __pycache__/
 *.pyc

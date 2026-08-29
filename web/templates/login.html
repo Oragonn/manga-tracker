@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manga Tracker — Login</title>
+  <style>
+    body {
+      background-color: #1f2937;
+      color: #e5e7eb;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .login-box {
+      background-color: #111827;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 320px;
+    }
+    .login-box h1 {
+      font-size: 1.25rem;
+      margin: 0 0 1.25rem;
+      text-align: center;
+    }
+    .password-field {
+      position: relative;
+      margin-bottom: 1rem;
+    }
+    .password-field input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.6rem 2.25rem 0.6rem 0.75rem;
+      border-radius: 6px;
+      border: 1px solid #374151;
+      background-color: #1f2937;
+      color: #e5e7eb;
+      font-size: 1rem;
+    }
+    .password-field .password-toggle {
+      position: absolute;
+      right: 0.5rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: auto;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.25rem;
+      color: #9ca3af;
+      display: flex;
+    }
+    .password-field .password-toggle:hover {
+      background: none;
+      color: #e5e7eb;
+    }
+    .login-box button {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: none;
+      border-radius: 6px;
+      background-color: #3b82f6;
+      color: white;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    .login-box button:hover {
+      background-color: #2563eb;
+    }
+    .login-error {
+      color: #f87171;
+      font-size: 0.875rem;
+      margin: -0.5rem 0 1rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <h1>Manga Tracker</h1>
+    {% if error %}
+    <div class="login-error">{{ error }}</div>
+    {% endif %}
+    <form method="POST" action="{{ url_for('login') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <div class="password-field">
+        <input type="password" id="password" name="password" placeholder="Password" autofocus required />
+        <button type="button" class="password-toggle" id="password-toggle" aria-label="Show password">
+          <svg id="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+        </button>
+      </div>
+      <button type="submit">Log in</button>
+    </form>
+  </div>
+  <script>
+    const passwordInput = document.getElementById('password');
+    const toggleButton = document.getElementById('password-toggle');
+    const eyeIcon = document.getElementById('eye-icon');
+    const eyeOpenPath = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle>';
+    const eyeClosedPath = '<path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line>';
+
+    toggleButton.addEventListener('click', () => {
+      const isPassword = passwordInput.type === 'password';
+      passwordInput.type = isPassword ? 'text' : 'password';
+      eyeIcon.innerHTML = isPassword ? eyeClosedPath : eyeOpenPath;
+      toggleButton.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+    });
+
+    // Many mobile browsers don't blur a focused input on a plain background
+    // tap, so the on-screen keyboard just stays open with nowhere to go.
+    document.body.addEventListener('click', (e) => {
+      if (!e.target.closest('form')) {
+        passwordInput.blur();
+      }
+    });
+  </script>
+</body>
+</html>
