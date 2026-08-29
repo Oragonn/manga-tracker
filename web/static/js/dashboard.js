@@ -1,6 +1,7 @@
 // web/static/js/dashboard.js
 let loadGenres;
 let loadCustomTagsFilterSection;
+let loadMobileCustomTagsFilterSection;
 
 // ─── Constants ───────────────────────────────────────────────
 const SORT_ICONS = {
@@ -71,6 +72,20 @@ const DEFAULT_EXCLUDED_RATINGS = ['mature', 'explicit'];
 // Ratings reset to this (Mature/Explicit excluded), not to an empty filter
 function getDefaultRatingState() {
 	return DEFAULT_EXCLUDED_RATINGS.map(name => ({ name, mode: 'exclude' }));
+}
+
+// Shared by the desktop and mobile Tags dropdowns. Mature/Explicit start
+// hidden by default (a safety default, not a filter the user picked), so
+// they're never counted here regardless of mode -- only genres, custom
+// tags, and any rating the user has actively touched away from that
+// baseline count toward the badge.
+function formatTagsTriggerText(genreCount, ratingList, customTagCount) {
+	const activeRatingCount = ratingList.filter(r =>
+		!(DEFAULT_EXCLUDED_RATINGS.includes(r.name) && r.mode === 'exclude')
+	).length;
+	const totalCount = genreCount + activeRatingCount + customTagCount;
+
+	return totalCount === 0 ? 'Tags' : `${totalCount} Selected`;
 }
 
 // ─── Bulk Selection State ────────────────────────────────────────
@@ -177,6 +192,13 @@ let currentSeriesLatestChapter = null;
 let allCustomTagsCache = [];
 let currentSeriesTagIds = [];
 let pendingSeriesTagIds = [];
+// Which source is primary: staged like tags/chapter/cover/status rather
+// than committed immediately, so it's consistent with the rest of the
+// modal (everything else needs Save; this used to apply the instant you
+// clicked the star icon, with no way to back out short of picking
+// another source back).
+let currentPrimarySourceId = null;
+let pendingPrimarySourceId = null;
 // Series Settings modal: 'select' (dropdown, picks an actually-tracked
 // chapter) or 'manual' (free-entry Volume/Chapter steppers, for chapters
 // read ahead of what's been scraped). manualChapterValue/manualVolumeValue
@@ -187,6 +209,33 @@ let chapterInputMode = 'select';
 let manualValuesSeeded = false;
 let manualChapterValue = 0;
 let manualVolumeValue = null;
+
+// Shared close path for the Series Settings modal, used from both desktop
+// (Edit) and mobile (the merged Edit action, which opens this same modal
+// instead of the old separate mobile Edit/Settings ones). Desktop only
+// ever needs to clear overflow:hidden -- but mobile's bottom sheet locks
+// the background scroll with position:fixed + a negative top offset
+// (since overflow:hidden alone doesn't stop iOS rubber-band scrolling),
+// which needs the matching restore or the page is left unscrollable.
+function closeEditSeriesModal() {
+	document.getElementById('edit-series-modal')?.classList.add('hidden');
+	// The Tags popover gets reparented to <body> while open (see
+	// openTagsMenu) to escape the modal's overflow clipping, so it's no
+	// longer a descendant that hiding the modal auto-hides.
+	document.getElementById('settings-tags-menu')?.classList.add('hidden');
+
+	if (document.body.style.position === 'fixed') {
+		const savedScrollY = mobileState.scrollY || 0;
+		document.body.style.overflow = '';
+		document.body.style.position = '';
+		document.body.style.width = '';
+		document.body.style.top = '';
+		mobileState.scrollY = 0;
+		window.scrollTo(0, savedScrollY);
+	} else {
+		document.body.style.overflow = '';
+	}
+}
 
 function openEditModal(series) {
 	currentSeriesIdForEdit = series.id;
@@ -246,6 +295,9 @@ function openEditModal(series) {
 		.then(data => data.sources || [])
 		.catch(() => []);
 	currentSeriesSourcesPromise.then(sources => {
+		const primary = sources.find(s => s.is_primary);
+		currentPrimarySourceId = primary ? primary.id : null;
+		pendingPrimarySourceId = currentPrimarySourceId;
 		renderSourceSelector(sources);
 		renderSourceList(sources);
 	});
@@ -343,6 +395,13 @@ function openEditModal(series) {
 
 	document.getElementById('edit-series-modal').classList.remove('hidden');
 	document.body.style.overflow = 'hidden';
+	// Reset scroll to the top -- .settings-modal keeps whatever scroll
+	// position it was left at (most noticeable on mobile's full-screen
+	// layout, where it's easy to scroll down to Actions/Delete/Save),
+	// so reopening for a different series without this would leave it
+	// dropped in wherever the last series' modal happened to be scrolled.
+	const editModalContent = document.querySelector('#edit-series-modal .modal-content');
+	if (editModalContent) editModalContent.scrollTop = 0;
 }
 
 // Effective chapter/volume the Save button would submit, depending on
@@ -380,8 +439,9 @@ function updateSaveButtonState() {
 	const statusSelect = document.getElementById('edit-status');
 	const statusChanged = statusSelect && statusSelect.value !== (originalSeriesValues?.status || '');
 	const tagsChanged = tagIdSetsDiffer(pendingSeriesTagIds, currentSeriesTagIds);
+	const primarySourceChanged = pendingPrimarySourceId !== currentPrimarySourceId;
 
-	btn.disabled = !(chapterChanged || volumeChanged || titleChanged || coverChanged || statusChanged || tagsChanged);
+	btn.disabled = !(chapterChanged || volumeChanged || titleChanged || coverChanged || statusChanged || tagsChanged || primarySourceChanged);
 }
 
 function formatManualStepperValues() {
@@ -854,27 +914,41 @@ async function refreshSourcesUI() {
 		const data = await res.json();
 		const sources = data.sources || [];
 		currentSeriesSourcesPromise = Promise.resolve(sources);
+		// Called after an immediate action (add/remove source) commits, so
+		// this is a fresh server-truth baseline -- drop any staged primary
+		// pick rather than risk it pointing at a source that's now gone.
+		const primary = sources.find(s => s.is_primary);
+		currentPrimarySourceId = primary ? primary.id : null;
+		pendingPrimarySourceId = currentPrimarySourceId;
 		renderSourceSelector(sources);
 		renderSourceList(sources);
+		updateSaveButtonState();
 	} catch (e) {
 		showNotification('Failed to refresh sources', 'error');
 	}
 }
 
+// Stages which source is primary, same as picking a status/tag/cover --
+// only actually commits when Save is clicked (see the btn-save-chapter
+// handler). Used to hit the API immediately, inconsistent with every
+// other field in this modal.
 async function setSeriesSourceAsPrimary(sourceId) {
-	if (!currentSeriesIdForEdit) return;
-	try {
-		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources/${sourceId}/primary`, { method: 'POST' });
-		if (res.ok) {
-			await refreshSourcesUI();
-			showNotification('Primary source updated', 'read');
-			loadPage();
-		} else {
-			showNotification('Failed to set primary source', 'error');
-		}
-	} catch (e) {
-		showNotification('Failed to set primary source', 'error');
-	}
+	if (!currentSeriesIdForEdit || !currentSeriesSourcesPromise) return;
+	pendingPrimarySourceId = parseInt(sourceId, 10);
+	const sources = await currentSeriesSourcesPromise;
+	// The API always returns the primary source first, so that's the order
+	// the list re-appears in once Save actually commits this and the page
+	// reloads -- sort here too so the pending primary jumps to the top
+	// immediately instead of only reordering once saved (it would just
+	// swap the PRIMARY badge onto whichever position the click was on,
+	// otherwise -- correct end state, but the list visibly "waiting on
+	// Save" to reorder looked like the click hadn't really registered).
+	const withPendingPrimary = sources
+		.map(s => ({ ...s, is_primary: s.id === pendingPrimarySourceId }))
+		.sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0));
+	renderSourceSelector(withPendingPrimary);
+	renderSourceList(withPendingPrimary);
+	updateSaveButtonState();
 }
 
 async function removeSeriesSource(sourceId) {
@@ -989,6 +1063,7 @@ function renderTagsList() {
 					renderTagsSelectorText();
 					updateSaveButtonState();
 					if (typeof loadCustomTagsFilterSection === 'function') loadCustomTagsFilterSection();
+					if (typeof loadMobileCustomTagsFilterSection === 'function') loadMobileCustomTagsFilterSection();
 				} else {
 					showNotification('Failed to delete tag', 'error');
 				}
@@ -1029,6 +1104,7 @@ async function createAndApplyCustomTag(name) {
 			// series is staged like any other tag selection -- Save required.
 			toggleSeriesCustomTag(data.id);
 			if (typeof loadCustomTagsFilterSection === 'function') loadCustomTagsFilterSection();
+			if (typeof loadMobileCustomTagsFilterSection === 'function') loadMobileCustomTagsFilterSection();
 		} else {
 			showNotification(data.error || 'Failed to create tag', 'error');
 		}
@@ -2099,26 +2175,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 	
 	function updateTagsTriggerText() {
-		const genreCount = state.genre.length;
-		
-		// Count only non-default ratings
-		const nonDefaultRatings = state.rating.filter(r => {
-			// If it's a default excluded rating in exclude mode, don't count it
-			if (DEFAULT_EXCLUDED_RATINGS.includes(r.name) && r.mode === 'exclude') {
-				return false;
-			}
-			return true;
-		});
-		const ratingCount = nonDefaultRatings.length;
-		const customTagCount = state.customTags.length;
-
-		const totalCount = genreCount + ratingCount + customTagCount;
-
-		if (totalCount === 0) {
-			genreTrigger.textContent = 'Tags';
-		} else {
-			genreTrigger.textContent = `${totalCount} Selected`;
-		}
+		genreTrigger.textContent = formatTagsTriggerText(state.genre.length, state.rating, state.customTags.length);
 	}
 		
 	// ADDED: Tags mode toggle button
@@ -2144,13 +2201,24 @@ document.addEventListener('DOMContentLoaded', () => {
 				icon.innerHTML = '<path d="M20 6L9 17l-5-5"/>';
 				text.textContent = 'Include Mode';
 			}
-			
+
+			// Keep the mobile toggle in sync too -- both read/write the
+			// same state.tagsMode.
+			const mobileTagsModeBtnSync = document.getElementById('mobile-btn-tags-mode');
+			if (mobileTagsModeBtnSync) {
+				mobileTagsModeBtnSync.dataset.mode = newMode;
+				const mIcon = mobileTagsModeBtnSync.querySelector('svg');
+				const mText = mobileTagsModeBtnSync.querySelector('span');
+				mIcon.innerHTML = icon.innerHTML;
+				mText.textContent = text.textContent;
+			}
+
 			// Reload if there are active filters
 			if (state.genre.length > 0 || state.rating.length > 0) {
 				state.page = 1;
 				loadPage();
 			}
-			
+
 			// Update trigger text
 			updateTagsTriggerText();
 		});
@@ -2216,6 +2284,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			updateTagsTriggerText();
 		});
 	});
+
+	// Reflect the default-excluded Mature/Explicit ratings in the trigger
+	// label right away -- without this it shows the static "Tags" text
+	// baked into the HTML until the user interacts with something, even
+	// though the checkboxes themselves already render red X's for them.
+	updateTagsTriggerText();
 
 	// Load genres dynamically
 	loadGenres = async function() {
@@ -2785,6 +2859,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		menu.style.top = `${rect.bottom + 4}px`;
 		menu.style.left = `${rect.left}px`;
 		menu.classList.remove('hidden');
+		// The 700px desktop modal never puts the trigger close enough to
+		// the edge for this to matter, but on a narrow phone (Tags takes
+		// the right half of its row) left:rect.left with the menu's fixed
+		// 280px width can run straight off the right edge of the screen.
+		// Measured after unhiding since offsetWidth is 0 while hidden.
+		const overflowX = rect.left + menu.offsetWidth - window.innerWidth;
+		if (overflowX > 0) {
+			menu.style.left = `${Math.max(8, rect.left - overflowX - 8)}px`;
+		}
 	}
 
 	function closeTagsMenu() {
@@ -2800,7 +2883,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			document.querySelectorAll('#chapter-select-list .settings-dropdown-item').forEach(item => {
 				item.style.display = '';
 			});
-			search.focus();
+			// Auto-focusing pops the on-screen keyboard up immediately on
+			// mobile, eating half the screen before the user's even seen
+			// the chapter list they opened this to scroll through -- fine
+			// on desktop where focusing just lets you start typing.
+			if (!isMobileDevice()) search.focus();
 		}
 	}
 
@@ -2962,8 +3049,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		const tagsChanged = tagIdSetsDiffer(pendingSeriesTagIds, currentSeriesTagIds);
 		const tagsToAdd = pendingSeriesTagIds.filter(id => !currentSeriesTagIds.includes(id));
 		const tagsToRemove = currentSeriesTagIds.filter(id => !pendingSeriesTagIds.includes(id));
+		const primarySourceChanged = pendingPrimarySourceId !== currentPrimarySourceId;
 
-		if (!chapterChanged && !volumeChanged && !titleChanged && !coverChanged && !statusChanged && !tagsChanged) return;
+		if (!chapterChanged && !volumeChanged && !titleChanged && !coverChanged && !statusChanged && !tagsChanged && !primarySourceChanged) return;
 
 		const payload = {};
 		if (chapterChanged) payload.current_chapter = newChapter;
@@ -2987,6 +3075,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			tagsToRemove.forEach(tagId => {
 				requests.push(fetch(`/api/series/${currentSeriesIdForEdit}/custom-tags/${tagId}`, { method: 'DELETE' }));
 			});
+			if (primarySourceChanged) {
+				requests.push(fetch(`/api/series/${currentSeriesIdForEdit}/sources/${pendingPrimarySourceId}/primary`, { method: 'POST' }));
+			}
 
 			const results = await Promise.all(requests);
 			const allOk = results.every(r => r.ok);
@@ -3001,13 +3092,16 @@ document.addEventListener('DOMContentLoaded', () => {
 				}
 				if (statusChanged && originalSeriesValues) originalSeriesValues.status = newStatus;
 				if (tagsChanged) currentSeriesTagIds = [...pendingSeriesTagIds];
+				if (primarySourceChanged) currentPrimarySourceId = pendingPrimarySourceId;
 				const parts = [];
 				if (titleChanged) parts.push('title');
 				if (chapterChanged || volumeChanged) parts.push('chapter');
 				if (coverChanged) parts.push('cover');
 				if (statusChanged) parts.push('status');
 				if (tagsChanged) parts.push('tags');
+				if (primarySourceChanged) parts.push('source');
 				showNotification(`Updated ${parts.join(', ')}`, 'read');
+				closeEditSeriesModal();
 				loadPage();
 			} else {
 				showNotification('Failed to save changes', 'error');
@@ -3094,10 +3188,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					}
 				}
 				
-				editModal.classList.add('hidden');
-
-
-				document.body.style.overflow = ''; // ADDED
+				closeEditSeriesModal();
 				loadPage();
 			} else {
 				const err = await res.json().catch(() => ({}));
@@ -3116,24 +3207,18 @@ document.addEventListener('DOMContentLoaded', () => {
 				return;
 			}
 		}
-		editModal.classList.add('hidden');
-		document.body.style.overflow = ''; // ADDED
+		closeEditSeriesModal();
 	});
 
 	// ─── Modified Modal Close Handler ─────────────────────────────
 	editModal?.addEventListener('click', (e) => {
 		if (e.target === editModal) {
-			if (pendingSourceChanges.hasChanges) {
-				if (!confirm('You have unsaved source changes. Discard them?')) {
+			if (pendingPrimarySourceId !== currentPrimarySourceId) {
+				if (!confirm('You have an unsaved source change. Discard it?')) {
 					return;
 				}
 			}
-			editModal.classList.add('hidden');
-			document.body.style.overflow = ''; // ADDED
-			// The Tags popover gets reparented to <body> while open (see
-			// openTagsMenu) to escape the modal's overflow clipping, so it's
-			// no longer a descendant that hiding the modal auto-hides.
-			closeTagsMenu();
+			closeEditSeriesModal();
 		}
 	});
 
@@ -3178,6 +3263,12 @@ document.addEventListener('DOMContentLoaded', () => {
 #filter-pub-status-container input[type="checkbox"],
 #filter-readable-on-container input[type="checkbox"]
 `).forEach(cb => cb.checked = false);
+		// Genre checkboxes are also 3-state (data-mode driven, not .checked) --
+		// clearing .checked above does nothing for them, which left the
+		// red X / gray check styling stuck on screen after a reset.
+		document.querySelectorAll('#filter-genre-container .genre-list-section input[type="checkbox"]').forEach(cb => {
+			delete cb.dataset.mode;
+		});
 		// Rating checkboxes are 3-state (data-mode driven, not .checked) — restore Mature/Explicit to excluded
 		document.querySelectorAll('#filter-genre-container .rating-checkbox').forEach(cb => {
 			if (DEFAULT_EXCLUDED_RATINGS.includes(cb.value)) {
@@ -3187,7 +3278,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 		});
 		document.getElementById('filter-type-trigger').textContent = 'Content Type';
-		document.getElementById('filter-genre-trigger').textContent = 'Tags';
+		// Not a flat 'Tags' -- Mature/Explicit go back to their default
+		// excluded (red X) state, which formatTagsTriggerText reflects as
+		// "+2 Selected" rather than implying nothing is selected.
+		document.getElementById('filter-genre-trigger').textContent = formatTagsTriggerText(state.genre.length, state.rating, state.customTags.length);
 		document.getElementById('filter-pub-status-trigger').textContent = 'Publication Status';
 		document.getElementById('filter-readable-on-trigger').textContent = 'Readable On';  // NEW
 		document.querySelectorAll('.multi-select-menu, .single-select-menu').forEach(menu => {
@@ -3355,12 +3449,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				const seriesTitle = document.getElementById('edit-series-title-heading')?.textContent || 'Series';
 				showNotification(`${seriesTitle} deleted`, 'delete');
 
-				editModal.classList.add('hidden');
-				document.body.style.overflow = '';
-				document.body.style.position = '';
-				document.body.style.width = '';
-				document.body.style.top = '';
-				window.scrollTo(0, mobileState.scrollY || 0);
+				closeEditSeriesModal();
 				loadPage();
 				loadGenres();
 			} else {
@@ -3811,6 +3900,8 @@ function createFilterDrawer() {
 			<div class="combined-tags-list">
 				<div class="genre-list-section"></div>
 				<div style="border-top: 1px solid #334155; margin: 8px 0;"></div>
+				<div class="custom-tags-section"></div>
+				<div style="border-top: 1px solid #334155; margin: 8px 0;"></div>
 				<div class="rating-section">
 				<label><input type="checkbox" value="safe" class="rating-checkbox"> Safe</label>
 				<label><input type="checkbox" value="mild" class="rating-checkbox"> Suggestive</label>
@@ -3890,6 +3981,7 @@ function createFilterDrawer() {
   const mobileGenreTrigger = document.getElementById('mobile-filter-genre-trigger');
   const mobileGenreMenu = document.getElementById('mobile-filter-genre-menu');
   const mobileGenreListSection = mobileGenreMenu.querySelector('.genre-list-section');
+  const mobileCustomTagsSection = mobileGenreMenu.querySelector('.custom-tags-section');
   const mobileRatingCheckboxes = mobileGenreMenu.querySelectorAll('.rating-checkbox');
   const mobileClearAllBtn = document.getElementById('mobile-btn-clear-all-tags');
 
@@ -3913,28 +4005,64 @@ function createFilterDrawer() {
     }
   });
 
-	// Update trigger text based on both genres and ratings
+	// Update trigger text based on genres, ratings, and custom tags
 	function updateMobileTagsTriggerText() {
-		const genreCount = state.genre.length;
-		const ratingCount = state.rating.length;
-		const totalCount = genreCount + ratingCount;
-		
-		if (totalCount === 0) {
-		mobileGenreTrigger.textContent = 'Tags';
-		} else {
-		mobileGenreTrigger.textContent = `${totalCount} Selected`;
-		}
+		mobileGenreTrigger.textContent = formatTagsTriggerText(state.genre.length, state.rating, state.customTags.length);
 	}
 
-	// Clear All button (clears genres, restores ratings to their default: Mature/Explicit excluded)
+	// Tags mode toggle button -- found during a mobile-filter audit that
+	// this button rendered and updated its own icon/label on reset, but
+	// never actually had a click handler wired up, so tapping it did
+	// nothing (the desktop version, #btn-tags-mode, has always worked).
+	const mobileTagsModeBtn = document.getElementById('mobile-btn-tags-mode');
+	if (mobileTagsModeBtn) {
+		mobileTagsModeBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			const newMode = state.tagsMode === 'include' ? 'exclude' : 'include';
+			state.tagsMode = newMode;
+
+			mobileTagsModeBtn.dataset.mode = newMode;
+			const icon = mobileTagsModeBtn.querySelector('svg');
+			const text = mobileTagsModeBtn.querySelector('span');
+			if (newMode === 'exclude') {
+				icon.innerHTML = '<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>';
+				text.textContent = 'Exclude Mode';
+			} else {
+				icon.innerHTML = '<path d="M20 6L9 17l-5-5"/>';
+				text.textContent = 'Include Mode';
+			}
+
+			// Keep the desktop toggle in sync too -- both read/write the
+			// same state.tagsMode.
+			const desktopTagsModeBtn = document.getElementById('btn-tags-mode');
+			if (desktopTagsModeBtn) {
+				desktopTagsModeBtn.dataset.mode = newMode;
+				const desktopIcon = desktopTagsModeBtn.querySelector('svg');
+				const desktopText = desktopTagsModeBtn.querySelector('span');
+				desktopIcon.innerHTML = icon.innerHTML;
+				desktopText.textContent = text.textContent;
+			}
+
+			if (state.genre.length > 0 || state.rating.length > 0) {
+				state.page = 1;
+				loadPage();
+			}
+		});
+	}
+
+	// Clear All button (clears genres + custom tags, restores ratings to their default: Mature/Explicit excluded)
   mobileClearAllBtn.addEventListener('click', () => {
     state.genre = [];
     state.rating = getDefaultRatingState();
+    state.customTags = [];
     state.page = 1;
 
     // Reset all checkboxes data-mode
     mobileGenreListSection.querySelectorAll('input[type="checkbox"]').forEach(cb => {
       delete cb.dataset.mode;
+    });
+    mobileCustomTagsSection?.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.checked = false;
     });
     mobileRatingCheckboxes.forEach(cb => {
       if (DEFAULT_EXCLUDED_RATINGS.includes(cb.value)) {
@@ -3982,6 +4110,11 @@ function createFilterDrawer() {
       updateMobileTagsTriggerText();
     });
   });
+
+  // Reflect the default-excluded Mature/Explicit ratings in the trigger
+  // label right away, same as the desktop dropdown -- see the matching
+  // comment there for why.
+  updateMobileTagsTriggerText();
 
 // Load genres dynamically (mobile version)
   loadMobileGenres = async function() {
@@ -4040,6 +4173,48 @@ function createFilterDrawer() {
   };
 
   loadMobileGenres();
+
+  // Load custom tags dynamically (mobile version, mirrors the desktop
+  // loadCustomTagsFilterSection)
+  loadMobileCustomTagsFilterSection = async function() {
+    if (!mobileCustomTagsSection) return;
+    try {
+      const res = await fetch('/api/custom-tags');
+      if (!res.ok) return;
+      const tags = await res.json();
+      mobileCustomTagsSection.innerHTML = '';
+      tags.forEach(tag => {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = tag.id;
+        cb.checked = state.customTags.includes(tag.id);
+
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(tag.name));
+
+        label.addEventListener('click', (e) => {
+          e.preventDefault();
+          if (state.customTags.includes(tag.id)) {
+            state.customTags = state.customTags.filter(id => id !== tag.id);
+            cb.checked = false;
+          } else {
+            state.customTags = [...state.customTags, tag.id];
+            cb.checked = true;
+          }
+          state.page = 1;
+          loadPage();
+          updateMobileTagsTriggerText();
+        });
+
+        mobileCustomTagsSection.appendChild(label);
+      });
+    } catch (e) {
+      console.error('Failed to load custom tags:', e);
+    }
+  };
+
+  loadMobileCustomTagsFilterSection();
 
   // Publication Status
   const mobilePubStatusTrigger = document.getElementById('mobile-filter-pub-status-trigger');
@@ -4261,6 +4436,7 @@ function resetMobileFilters() {
   state.rating = getDefaultRatingState();
   state.pubStatus = [];
   state.readableOn = [];
+  state.customTags = [];
   state.tagsMode = 'include';  // ADDED: Reset tags mode
   state.page = 1;
   
@@ -4292,6 +4468,12 @@ function resetMobileFilters() {
     #mobile-filter-pub-status-container input[type="checkbox"],
     #mobile-filter-readable-on-container input[type="checkbox"]
   `).forEach(cb => cb.checked = false);
+  // Genre checkboxes are also 3-state (data-mode driven, not .checked) --
+  // clearing .checked above does nothing for them, which left the red X /
+  // gray check styling stuck on screen after a reset.
+  document.querySelectorAll('#mobile-filter-genre-container .genre-list-section input[type="checkbox"]').forEach(cb => {
+    delete cb.dataset.mode;
+  });
   // Rating checkboxes are 3-state (data-mode driven, not .checked) — restore Mature/Explicit to excluded
   document.querySelectorAll('#mobile-filter-genre-container .rating-checkbox').forEach(cb => {
     if (DEFAULT_EXCLUDED_RATINGS.includes(cb.value)) {
@@ -4303,7 +4485,12 @@ function resetMobileFilters() {
 
   // Reset trigger texts
   document.getElementById('mobile-filter-type-trigger').textContent = 'Content Type';
-  document.getElementById('mobile-filter-genre-trigger').textContent = 'Tags';
+  // Not a flat 'Tags' -- Mature/Explicit go back to their default excluded
+  // (red X) state, which formatTagsTriggerText reflects as "+2 Selected"
+  // rather than implying nothing is selected. Using the same shared
+  // helper as desktop instead of a different, out-of-sync hardcoded value
+  // is what was causing this to only "sometimes" show +2.
+  document.getElementById('mobile-filter-genre-trigger').textContent = formatTagsTriggerText(state.genre.length, state.rating, state.customTags.length);
   document.getElementById('mobile-filter-pub-status-trigger').textContent = 'Publication Status';
   document.getElementById('mobile-filter-readable-on-trigger').textContent = 'Readable On';
   
@@ -4313,11 +4500,21 @@ function resetMobileFilters() {
   if (desktopSearch) desktopSearch.value = '';
   if (mobileSearch) mobileSearch.value = '';
   
-  // Update desktop UI elements
+  // Update desktop UI elements (this function also runs from the mobile
+  // "Reset All Filters" button, but the desktop elements still exist in
+  // the DOM underneath the mobile layout and share the same state)
   const statusTrigger = document.getElementById('filter-status-trigger');
   const sortTrigger = document.getElementById('sort-order-trigger');
+  const desktopTypeTrigger = document.getElementById('filter-type-trigger');
+  const desktopGenreTrigger = document.getElementById('filter-genre-trigger');
+  const desktopPubStatusTrigger = document.getElementById('filter-pub-status-trigger');
+  const desktopReadableOnTrigger = document.getElementById('filter-readable-on-trigger');
   if (statusTrigger) statusTrigger.textContent = 'Reading';
   if (sortTrigger) sortTrigger.textContent = 'Unread First';
+  if (desktopTypeTrigger) desktopTypeTrigger.textContent = 'Content Type';
+  if (desktopGenreTrigger) desktopGenreTrigger.textContent = formatTagsTriggerText(state.genre.length, state.rating, state.customTags.length);
+  if (desktopPubStatusTrigger) desktopPubStatusTrigger.textContent = 'Publication Status';
+  if (desktopReadableOnTrigger) desktopReadableOnTrigger.textContent = 'Readable On';
   
   // Update sort direction icon
   const mobileSortBtn = document.getElementById('mobile-sort-direction');
@@ -4373,14 +4570,7 @@ function createBottomSheet() {
 				</svg>
 				Edit
 			</button>
-			
-			<button class="sheet-settings-option" data-action="settings">
-				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 48 48">
-				<path fill="currentColor" d="M24 4c-1.577 0-3.097.2-4.549.537a1.5 1.5 0 0 0-1.15 1.299l-.319 2.902a2.997 2.997 0 0 1-4.189 2.418h-.002l-2.666-1.174a1.5 1.5 0 0 0-1.7.348 20 20 0 0 0-4.566 7.871 1.5 1.5 0 0 0 .55 1.645l2.364 1.734a3 3 0 0 1 0 4.84l-2.365 1.732a1.5 1.5 0 0 0-.549 1.645 19.96 19.96 0 0 0 4.567 7.873 1.5 1.5 0 0 0 1.699.346l2.666-1.174a3 3 0 0 1 4.191 2.42l.319 2.902a1.5 1.5 0 0 0 1.148 1.297C20.901 43.8 22.423 44 24 44s3.097-.2 4.549-.537a1.5 1.5 0 0 0 1.15-1.299l.319-2.902a3 3 0 0 1 4.19-2.42l2.667 1.174a1.5 1.5 0 0 0 1.7-.346 20 20 0 0 0 4.566-7.873 1.5 1.5 0 0 0-.55-1.645l-2.364-1.732A3 3 0 0 1 39 24c0-.958.454-1.853 1.227-2.42l2.365-1.732a1.5 1.5 0 0 0 .549-1.645 20 20 0 0 0-4.567-7.873 1.5 1.5 0 0 0-1.699-.346l-2.668 1.174a3 3 0 0 1-4.19-2.42L29.7 5.836a1.5 1.5 0 0 0-1.148-1.297A20 20 0 0 0 24 4m0 3c.974 0 1.91.175 2.848.34l.187 1.724a6.003 6.003 0 0 0 8.38 4.84l1.587-.697a16.9 16.9 0 0 1 2.855 4.924l-1.406 1.031A6 6 0 0 0 36 24c0 1.91.912 3.708 2.451 4.838l1.406 1.031a16.9 16.9 0 0 1-2.855 4.924l-1.586-.697a6.003 6.003 0 0 0-8.38 4.84l-.188 1.724c-.938.165-1.874.34-2.848.34s-1.91-.175-2.848-.34l-.187-1.724a6.003 6.003 0 0 0-8.38-4.84l-1.587.697a16.9 16.9 0 0 1-2.855-4.924l1.406-1.031a6.003 6.003 0 0 0 0-9.678l-1.406-1.03A16.9 16.9 0 0 1 11 13.205l1.584.697a6.002 6.002 0 0 0 8.38-4.838l.188-1.724C22.09 7.175 23.026 7 24 7m0 9c-4.4 0-8 3.6-8 8s3.6 8 8 8 8-3.6 8-8-3.6-8-8-8m0 3c2.78 0 5 2.22 5 5s-2.22 5-5 5-5-2.22-5-5 2.22-5 5-5"/>
-				</svg>
-				Settings
-			</button>
-			
+
 			<button class="sheet-settings-option" data-action="go-to-source">
 				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
@@ -4490,24 +4680,26 @@ function createBottomSheet() {
 	document.getElementById('sheet-settings-menu')?.classList.remove('active');
 	}
 
-	switch (action) {		
+	switch (action) {
 		case 'edit':
-		// ADDED: Open mobile edit modal
-		openMobileEditModal(series);
-		closeBottomSheet();
-		break;
-		
-		case 'settings':
-		// CHANGED: Open settings WITHOUT closing bottom sheet first
-		openMobileSettingsModal(series);
-		// THEN close bottom sheet WITHOUT unlocking scroll
-		const bottomSheet = document.getElementById('bottom-sheet');
-		const overlay = document.getElementById('bottom-sheet-overlay');
-		bottomSheet?.classList.remove('active');
-		overlay?.classList.remove('active');
-		bottomSheet.style.transform = '';
-		mobileState.bottomSheetOpen = false;
-		// DON'T restore scroll - keep it locked for Settings modal
+		// Opens the same Series Settings modal as desktop's pencil-icon
+		// Edit -- this used to be two separate, each-incomplete mobile
+		// modals (a quick "Edit" for chapter/status/source, and a bare
+		// "Settings" for just title/cover). One shared implementation
+		// already has everything: cover editing, chapters, source,
+		// status, tags, actions, and delete.
+		openEditModal(series);
+		// Close the bottom sheet WITHOUT unlocking scroll -- the settings
+		// modal reuses the same lock and closeEditSeriesModal() (see its
+		// close/cancel/save handlers) restores it properly when done.
+		{
+			const bottomSheet = document.getElementById('bottom-sheet');
+			const overlay = document.getElementById('bottom-sheet-overlay');
+			bottomSheet?.classList.remove('active');
+			overlay?.classList.remove('active');
+			if (bottomSheet) bottomSheet.style.transform = '';
+			mobileState.bottomSheetOpen = false;
+		}
 		break;
 
 		case 'go-to-source':		// CHANGED: Use pre-fetched URL

@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel28" />
   <!-- ADDED: Notification system -->
   <script src="/static/js/notifications.js"></script>
 </head>
@@ -230,8 +230,8 @@
         </button>
       </div>
     </div>
-  </div> 
-</div> 
+  </div>
+</div>
 <!-- Pagination (top) -->
 <div id="pagination" class="pagination-kenmei"></div>
 
@@ -278,7 +278,7 @@
         <h3 id="edit-series-title-heading">Series Settings</h3>
         <input type="text" id="edit-series-title-input" class="settings-title-input hidden" />
       </div>
-      <button class="btn-close-modal" onclick="document.getElementById('edit-series-modal').classList.add('hidden'); document.body.style.overflow = ''; document.getElementById('settings-tags-menu')?.classList.add('hidden');">
+      <button class="btn-close-modal" onclick="closeEditSeriesModal();">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M18 6L6 18M6 6l12 12"/>
         </svg>
@@ -689,7 +689,7 @@
   </svg>
 </button>
 
-<script src="/static/js/dashboard.js"></script>
+<script src="/static/js/dashboard.js?v=mobilepanel28"></script>
   <!-- ADDED: Initialize notifications -->
   <script>
   // Initialize notification system on page load
