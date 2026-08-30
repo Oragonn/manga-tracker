@@ -1201,7 +1201,7 @@ function renderSeriesCard(series, chapters = null) {
 <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
 </svg>
 </div>
-<img class="series-cover loading" src="${placeholderUrl}" data-src="${cleanCoverUrl}" loading="lazy" onerror="this.src='/static/placeholder.png'">
+<img class="series-cover loading" src="${placeholderUrl}" data-src="${cleanCoverUrl}" loading="lazy" referrerpolicy="no-referrer" onerror="this.src='/static/placeholder.png'">
 ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.title)}</span></div>` : ''}
 </div>
@@ -2624,7 +2624,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		list.innerHTML = withCovers.map(s => `
 			<img src="${escapeHtml(s.cover_url)}" class="settings-cover-source-thumb"
-				data-cover-url="${escapeHtml(s.cover_url)}"
+				data-cover-url="${escapeHtml(s.cover_url)}" referrerpolicy="no-referrer"
 				title="${escapeHtml(sourceTypeLabel[s.source_type] || s.source_type)}" />
 		`).join('');
 
@@ -2647,7 +2647,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		list.innerHTML = uploads.map(u => `
 			<div class="settings-cover-upload-item">
 				<img src="${escapeHtml(u.cover_url)}" class="settings-cover-source-thumb"
-					data-cover-url="${escapeHtml(u.cover_url)}" title="Uploaded" />
+					data-cover-url="${escapeHtml(u.cover_url)}" referrerpolicy="no-referrer" title="Uploaded" />
 				<button type="button" class="settings-cover-upload-delete"
 					data-cover-id="${u.id}" title="Delete this upload">×</button>
 			</div>

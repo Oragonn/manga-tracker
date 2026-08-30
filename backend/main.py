@@ -599,10 +599,11 @@ def api_add_source(series_id):
     Add a new source to a series AND merge metadata (alt_titles, genres, searchable_text).
     Fix for Bug #3: Properly merges lists instead of concatenating JSON strings.
     """
+    data = None
     try:
         data = request.get_json()
         source_url = data.get('source_url')
-        
+
         if not source_url:
             return jsonify({'error': 'source_url required'}), 400
         
@@ -653,6 +654,7 @@ def api_add_source(series_id):
         )
         
         if not source_id:
+            _log_source_add_failure(series_id, source_url, 'Failed to add source')
             return jsonify({'error': 'Failed to add source'}), 500
         
         # *** FIX: Merge metadata with existing series ***
@@ -787,7 +789,37 @@ def api_add_source(series_id):
         print(f"[Add Source] Error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        error_msg = str(e) or f'{type(e).__name__} (no message)'
+        _log_source_add_failure(series_id, data.get('source_url') if data else None, error_msg)
+        return jsonify({'error': error_msg}), 500
+
+
+def _log_source_add_failure(series_id, source_url, error_msg):
+    """Shared by api_add_source's failure paths - resolves the series'
+    title (best-effort) so both the structured error log and the simple
+    failed_sources.log ("Title : URL") are useful to skim later."""
+    title = "Unknown Series"
+    try:
+        from .database import get_db, release_db
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+        row = cursor.fetchone()
+        release_db(conn)
+        if row:
+            title = row[0]
+    except Exception:
+        pass
+    try:
+        from .error_logger import log_error
+        log_error(source_url, error_msg, series_title=title)
+    except Exception:
+        pass
+    try:
+        from .failed_sources_logger import log_failed_source
+        log_failed_source(title, source_url)
+    except Exception:
+        pass
 
 
 @app.route('/api/series/<int:series_id>/sources/<int:source_id>/primary', methods=['POST'])

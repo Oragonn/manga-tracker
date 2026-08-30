@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "Manga Tracker – Kenmei Import Helper",
+  "version": "1.0.0",
+  "description": "Speeds up matching Kenmei CSV rows on the Manga Tracker import page: opens all 4 source searches per row and lets you grab/skip results with W/U, then confirm with Y.",
+  "permissions": ["tabs"],
+  "host_permissions": [
+    "https://mangadex.org/*",
+    "https://atsu.moe/*",
+    "https://asurascans.com/*",
+    "https://kagane.to/*",
+    "https://kagane.org/*",
+    "http://*:8080/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://mangadex.org/*",
+        "https://atsu.moe/*",
+        "https://asurascans.com/*",
+        "https://kagane.to/*",
+        "https://kagane.org/*"
+      ],
+      "js": ["content_source.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://*:8080/import-kenmei*"
+      ],
+      "js": ["content_import.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

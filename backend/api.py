@@ -154,7 +154,18 @@ def _add_worker():
                                 result = {'error': 'Database integrity error.'}
                                 task_processed = True
                         except Exception as e:
-                            result = {'error': str(e)}
+                            error_msg = str(e) or f'{type(e).__name__} (no message)'
+                            try:
+                                from .error_logger import log_error
+                                log_error(url, error_msg, series_title=title)
+                            except Exception:
+                                pass
+                            try:
+                                from .failed_sources_logger import log_failed_source
+                                log_failed_source(title, url)
+                            except Exception:
+                                pass
+                            result = {'error': error_msg}
                             task_processed = True
                     else:
                         # Valid manga_id path
@@ -301,7 +312,18 @@ def _add_worker():
                                 result = {'error': 'Database integrity error.'}
                                 task_processed = True
                         except Exception as e:
-                            result = {'error': str(e)}
+                            error_msg = str(e) or f'{type(e).__name__} (no message)'
+                            try:
+                                from .error_logger import log_error
+                                log_error(url, error_msg, series_title=title)
+                            except Exception:
+                                pass
+                            try:
+                                from .failed_sources_logger import log_failed_source
+                                log_failed_source(title, url)
+                            except Exception:
+                                pass
+                            result = {'error': error_msg}
                             task_processed = True
                 
                 elif is_kagane:
@@ -436,7 +458,18 @@ def _add_worker():
                                     result = {'error': 'Database integrity error.'}
                                     task_processed = True
                             except Exception as e:
-                                result = {'error': str(e)}
+                                error_msg = str(e) or f'{type(e).__name__} (no message)'
+                                try:
+                                    from .error_logger import log_error
+                                    log_error(url, error_msg, series_title=title)
+                                except Exception:
+                                    pass
+                                try:
+                                    from .failed_sources_logger import log_failed_source
+                                    log_failed_source(title, url)
+                                except Exception:
+                                    pass
+                                result = {'error': error_msg}
                                 task_processed = True
 
                 elif is_atsu:
@@ -575,7 +608,18 @@ def _add_worker():
                                     result = {'error': 'Database integrity error.'}
                                     task_processed = True
                             except Exception as e:
-                                result = {'error': str(e)}
+                                error_msg = str(e) or f'{type(e).__name__} (no message)'
+                                try:
+                                    from .error_logger import log_error
+                                    log_error(url, error_msg, series_title=title)
+                                except Exception:
+                                    pass
+                                try:
+                                    from .failed_sources_logger import log_failed_source
+                                    log_failed_source(title, url)
+                                except Exception:
+                                    pass
+                                result = {'error': error_msg}
                                 task_processed = True
 
                 elif is_asura:
@@ -710,7 +754,18 @@ def _add_worker():
                                     result = {'error': 'Database integrity error.'}
                                     task_processed = True
                             except Exception as e:
-                                result = {'error': str(e)}
+                                error_msg = str(e) or f'{type(e).__name__} (no message)'
+                                try:
+                                    from .error_logger import log_error
+                                    log_error(url, error_msg, series_title=title)
+                                except Exception:
+                                    pass
+                                try:
+                                    from .failed_sources_logger import log_failed_source
+                                    log_failed_source(title, url)
+                                except Exception:
+                                    pass
+                                result = {'error': error_msg}
                                 task_processed = True
 
             except Exception as e:
