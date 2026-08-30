@@ -317,11 +317,19 @@ def set_primary_source(series_id, source_id):
         
         # Promote the selected source
         cursor.execute("""
-            UPDATE series_sources 
-            SET is_primary = 1 
+            UPDATE series_sources
+            SET is_primary = 1
             WHERE id = ? AND series_id = ?
         """, (source_id, series_id))
-        
+
+        # Keep the legacy series.source_url column in sync with the new
+        # primary - "Go to Source" and duplicate-URL detection both still
+        # read it directly and otherwise never see the change.
+        cursor.execute("SELECT source_url FROM series_sources WHERE id = ? AND series_id = ?", (source_id, series_id))
+        new_primary_url = cursor.fetchone()
+        if new_primary_url:
+            cursor.execute("UPDATE series SET source_url = ? WHERE id = ?", (new_primary_url[0], series_id))
+
         release_db(conn)
         return True
         
@@ -448,6 +456,44 @@ def delete_series_cover(cover_id, series_id):
         except:
             pass
         return None
+
+
+def save_mangadex_covers(series_id, covers):
+    """Bulk-store the full MangaDex cover gallery for a series. `covers` is
+    a list of {cover_url, volume, locale} dicts. INSERT OR IGNORE against
+    the (series_id, cover_url) unique constraint so re-fetching (e.g. a
+    second MangaDex source added later) doesn't duplicate rows."""
+    if not covers:
+        return
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        for c in covers:
+            cursor.execute("""
+                INSERT OR IGNORE INTO mangadex_covers (series_id, cover_url, volume, locale)
+                VALUES (?, ?, ?, ?)
+            """, (series_id, c.get('cover_url'), c.get('volume'), c.get('locale')))
+    finally:
+        release_db(conn)
+
+
+def get_mangadex_covers(series_id):
+    """The full MangaDex cover gallery for a series, ordered by volume where
+    possible (non-numeric volumes - specials, TBD, etc. - sort first)."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, cover_url, volume, locale
+        FROM mangadex_covers
+        WHERE series_id = ?
+        ORDER BY CAST(volume AS REAL) ASC, id ASC
+    """, (series_id,))
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [
+        {'id': row[0], 'cover_url': row[1], 'volume': row[2], 'locale': row[3]}
+        for row in rows
+    ]
 
 
 def get_custom_tags():
@@ -630,6 +676,24 @@ def init_db():
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_covers_series ON series_covers(series_id)")
+
+    # The full MangaDex cover gallery (one entry per volume/locale variant,
+    # not just the single cover_url the tracker normally picks) - fetched
+    # automatically whenever a MangaDex source is added, so the Series
+    # Settings cover picker can offer every variant.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mangadex_covers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            cover_url TEXT NOT NULL,
+            volume TEXT,
+            locale TEXT,
+            fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE,
+            UNIQUE(series_id, cover_url)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_mangadex_covers_series ON mangadex_covers(series_id)")
 
     # User-defined tags (distinct from the scraped `genres` column) -- a
     # shared, reusable vocabulary the user builds up from the Series Settings

@@ -633,10 +633,18 @@ def api_add_source(series_id):
         new_metadata = None
 
         if source_type == 'mangadex':
-            from .trackers.mangadex import extract_manga_id, get_manga_info_with_anilist
+            from .trackers.mangadex import extract_manga_id, get_manga_info_with_anilist, get_all_covers
             manga_id = extract_manga_id(source_url)
             if manga_id:
                 new_metadata = get_manga_info_with_anilist(manga_id)
+                # Best-effort: grab the full MangaDex cover gallery for the
+                # Series Settings cover picker - not fetching this
+                # shouldn't fail adding the source itself.
+                try:
+                    from .database import save_mangadex_covers
+                    save_mangadex_covers(series_id, get_all_covers(manga_id))
+                except Exception as cov_err:
+                    print(f"[Add Source] Failed to fetch MangaDex cover gallery: {cov_err}")
         elif source_type == 'kagane':
             from .trackers.kagane import extract_series_id, get_series_info
             kagane_id = extract_series_id(source_url)

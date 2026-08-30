@@ -184,6 +184,49 @@ def get_manga_info_with_anilist(manga_id):
 
     return md_data
 
+def get_all_covers(manga_id):
+    """Fetch every cover art variant for a manga (one per volume/locale,
+    the same set MangaDex's own "Art" tab shows) - not just the single one
+    get_manga_info() picks. Paginated the same way get_latest_chapters() is,
+    since some long-running series have well over 100 volume covers.
+    Raises on a genuine fetch failure; caller treats this as optional/
+    best-effort and should catch accordingly.
+    """
+    page_size = 100
+    offset = 0
+    covers = []
+
+    while True:
+        params = {
+            'manga[]': manga_id,
+            'limit': page_size,
+            'offset': offset,
+            'order[volume]': 'asc'
+        }
+        resp = _delayed_get("https://api.mangadex.org/cover", params=params)
+        if resp.status_code != 200:
+            raise Exception(f"MangaDex cover list returned HTTP {resp.status_code} for manga {manga_id}")
+
+        payload = resp.json()
+        data = payload.get('data', [])
+        for item in data:
+            attrs = item.get('attributes', {})
+            filename = attrs.get('fileName')
+            if not filename:
+                continue
+            covers.append({
+                'cover_url': f"https://uploads.mangadex.org/covers/{manga_id}/{filename}",
+                'volume': attrs.get('volume'),
+                'locale': attrs.get('locale')
+            })
+
+        total = payload.get('total', len(data))
+        offset += len(data)
+        if len(data) < page_size or offset >= total:
+            break
+
+    return covers
+
 def get_latest_chapters(manga_id, limit=100):
     """
     Fetch all chapters for a manga, paginating through MangaDex's per-manga

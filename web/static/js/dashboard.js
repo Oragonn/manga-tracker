@@ -187,6 +187,14 @@ let currentSeriesSourcesPromise = null;
 // can be prepended without waiting on another round-trip to the server.
 let currentSeriesUploadsPromise = null;
 let currentSeriesUploadsCache = [];
+// The full MangaDex cover gallery (every volume/locale variant), fetched
+// automatically when a MangaDex source was added - same await-a-promise
+// pattern as sources/uploads above, no separate fetch needed in the menu.
+let currentSeriesMangadexCoversPromise = null;
+// Which page of 4 gallery covers is currently showing - reset whenever a
+// series' modal (re)opens so it doesn't carry over between series.
+let mangadexCoverPage = 0;
+const MANGADEX_COVERS_PER_PAGE = 4;
 // Aggregate chapter count shown next to the source name in the Source
 // selector -- we don't track a per-source chapter count, so this is the
 // series-wide latest_chapter as a reasonable stand-in.
@@ -321,6 +329,12 @@ function openEditModal(series) {
 			currentSeriesUploadsCache = [];
 			return currentSeriesUploadsCache;
 		});
+
+	mangadexCoverPage = 0;
+	currentSeriesMangadexCoversPromise = fetch(`/api/series/${series.id}/mangadex-covers`)
+		.then(r => r.json())
+		.then(data => data.covers || [])
+		.catch(() => []);
 
 	Promise.all([
 		fetch('/api/custom-tags').then(r => r.json()).catch(() => []),
@@ -2613,6 +2627,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('settings-cover-menu')?.classList.remove('hidden');
 		document.getElementById('settings-cover-col')?.classList.add('cover-menu-open');
 		renderCoverSourceList();
+		renderMangadexCoversList();
 		renderCoverUploadsList();
 	}
 
@@ -2706,6 +2721,54 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		list.querySelectorAll('.settings-cover-source-thumb').forEach(thumb => {
 			thumb.addEventListener('click', () => applyPendingCover(thumb.dataset.coverUrl));
+		});
+	}
+
+	async function renderMangadexCoversList() {
+		const list = document.getElementById('settings-cover-mangadex-list');
+		if (!list) return;
+		list.innerHTML = '<p class="settings-cover-menu-empty">Loading…</p>';
+		const covers = currentSeriesMangadexCoversPromise ? await currentSeriesMangadexCoversPromise : [];
+
+		if (covers.length === 0) {
+			list.innerHTML = '<p class="settings-cover-menu-empty">No MangaDex source linked (or its gallery hasn\'t been fetched yet).</p>';
+			return;
+		}
+
+		const totalPages = Math.ceil(covers.length / MANGADEX_COVERS_PER_PAGE);
+		if (mangadexCoverPage < 0 || mangadexCoverPage >= totalPages) mangadexCoverPage = 0;
+		const start = mangadexCoverPage * MANGADEX_COVERS_PER_PAGE;
+		const pageCovers = covers.slice(start, start + MANGADEX_COVERS_PER_PAGE);
+
+		const thumbsHtml = pageCovers.map(c => {
+			const label = c.volume ? `Vol. ${c.volume}` : 'No volume';
+			return `
+				<img src="${escapeHtml(c.cover_url)}" class="settings-cover-source-thumb"
+					data-cover-url="${escapeHtml(c.cover_url)}" referrerpolicy="no-referrer"
+					title="${escapeHtml(label)}${c.locale ? ` (${escapeHtml(c.locale)})` : ''}" />
+			`;
+		}).join('');
+
+		list.innerHTML = `
+			<div class="mangadex-cover-carousel">
+				<div class="mangadex-cover-page">${thumbsHtml}</div>
+				<button type="button" class="mangadex-cover-arrow mangadex-cover-arrow-prev" id="mangadex-cover-prev" title="Previous">‹</button>
+				<button type="button" class="mangadex-cover-arrow mangadex-cover-arrow-next" id="mangadex-cover-next" title="Next">›</button>
+			</div>
+			${totalPages > 1 ? `<p class="mangadex-cover-counter">Page ${mangadexCoverPage + 1} / ${totalPages}</p>` : ''}
+		`;
+
+		list.querySelectorAll('.settings-cover-source-thumb').forEach(thumb => {
+			thumb.addEventListener('click', () => applyPendingCover(thumb.dataset.coverUrl));
+		});
+		// Wraparound in both directions - left from page 1 shows the last page.
+		document.getElementById('mangadex-cover-prev')?.addEventListener('click', () => {
+			mangadexCoverPage = (mangadexCoverPage - 1 + totalPages) % totalPages;
+			renderMangadexCoversList();
+		});
+		document.getElementById('mangadex-cover-next')?.addEventListener('click', () => {
+			mangadexCoverPage = (mangadexCoverPage + 1) % totalPages;
+			renderMangadexCoversList();
 		});
 	}
 

@@ -1529,6 +1529,59 @@ html {
   border-color: rgb(2, 60, 191);
 }
 
+/* #settings-cover-mangadex-list reuses .settings-cover-source-list's grid
+   styling (display:flex) for the thumbnails, but the carousel + page
+   counter below it need to stack vertically, not sit side by side as
+   flex items - override back to block just for this one list. */
+#settings-cover-mangadex-list {
+  display: block;
+}
+
+.mangadex-cover-carousel {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.mangadex-cover-page {
+  display: flex;
+  gap: 8px;
+}
+
+.mangadex-cover-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  cursor: pointer;
+  font-size: 26px;
+  line-height: 1;
+  padding: 4px;
+  z-index: 2;
+}
+
+.mangadex-cover-arrow:hover {
+  color: white;
+}
+
+.mangadex-cover-arrow-prev {
+  left: -10px;
+}
+
+.mangadex-cover-arrow-next {
+  right: -10px;
+}
+
+.mangadex-cover-counter {
+  text-align: center;
+  color: #64748b;
+  font-size: 11px;
+  margin: 6px 0 0;
+}
+
 .settings-cover-upload-item {
   position: relative;
   width: 50px;

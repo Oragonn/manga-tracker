@@ -19,7 +19,7 @@ from .database import (
     get_db,
     release_db
 )
-from .trackers.mangadex import extract_manga_id, get_manga_info_with_anilist, get_latest_chapters
+from .trackers.mangadex import extract_manga_id, get_manga_info_with_anilist, get_latest_chapters, get_all_covers
 from .scheduler import MangaScheduler
 
 # === Request Queue System ===
@@ -246,7 +246,18 @@ def _add_worker():
                                 """, (latest_ch, latest_release, len(chapters_to_save), series_id))
                             release_db(conn)
                             result = {'id': series_id, 'success': True}
-                            
+
+                            # Best-effort: grab the full MangaDex cover
+                            # gallery (every volume/locale variant) for the
+                            # Series Settings cover picker. Not fetching
+                            # this shouldn't fail the add itself.
+                            try:
+                                covers = get_all_covers(manga_id)
+                                from .database import save_mangadex_covers
+                                save_mangadex_covers(series_id, covers)
+                            except Exception as cov_err:
+                                print(f"[Add Series] Failed to fetch MangaDex cover gallery: {cov_err}")
+
                             # Logging
                             try:
                                 log_activity(
@@ -971,10 +982,14 @@ def api_series():
     # ADD available_chapters sorting logic
     if sort_order == 'unread_first':
         inverted_dir = 'asc' if effective_dir == 'desc' else 'desc'
+        # latest_release applies within BOTH groups (unread and caught-up),
+        # not just the unread one - the old CASE...END with no ELSE made it
+        # NULL for every caught-up row, so that group silently fell through
+        # to the title tiebreaker instead of being date-sorted too.
         order_by = f"""
         ORDER BY
           (COALESCE(latest_chapter, -1) > current_chapter) DESC,
-          CASE WHEN (COALESCE(latest_chapter, -1) > current_chapter) THEN latest_release END {inverted_dir.upper()},
+          latest_release {inverted_dir.upper()},
           title ASC
         """
     elif sort_order == 'latest_release':
@@ -1299,6 +1314,14 @@ def api_get_uploaded_covers(series_id):
     cover picker can offer them again without re-uploading."""
     from .database import get_series_covers
     return jsonify({'covers': get_series_covers(series_id)})
+
+
+@app.route('/api/series/<int:series_id>/mangadex-covers')
+def api_get_mangadex_covers(series_id):
+    """The full MangaDex cover gallery (every volume/locale variant) fetched
+    when a MangaDex source was added, for the Series Settings cover picker."""
+    from .database import get_mangadex_covers
+    return jsonify({'covers': get_mangadex_covers(series_id)})
 
 
 @app.route('/api/series/<int:series_id>/uploaded-covers/<int:cover_id>', methods=['DELETE'])

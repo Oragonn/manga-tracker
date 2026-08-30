@@ -234,6 +234,7 @@ class MangaScheduler:
             
             all_chapters = []
             successful_sources = 0
+            sources_reached = 0  # fetch didn't raise, whether or not it returned chapters
 
             # Fetch chapters from all sources concurrently instead of one at a
             # time -- each source is an independent network call, and the
@@ -263,6 +264,7 @@ class MangaScheduler:
                         record_source_success(source['id'])
                     except Exception:
                         pass
+                    sources_reached += 1
 
                     if chapters:
                         # Tag chapters with source info
@@ -280,10 +282,21 @@ class MangaScheduler:
             
             # *** FIX: Improved chapter merging logic ***
             if not all_chapters:
-                # No chapters found, just update last_check
                 conn = get_db()
                 try:
-                    self._update_last_check(series_id, conn)
+                    if sources_reached == 0:
+                        # Every source failed to fetch (outage, Cloudflare
+                        # block, etc.) - this says nothing about whether
+                        # chapters still exist, so don't touch them.
+                        self._update_last_check(series_id, conn)
+                    else:
+                        # At least one source was actually reached and
+                        # confirmed zero chapters - a legitimate empty
+                        # result (e.g. a source with chapters was just
+                        # removed and the remaining ones have none), not a
+                        # failure. Clear stale chapters instead of leaving
+                        # orphaned rows behind forever.
+                        self._process_chapters(series_id, [], conn)
                 finally:
                     release_db(conn)
                 return
