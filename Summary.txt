@@ -1,8 +1,8 @@
-# 📚 **Manga Tracker – Complete Project Summary (Updated August 25, 2026)**
+# 📚 **Manga Tracker – Complete Project Summary (Updated August 30, 2026)**
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane, Atsumaru, AsuraScans) with manual chapter control, automated background checking, bulk operations, activity logging with undo, automated hourly backups, multi-source support per series, a statistics dashboard with historical trends, toast notifications, and full mobile UI across all pages.
+A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane, Atsumaru, AsuraScans) with manual chapter control, automated background checking, bulk operations, activity logging with undo, automated hourly backups, multi-source support per series, a statistics dashboard with historical trends, toast notifications, full mobile UI across all pages, and (added Aug 30, 2026) a single-user login gate with CSRF/rate-limiting/XSS hardening so it can be safely reached from outside the home network via a free Cloudflare Tunnel.
 
 This file is meant to be handed to a fresh chat/assistant to resume work without re-exploring the whole codebase. It describes **current state**, not a changelog — check `git log` for history.
 
@@ -30,6 +30,9 @@ manga-tracker/
 │   ├── backup_manager.py         # Hourly database backups (backups/database/), gzip, 7-day + 2GB-cap retention
 │   ├── series_backup_manager.py  # Daily Kenmei-shaped CSV series export (backups/series_csv/), 30-day retention
 │   ├── camoufox_kagane.py        # Singleton camoufox (stealth Firefox) client for Kagane
+│   ├── auth.py                   # Login/session gate, LAN bypass, CSRF+rate-limit setup (added Aug 30, 2026)
+│   ├── auth_logger.py            # Failed-login/lockout log (logs/auth_YYYY-MM-DD.log, 30-day retention)
+│   ├── visitor_logger.py         # Non-LAN visitor IP log, deduped per-IP for 7 days (logs/visitors_YYYY-MM-DD.log)
 │   └── trackers/
 │       ├── mangadex.py           # MangaDex API integration
 │       ├── kagane.py             # Kagane scraper (camoufox-based, season-aware)
@@ -39,22 +42,27 @@ manga-tracker/
 ├── data/
 │   ├── tracker.db                # Main SQLite database
 │   └── last_errors_visit.txt     # Error badge tracking
-├── logs/                         # Error logs (7-day rotation)
+├── logs/                         # Error logs (7-day), auth log (30-day), visitor IP log (30-day)
 ├── backups/                      # Database backups (7-day retention)
+├── scripts/
+│   └── run_tunnel.py             # Runs a free Cloudflare Quick Tunnel, emails/Discord-pings the URL on change
 ├── web/
 │   ├── static/
 │   │   ├── css/style.css         # ~3170 lines, includes mobile breakpoints
 │   │   └── js/
 │   │       ├── dashboard.js      # ~5230 lines — main dashboard logic + mobile UI
-│   │       ├── notifications.js  # Toast notification system (shared across all pages)
+│   │       ├── notifications.js  # Toast notifications + shared escapeHtml()/CSRF-fetch-wrapper (shared across all pages)
 │   │       └── backups.js        # Backup management UI
 │   └── templates/
 │       ├── index.html            # Main dashboard
 │       ├── errors.html           # Error log viewer
 │       ├── logs.html             # Activity log viewer
 │       ├── backups.html          # Backup management
-│       └── stats.html            # Statistics dashboard
+│       ├── stats.html            # Statistics dashboard
+│       └── login.html            # Login page (password + show/hide eye toggle) — added Aug 30, 2026
 ├── extension/                    # Companion browser extension
+├── .env                          # Secrets (SECRET_KEY, AUTH_PASSWORD_HASH, NOTIFY_*) — gitignored, not committed
+├── .env.example                  # Template for .env, no real secrets
 └── requirements.txt
 ```
 
@@ -63,7 +71,9 @@ manga-tracker/
 venv\Scripts\Activate.ps1
 python -m backend.main
 ```
-Flask binds to `0.0.0.0:8080` (fixed Aug 2026 — used to be hardcoded to a specific LAN IP, which broke whenever the host machine's IP changed). Runs with `debug=True, use_reloader=False`.
+Flask binds to `0.0.0.0:8080` (fixed Aug 2026 — used to be hardcoded to a specific LAN IP, which broke whenever the host machine's IP changed). Runs with `debug=False, use_reloader=False` (changed Aug 30, 2026 — was `debug=True`, a remote-code-execution risk once the app is reachable from the internet; see Security section below). `TEMPLATES_AUTO_RELOAD` is force-enabled independently of `debug`, so Jinja template edits (`.html`) still show up on a plain refresh — only `.py` changes need a restart.
+
+The app **will not start** without a `.env` file in the project root (copy `.env.example` to `.env` and fill it in — see the Security section). It also requires `camoufox fetch` to have been run once per machine/venv to download camoufox's actual browser binary (a separate step from `pip install`) — without it, importing `backend.trackers.kagane` raises `CamoufoxNotInstalled` and crashes the whole app at startup (not just Kagane) since `kagane_browser` is instantiated at module import time.
 
 ---
 
@@ -210,6 +220,8 @@ CREATE TABLE meta (
 
 13. **UI polish (desktop)** — back-to-top FAB (now on **every** page, not just the dashboard, as of Aug 2026), dropdown trigger arrows are SVG chevrons that rotate 180° when their menu is open (replaced a tiny "▾" text glyph), pagination buttons have real contrast against the page background (previously nearly invisible — `#0f172a` pill with visible border, muted-but-legible disabled arrows), disabled buttons (e.g. Refresh mid-refresh) now visibly dim instead of just blocking clicks, Tags dropdown menu is 1.6× the trigger's width so long tag names aren't clipped (still left-aligned to the button), middle-click support on Search/Source/Continue buttons, drag-and-drop source reordering.
 
+14. **Remote access & security** (added Aug 30, 2026) — single-user login gate with automatic LAN bypass, CSRF protection, login rate-limiting/lockout, auth + visitor IP logging, and a free Cloudflare Quick Tunnel (with email/Discord URL-change alerts) for reaching the app from outside the home network. See the dedicated Security section below for the full picture.
+
 ---
 
 ## 🔧 **Multi-Source Architecture**
@@ -235,6 +247,102 @@ A single series can track chapters from multiple sources simultaneously (e.g. Ma
 - **Volume-aware sorting** — chapters sort by volume then number; chapter picker shows "Vol.3 Ch.25".
 - **Hold-to-repeat** — +/− chapter buttons repeat after 300ms hold, every 50ms after that.
 - **Mobile long-press** — 500ms to enter bulk-select mode; >10px movement cancels it (so scrolling doesn't accidentally trigger selection).
+
+---
+
+## 🔒 **Security & Remote Access (added Aug 30, 2026)**
+
+The app is now safe to expose outside the home network — this was the main
+work of this session. Full picture for a fresh chat:
+
+**Login gate (`backend/auth.py`, `init_auth(app)` called from `main.py`)**
+- Single shared password (`AUTH_PASSWORD_HASH` env var, salted hash via
+  `werkzeug.security`, never the plaintext) via `/login` (GET form, POST
+  checks password) and `/logout`. Session cookie, 30-day lifetime.
+- A global `before_request` hook requires an authenticated session on every
+  route except `/login` and static assets — unauthenticated `/api/*` gets
+  `401` JSON, everything else redirects to `/login?next=<path>`.
+- **LAN bypass**: requests whose real socket-level `request.remote_addr` is
+  in a private range (`LAN_CIDR_RANGES` env, default
+  `192.168.0.0/16,10.0.0.0/8,172.16.0.0/12`) skip the login prompt
+  entirely — home-network use is unchanged from before this feature.
+  **Loopback (127.0.0.1) is deliberately excluded from that range** — the
+  Cloudflare Tunnel (see below) connects to Flask over loopback too, so
+  including it would let every internet visitor skip login. This is also
+  why `_LanAwareSessionInterface` in `auth.py` only marks the session
+  cookie `Secure` for non-LAN requests: Flask never terminates TLS itself,
+  so a `Secure` cookie is silently dropped by strict browsers (Chrome/Brave)
+  on plain-HTTP LAN access — this broke login/CSRF on Brave until fixed.
+- CSRF via `Flask-WTF`'s `CSRFProtect` on all state-changing requests.
+  Token is exposed as `<meta name="csrf-token">` and auto-attached as an
+  `X-CSRFToken` header by a `fetch()` wrapper in `notifications.js` — no
+  need to touch individual `fetch()` call sites in `dashboard.js`/`backups.js`.
+- Rate limiting via `Flask-Limiter`: 5 login attempts / 15 min per IP, then
+  locked out (password not even checked) until the window passes.
+- `backend/auth_logger.py` logs failed logins/lockouts (timestamp + IP
+  only, never the password) to `logs/auth_YYYY-MM-DD.log`, 30-day retention.
+- `backend/visitor_logger.py` logs any non-LAN visitor's IP to
+  `logs/visitors_YYYY-MM-DD.log`, deduped so the same IP only logs once per
+  7 days. Since tunnel traffic hits Flask over loopback, the real visitor
+  IP is read from the `Cf-Connecting-Ip` header (Cloudflare sets this;
+  falls back to `X-Forwarded-For` then `remote_addr`) — **only used for
+  this log line, never for the LAN-bypass/auth decision**, which still
+  trusts only the real socket address.
+
+**Path traversal fix** — `/api/backups/download/<filename>` and
+`/api/backups/restore/<filename>` (`backend/main.py`) used to pass the URL's
+`filename` straight into `os.path.join()` with no validation; on Windows a
+segment like `..\..\..\.env` has no forward slash so Flask's router let it
+through, which could leak `.env` (i.e. `SECRET_KEY`) or corrupt the DB via
+restore. Fixed with `_is_safe_db_backup_filename()`, a strict regex
+matching only the real generated filename shapes
+(`tracker_backup_YYYYMMDD_HHMMSS.db.gz`, `safety_before_restore_<unix>.db.gz`).
+
+**XSS fixes (`dashboard.js`, `backups.js`, `notifications.js`)** — series
+titles, tag names, source/cover/chapter URLs, and backup filenames are all
+sourced from external trackers or (for URLs) pasted by the user, and were
+being inserted into `innerHTML` unescaped. Added a shared `escapeHtml()` in
+`notifications.js` (global — loaded before `dashboard.js`/`backups.js` on
+every page) and applied it at every interpolation point; `showNotification()`
+escapes its message up front, which covers most call sites for free. Also
+replaced two `onclick="window.open('${url}', '_blank')"` spots (quote-
+breakout risk, worse than plain HTML injection) with the safer
+`data-url` + `addEventListener` pattern already used elsewhere in the file,
+and added `isSafeUrl()` (only allows `http(s)://`) gating every `href` and
+`window.open()` call built from external-source data, to block a
+`javascript:` URI from a malicious/compromised tracked source.
+
+**Remote access: Cloudflare Quick Tunnel (`scripts/run_tunnel.py`)** — no
+domain/Cloudflare account needed (owner has neither and doesn't want to
+pay). `cloudflared tunnel --url http://localhost:8080` (cloudflared
+installed via `winget install Cloudflare.cloudflared`) issues a random
+`https://<random>.trycloudflare.com` URL that changes every time the
+tunnel process restarts. The script watches cloudflared's output for the
+URL, writes it to `logs/tunnel_current_url.txt`, and notifies the owner via:
+- Email (`NOTIFY_GMAIL_ADDRESS`/`NOTIFY_GMAIL_APP_PASSWORD` env vars, Gmail
+  SMTP with an App Password, never the real account password)
+- Discord webhook (`NOTIFY_DISCORD_WEBHOOK_URL` env var, optional
+  `NOTIFY_DISCORD_USER_ID` to actually `@`-ping, not just post)
+
+Both are optional/independent — missing env vars just skip that channel
+with a log line, tunnel keeps running either way. This machine is the
+owner's dev/test box, **not** the intended long-term server — when this
+moves to a real always-on machine later, generate fresh `SECRET_KEY`/
+`AUTH_PASSWORD_HASH` there rather than copying this machine's `.env`, and
+that's where the Windows Scheduled Task (auto-start `run_tunnel.py` at
+logon, restart on failure) actually belongs.
+
+**Required `.env` keys** (see `.env.example` for the generation commands):
+`SECRET_KEY`, `AUTH_PASSWORD_HASH`. Optional: `LAN_CIDR_RANGES`,
+`NOTIFY_GMAIL_ADDRESS`/`NOTIFY_GMAIL_APP_PASSWORD`/`NOTIFY_GMAIL_TO`,
+`NOTIFY_DISCORD_WEBHOOK_URL`/`NOTIFY_DISCORD_USER_ID`. `.env` is gitignored;
+`.env.example` holds only placeholders and is safe to commit.
+
+A `/security-review` pass on the full diff found no confirmed high/medium
+vulnerabilities beyond what's already described above (two candidates —
+an unvalidated `next` redirect param and a same-origin check gap in the
+CSRF fetch wrapper — were investigated and filtered out as not currently
+exploitable).
 
 ---
 
@@ -288,5 +396,9 @@ separately). No paid Turnstile-solving service was needed or added.
 ## 📝 **Notes for a fresh chat**
 - The database (`data/tracker.db`) may be wiped/reset between sessions — always sanity check row counts before assuming data exists (`SELECT COUNT(*) FROM series`).
 - If the server fails to start with a Windows socket error ("address not valid in its context" or similar), check `backend/api.py`'s `app.run(host=...)` — it should be `0.0.0.0`, not a hardcoded IP.
+- If the server fails to start with `RuntimeError: SECRET_KEY environment variable is not set` (or `AUTH_PASSWORD_HASH`), `.env` is missing/incomplete — see the Security section and `.env.example`.
+- If it crashes at import time with `CamoufoxNotInstalled`, run `camoufox fetch` once in the venv (separate from `pip install`, downloads the actual browser binary) — unrelated to the security work, just a per-machine one-time setup step.
 - Don't use `alert()`/`confirm()` for new UI feedback — use the existing toast system in `notifications.js` to stay consistent.
-- This project has no build step — CSS/JS are edited directly and served as static files; a hard refresh (or cache-busted reload) may be needed to see changes in a browser that already cached the old stylesheet/script.
+- Any new text inserted into `innerHTML` from series/tag/source data (i.e. anything not a hardcoded string) must go through `escapeHtml()` (global, defined in `notifications.js`) — see the Security section for why.
+- This project has no build step — CSS/JS are edited directly and served as static files; a hard refresh (or cache-busted reload) may be needed to see changes in a browser that already cached the old stylesheet/script. Template (`.html`) edits auto-reload on a plain refresh now; `.py` edits still need a server restart.
+- When testing locally with multiple `python -m backend.main` starts in a row, check `netstat -ano | findstr :8080` (or `Get-NetTCPConnection -LocalPort 8080` in PowerShell) before assuming only one instance is running — stray background processes from earlier test runs are easy to leave behind and will silently serve stale code.
