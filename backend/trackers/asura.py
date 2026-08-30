@@ -69,7 +69,11 @@ def get_series_info(slug):
         series_resp = _delayed_get(f"{API_BASE}/series/{slug}")
         if series_resp.status_code != 200:
             raise Exception(f"AsuraScans API returned HTTP {series_resp.status_code} for series {slug}")
-        s = series_resp.json().get('series')
+        # Normally {"series": {...}} at the top level, but AsuraScans
+        # serves at least dropped/delisted series wrapped an extra level
+        # deep as {"data": {"series": {...}}} instead - check both shapes.
+        payload = series_resp.json()
+        s = payload.get('series') or (payload.get('data') or {}).get('series')
         if not s:
             raise Exception(f"AsuraScans API returned no series data for {slug}")
 
