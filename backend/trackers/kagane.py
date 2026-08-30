@@ -129,90 +129,46 @@ def get_series_info(series_id):
 
     chapters = []
     books_sorted = sorted(books, key=lambda x: x.get('number_sort', 0))
-    
-    # *** NEW: Track season info to calculate offsets ***
-    season_info = {}  # season_num -> {'first_ch': float, 'last_ch': float, 'count': int}
-    season_chapters = {}  # season_num -> [chapter_dicts]
-    
-    # First pass: Group chapters by season and find ranges
-    for book in books_sorted:
-        title = book.get('title', 'Untitled')
-        season_num, chapter_num = _extract_season_and_chapter(title)
-        
-        # Treat None (no season marker) as Season 1
-        if season_num is None:
-            season_num = 1
-        
-        if chapter_num is None:
-            # Special chapter - we'll handle this later
-            continue
-        
-        if season_num not in season_info:
-            season_info[season_num] = {
-                'first_ch': chapter_num,
-                'last_ch': chapter_num,
-                'count': 0
-            }
-            season_chapters[season_num] = []
-        
-        # Update season range
-        season_info[season_num]['first_ch'] = min(season_info[season_num]['first_ch'], chapter_num)
-        season_info[season_num]['last_ch'] = max(season_info[season_num]['last_ch'], chapter_num)
-        season_info[season_num]['count'] += 1
-        
-        season_chapters[season_num].append({
-            'book': book,
-            'title': title,
-            'season': season_num,
-            'chapter': chapter_num
-        })
-    
-    # *** NEW: Calculate offsets for each season ***
-    # Season 1 offset = 0
-    # Season 2 offset = last chapter of Season 1
-    # Season 3 offset = last chapter of Season 2, etc.
-    season_offsets = {1: 0}
-    sorted_seasons = sorted(season_info.keys())
-    
-    for i, season_num in enumerate(sorted_seasons):
-        if i == 0:
-            continue  # Season 1 always has offset 0
-        
-        prev_season = sorted_seasons[i - 1]
-        # Offset = previous season's offset + previous season's last chapter
-        season_offsets[season_num] = season_offsets[prev_season] + season_info[prev_season]['last_ch']
-    
-    print(f"[Kagane] Detected {len(sorted_seasons)} season(s):")
-    for season_num in sorted_seasons:
-        info = season_info[season_num]
-        offset = season_offsets.get(season_num, 0)
-        print(f"  Season {season_num}: Ch.{info['first_ch']}-{info['last_ch']} ({info['count']} chapters) -> Offset: +{offset}")
-    
-    # Second pass: Create final chapter list with offsets
+
+    # Kagane labels chapters with a season marker in the title purely as a
+    # descriptor (e.g. "Episode 133 (Season 3 Finale)") - numbering does
+    # NOT reset per season on Kagane itself (verified live: that exact
+    # "finale" chapter is immediately followed by Episode 134, no reset).
+    # Assuming every season boundary is a reset and pre-summing offsets
+    # from labeled season buckets double-counted an already-continuous
+    # number (e.g. produced chapter 280 for what Kagane itself calls
+    # Episode 133). Instead, only apply an offset when the raw number
+    # actually drops compared to the previous chapter in reading order -
+    # correct whether or not a given series' numbering happens to reset.
+    running_offset = 0.0
+    prev_raw = None
     last_real_chapter = 0.0
-    
+
     for book in books_sorted:
         title = book.get('title', 'Untitled')
-        season_num, chapter_num = _extract_season_and_chapter(title)
-        
-        if season_num is None:
-            season_num = 1
-        
-        if chapter_num is not None:
-            # Apply offset
-            offset = season_offsets.get(season_num, 0)
-            final_chapter_num = offset + chapter_num
+        _, raw_chapter_num = _extract_season_and_chapter(title)
+
+        if raw_chapter_num is not None:
+            if prev_raw is not None and raw_chapter_num < prev_raw:
+                # Numbering actually went backwards - a genuine reset.
+                # Carry the peak reached so far forward as the new base.
+                running_offset += prev_raw
+                print(f"[Kagane] Detected a numbering reset before \"{title}\" "
+                      f"({raw_chapter_num} after {prev_raw}) - offset now +{running_offset}")
+            final_chapter_num = running_offset + raw_chapter_num
+            prev_raw = raw_chapter_num
             last_real_chapter = final_chapter_num
         else:
-            # Special chapter - assign incremental decimal
+            # Special chapter (no parseable number) - assign an
+            # incremental decimal right after the last real chapter.
             base = last_real_chapter
             proposed_num = base + 0.01
             if chapters and chapters[-1]['chapter_number'] >= proposed_num:
                 proposed_num = chapters[-1]['chapter_number'] + 0.01
             final_chapter_num = round(proposed_num, 2)
-        
+
         chapter_url = f"https://kagane.to/series/{series_id}/reader/{book['id']}"
-        
+
         chapters.append({
             'chapter_number': final_chapter_num,
             'title': title,
@@ -220,10 +176,11 @@ def get_series_info(series_id):
             'chapter_url': chapter_url,
             'is_oneshot': False
         })
-    
+
     chapters.sort(key=lambda x: x['chapter_number'])
-    
-    print(f"[Kagane] Final chapter range: {chapters[0]['chapter_number']:.1f} - {chapters[-1]['chapter_number']:.1f} ({len(chapters)} total)")
+
+    if chapters:
+        print(f"[Kagane] Final chapter range: {chapters[0]['chapter_number']:.1f} - {chapters[-1]['chapter_number']:.1f} ({len(chapters)} total)")
 
     # Status mapping
     kagane_status = meta.get('status', '').upper()
