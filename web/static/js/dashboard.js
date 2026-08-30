@@ -1468,7 +1468,13 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 		// Create new button element
 		const newBtn = document.createElement('button');
 		newBtn.className = 'btn-next';
-		
+
+		// Avoid the autoscroll cursor on middle-click eating the auxclick
+		// handlers below (added once here since it applies to both branches).
+		newBtn.addEventListener('mousedown', (e) => {
+			if (e.button === 1) e.preventDefault();
+		});
+
 		if (sorted.length === 0) {
 			newBtn.textContent = 'No chapters';
 			newBtn.disabled = true;
@@ -1667,6 +1673,12 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 	btnSet.addEventListener('click', () => openEditModal(series));
 	
 	// *** UPDATED: Use auxclick for proper middle-click detection ***
+	// Avoid the autoscroll cursor on middle-click eating the auxclick below
+	// (same fix already used for import_kenmei.html's "All" button).
+	btnSearchGoogle.addEventListener('mousedown', (e) => {
+		if (e.button === 1) e.preventDefault();
+	});
+
 	// Search Google button - handle left-click
 	btnSearchGoogle.addEventListener('click', (e) => {
 		e.preventDefault();
@@ -1701,6 +1713,11 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 		}
 	});
 	
+	// Avoid the autoscroll cursor on middle-click eating the auxclick below.
+	btnSource.addEventListener('mousedown', (e) => {
+		if (e.button === 1) e.preventDefault();
+	});
+
 	// Go to Source button - handle left-click
 	btnSource.addEventListener('click', (e) => {
 		e.preventDefault();
