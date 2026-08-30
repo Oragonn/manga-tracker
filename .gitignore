@@ -57,8 +57,11 @@ Thumbs.db
 # Web P
 *.webp
 
-# Portable Network Graphics
+# Portable Network Graphics (excluded because web/static/uploads/ holds
+# runtime-generated covers, not source - but the app ships its own
+# placeholder.png as a real static asset, so it's carved back out below)
 *.png
+!web/static/placeholder.png
 
 # Animated Portable Network Graphics
 *.apng
