@@ -16,6 +16,7 @@ import sys
 from email.message import EmailMessage
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -64,6 +65,28 @@ def send_url_email(url):
         print(f"[run_tunnel] Failed to send notification email: {e}")
 
 
+def send_discord_notification(url):
+    webhook_url = os.environ.get("NOTIFY_DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        print("[run_tunnel] NOTIFY_DISCORD_WEBHOOK_URL not set in .env "
+              "-- skipping Discord notification, tunnel will keep running.")
+        return
+
+    user_id = os.environ.get("NOTIFY_DISCORD_USER_ID")
+    mention = f"<@{user_id}> " if user_id else ""
+
+    try:
+        resp = requests.post(
+            webhook_url,
+            json={"content": f"{mention}Manga Tracker tunnel URL changed: {url}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        print("[run_tunnel] Posted new URL to Discord webhook")
+    except Exception as e:
+        print(f"[run_tunnel] Failed to post to Discord webhook: {e}")
+
+
 def main():
     sys.stdout.reconfigure(line_buffering=True)
     cloudflared = find_cloudflared()
@@ -90,6 +113,7 @@ def main():
                 CURRENT_URL_FILE.parent.mkdir(exist_ok=True)
                 CURRENT_URL_FILE.write_text(url, encoding="utf-8")
                 send_url_email(url)
+                send_discord_notification(url)
 
     proc.wait()
     print(f"[run_tunnel] cloudflared exited with code {proc.returncode}")
