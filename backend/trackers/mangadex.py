@@ -47,7 +47,7 @@ def get_manga_info(manga_id):
     try:
         resp = _delayed_get(f"https://api.mangadex.org/manga/{manga_id}")
         if resp.status_code != 200:
-            return None
+            raise Exception(f"MangaDex API returned HTTP {resp.status_code} for manga {manga_id}")
         data = resp.json()['data']
         attrs = data['attributes']
         
@@ -79,10 +79,15 @@ def get_manga_info(manga_id):
         for rel in data['relationships']:
             if rel['type'] == 'cover_art':
                 cover_id = rel['id']
-                cover_resp = _delayed_get(f"https://api.mangadex.org/cover/{cover_id}")
-                if cover_resp.status_code == 200:
-                    filename = cover_resp.json()['data']['attributes']['fileName']
-                    cover_url = f"https://uploads.mangadex.org/covers/{manga_id}/{filename}"
+                # Cover art is a nice-to-have, not core data - a CDN hiccup
+                # here shouldn't flag the whole source as broken.
+                try:
+                    cover_resp = _delayed_get(f"https://api.mangadex.org/cover/{cover_id}")
+                    if cover_resp.status_code == 200:
+                        filename = cover_resp.json()['data']['attributes']['fileName']
+                        cover_url = f"https://uploads.mangadex.org/covers/{manga_id}/{filename}"
+                except Exception as cover_err:
+                    print(f"[MangaDex] Cover fetch failed for {manga_id}, continuing without it: {cover_err}")
                 break
 
         # === EXTRACT GENRES AND METADATA ===
@@ -129,16 +134,14 @@ def get_manga_info(manga_id):
         }
     except Exception as e:
         print(f"[MangaDex] Error fetching manga {manga_id}: {e}")
-        return None
+        raise
 
 def get_manga_info_with_anilist(manga_id):
     """
     Fetch manga info from MangaDex, then enrich with AniList if possible.
     Returns combined data.
     """
-    md_data = get_manga_info(manga_id)
-    if not md_data:
-        return None
+    md_data = get_manga_info(manga_id)  # raises on real failure, no None case anymore
 
     # Try AniList enrichment
     try:
@@ -190,12 +193,13 @@ def get_latest_chapters(manga_id, limit=100):
     chapter has been retrieved. `limit` is kept as a parameter for backward
     compatibility but is no longer used to truncate results.
     """
-    try:
-        page_size = 500
-        offset = 0
-        chapters = []
-        seen = set()
+    page_size = 500
+    offset = 0
+    chapters = []
+    seen = set()
+    first_page = True
 
+    try:
         while True:
             params = {
                 'translatedLanguage[]': ['en'],
@@ -204,9 +208,22 @@ def get_latest_chapters(manga_id, limit=100):
                 'limit': page_size,
                 'offset': offset
             }
-            resp = _delayed_get(f"https://api.mangadex.org/manga/{manga_id}/feed", params=params)
-            if resp.status_code != 200:
+            # Only the first page failing counts as "this source is broken" -
+            # a later page failing mid-pagination (rare, very long series)
+            # just stops early and keeps whatever was already collected,
+            # rather than discarding real progress.
+            try:
+                resp = _delayed_get(f"https://api.mangadex.org/manga/{manga_id}/feed", params=params)
+            except Exception:
+                if first_page:
+                    raise
+                print(f"[MangaDex] Pagination request failed for {manga_id}, keeping partial results")
                 break
+            if resp.status_code != 200:
+                if first_page:
+                    raise Exception(f"MangaDex chapter feed returned HTTP {resp.status_code} for manga {manga_id}")
+                break
+            first_page = False
 
             payload = resp.json()
             data = payload.get('data', [])
@@ -260,5 +277,5 @@ def get_latest_chapters(manga_id, limit=100):
         return chapters
     except Exception as e:
         print(f"[MangaDex] Failed to fetch chapters for {manga_id}: {e}")
-        return []
+        raise
     

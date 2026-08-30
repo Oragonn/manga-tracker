@@ -244,6 +244,8 @@ class MangaScheduler:
                     executor.submit(self._fetch_source_chapters, source): source
                     for source in sources
                 }
+                from .database import record_source_success, record_source_failure
+
                 for future in concurrent.futures.as_completed(future_to_source):
                     source = future_to_source[future]
                     source_type = source['source_type']
@@ -251,7 +253,16 @@ class MangaScheduler:
                         chapters = future.result()
                     except Exception as source_error:
                         print(f"[Scheduler] Error fetching from {source_type}: {source_error}")
+                        try:
+                            record_source_failure(source['id'], str(source_error))
+                        except Exception:
+                            pass
                         continue
+
+                    try:
+                        record_source_success(source['id'])
+                    except Exception:
+                        pass
 
                     if chapters:
                         # Tag chapters with source info

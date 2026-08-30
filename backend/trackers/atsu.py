@@ -62,7 +62,9 @@ def get_series_info(manga_id):
     no browser automation needed). Returns a dict shaped like
     kagane.get_series_info's return value:
     {title, cover_url, status, chapters, alt_titles, genres, content_rating, source_type}
-    or None on failure.
+    Raises on a genuine fetch failure (network error, bad status, missing
+    body) so callers - the scheduler in particular - can tell "broken" from
+    "legitimately nothing new" instead of getting None for both.
     """
     if not manga_id:
         raise ValueError("manga_id is required")
@@ -70,11 +72,14 @@ def get_series_info(manga_id):
     try:
         page_resp = _delayed_get("https://atsu.moe/api/manga/page", params={'id': manga_id})
         if page_resp.status_code != 200:
-            return None
+            raise Exception(f"Atsumaru API returned HTTP {page_resp.status_code} for manga {manga_id}")
         mp = page_resp.json().get('mangaPage')
         if not mp:
-            return None
+            raise Exception(f"Atsumaru API returned no mangaPage for {manga_id}")
 
+        # The chapter list is a secondary call - if it fails, fall back to
+        # whatever's embedded in the page response rather than treating the
+        # whole source as broken (metadata itself already succeeded).
         chapters_resp = _delayed_get("https://atsu.moe/api/manga/allChapters", params={'mangaId': manga_id})
         raw_chapters = chapters_resp.json().get('chapters', []) if chapters_resp.status_code == 200 else mp.get('chapters', [])
 
@@ -170,4 +175,4 @@ def get_series_info(manga_id):
         }
     except Exception as e:
         print(f"[Atsumaru] Error fetching manga {manga_id}: {e}")
-        return None
+        raise

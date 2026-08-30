@@ -582,6 +582,16 @@ def api_download_series_backup(filename):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/source-health')
+def api_source_health():
+    """Sources with 3+ consecutive scheduler-scan failures, for the
+    dashboard's source-health indicator (btn-source-alert)."""
+    from .database import get_unhealthy_sources
+    sources = get_unhealthy_sources(threshold=3)
+    series_count = len({s['series_id'] for s in sources})
+    return jsonify({'count': series_count, 'sources': sources})
+
+
 @app.route('/api/series/<int:series_id>/sources')
 def api_get_sources(series_id):
     """Get all sources for a series."""

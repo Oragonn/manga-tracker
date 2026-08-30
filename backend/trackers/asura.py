@@ -54,7 +54,9 @@ def get_series_info(slug):
     no browser automation needed). Returns a dict shaped like
     atsu.get_series_info's return value:
     {title, cover_url, status, chapters, alt_titles, genres, content_rating, source_type}
-    or None on failure.
+    Raises on a genuine fetch failure (network error, bad status, missing
+    body) so callers - the scheduler in particular - can tell "broken" from
+    "legitimately nothing new" instead of getting None for both.
 
     Premium/early-access chapters (is_premium) are dropped immediately and
     never turned into stored chapter rows -- they aren't freely readable, so
@@ -66,10 +68,10 @@ def get_series_info(slug):
     try:
         series_resp = _delayed_get(f"{API_BASE}/series/{slug}")
         if series_resp.status_code != 200:
-            return None
+            raise Exception(f"AsuraScans API returned HTTP {series_resp.status_code} for series {slug}")
         s = series_resp.json().get('series')
         if not s:
-            return None
+            raise Exception(f"AsuraScans API returned no series data for {slug}")
 
         # The API accepts either the plain slug or the hash-suffixed public
         # one, but the series' own 'slug'/'public_url' are the canonical
@@ -77,6 +79,9 @@ def get_series_info(slug):
         canonical_slug = s.get('slug') or slug
         public_url = s.get('public_url') or f"/comics/{slug}"
 
+        # The chapter list is a secondary call - if it fails, keep going with
+        # empty chapters rather than treating the whole source as broken
+        # (metadata itself already succeeded).
         chapters_resp = _delayed_get(f"{API_BASE}/series/{canonical_slug}/chapters")
         raw_chapters = []
         if chapters_resp.status_code == 200:
@@ -141,4 +146,4 @@ def get_series_info(slug):
         }
     except Exception as e:
         print(f"[AsuraScans] Error fetching series {slug}: {e}")
-        return None
+        raise

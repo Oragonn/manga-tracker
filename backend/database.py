@@ -105,6 +105,11 @@ def migrate_to_multi_source():
             if "cover_url" not in existing_columns:
                 cursor.execute("ALTER TABLE series_sources ADD COLUMN cover_url TEXT")
                 print("[Migration] Added cover_url column to series_sources")
+            if "consecutive_failures" not in existing_columns:
+                cursor.execute("ALTER TABLE series_sources ADD COLUMN consecutive_failures INTEGER DEFAULT 0")
+                cursor.execute("ALTER TABLE series_sources ADD COLUMN last_error TEXT")
+                cursor.execute("ALTER TABLE series_sources ADD COLUMN last_failure_at DATETIME")
+                print("[Migration] Added source-health columns to series_sources")
             print("[Migration] Multi-source tables already exist, skipping migration")
             release_db(conn)
             return
@@ -122,6 +127,9 @@ def migrate_to_multi_source():
                 cover_url TEXT,
                 last_check DATETIME,
                 added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                consecutive_failures INTEGER DEFAULT 0,
+                last_error TEXT,
+                last_failure_at DATETIME,
                 FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
             )
         """)
@@ -198,6 +206,71 @@ def get_series_sources(series_id):
         })
     
     return sources
+
+
+def record_source_failure(source_id, error_msg):
+    """Bumps a source's consecutive-failure streak - called by the
+    scheduler when a source's fetch raises. Feeds the dashboard's
+    source-health indicator; doesn't touch the series-level last_check,
+    which keeps advancing even while this one source is broken."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE series_sources
+            SET consecutive_failures = consecutive_failures + 1,
+                last_error = ?,
+                last_failure_at = ?
+            WHERE id = ?
+        """, (str(error_msg)[:500], datetime.now(timezone.utc).isoformat(), source_id))
+    finally:
+        release_db(conn)
+
+
+def record_source_success(source_id):
+    """Resets a source's failure streak - called whenever its fetch
+    succeeds, including a legitimate zero-new-chapters result (that's not
+    a failure, just nothing new)."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE series_sources
+            SET consecutive_failures = 0, last_error = NULL, last_failure_at = NULL
+            WHERE id = ?
+        """, (source_id,))
+    finally:
+        release_db(conn)
+
+
+def get_unhealthy_sources(threshold=3):
+    """Sources with >= threshold consecutive failures, joined with their
+    series' title - backs the dashboard's source-health dropdown."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT ss.id, ss.series_id, s.title, ss.source_type, ss.source_url,
+               ss.consecutive_failures, ss.last_error, ss.last_failure_at
+        FROM series_sources ss
+        JOIN series s ON s.id = ss.series_id
+        WHERE ss.consecutive_failures >= ?
+        ORDER BY ss.consecutive_failures DESC, ss.last_failure_at DESC
+    """, (threshold,))
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [
+        {
+            'source_id': r[0],
+            'series_id': r[1],
+            'series_title': r[2],
+            'source_type': r[3],
+            'source_url': r[4],
+            'consecutive_failures': r[5],
+            'last_error': r[6],
+            'last_failure_at': r[7]
+        }
+        for r in rows
+    ]
 
 
 def get_all_series_for_backup():

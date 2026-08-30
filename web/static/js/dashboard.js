@@ -1855,6 +1855,65 @@ function renderPagination(current, total, status, sort) {
 	paginationBottom.appendChild(renderNav());
 }
 
+// Fetch and render the source-health indicator (btn-source-alert): lights
+// up with a count of series that have a source stuck failing 3+ scheduler
+// scans in a row.
+let sourceHealthList = [];
+const SOURCE_HEALTH_TYPE_LABELS = {
+	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', unknown: 'Unknown'
+};
+
+async function updateSourceHealth() {
+	try {
+		const res = await fetch('/api/source-health');
+		if (!res.ok) return;
+		const { count, sources } = await res.json();
+		sourceHealthList = sources || [];
+		const badge = document.getElementById('source-health-count');
+		if (badge) {
+			if (count > 0) {
+				badge.textContent = count;
+				badge.style.display = 'inline';
+			} else {
+				badge.style.display = 'none';
+			}
+		}
+		renderSourceHealthPanel();
+	} catch (e) {
+		// silent fail
+	}
+}
+
+function renderSourceHealthPanel() {
+	const list = document.getElementById('source-health-list');
+	if (!list) return;
+	if (sourceHealthList.length === 0) {
+		list.innerHTML = '<p class="source-health-empty">All sources healthy.</p>';
+		return;
+	}
+	list.innerHTML = sourceHealthList.map(s => `
+		<button type="button" class="source-health-item" data-title="${escapeHtml(s.series_title)}">
+			<div class="source-health-item-title">${escapeHtml(s.series_title)}</div>
+			<div class="source-health-item-meta">${escapeHtml(SOURCE_HEALTH_TYPE_LABELS[s.source_type] || s.source_type)} — failed ${s.consecutive_failures}x in a row</div>
+			${s.last_error ? `<div class="source-health-item-error" title="${escapeHtml(s.last_error)}">${escapeHtml(s.last_error)}</div>` : ''}
+		</button>
+	`).join('');
+
+	// Clicking a row surfaces that series via the existing search filter
+	// (rather than duplicating Series Settings' own source-management UI
+	// here) - the user picks it up from there.
+	list.querySelectorAll('.source-health-item').forEach(item => {
+		item.addEventListener('click', () => {
+			const searchInput = document.getElementById('search-input');
+			const mobileSearch = document.getElementById('mobile-search-input');
+			if (searchInput) searchInput.value = item.dataset.title;
+			if (mobileSearch) mobileSearch.value = item.dataset.title;
+			document.getElementById('source-health-panel')?.classList.add('hidden');
+			loadPage();
+		});
+	});
+}
+
 // Fetch and auto-update unread error count
 async function updateUnreadErrorCount() {
 	try {
@@ -2131,6 +2190,23 @@ function setupSingleSelect(trigger, menu, stateKey, labelMap, defaultValue) {
 document.addEventListener('DOMContentLoaded', () => {
 	updateUnreadErrorCount();
 	setInterval(updateUnreadErrorCount, 30000);
+
+	updateSourceHealth();
+	setInterval(updateSourceHealth, 30000);
+	const sourceHealthBtn = document.getElementById('btn-source-alert');
+	const sourceHealthPanel = document.getElementById('source-health-panel');
+	if (sourceHealthBtn && sourceHealthPanel) {
+		sourceHealthBtn.addEventListener('click', (e) => {
+			e.stopPropagation();
+			sourceHealthPanel.classList.toggle('hidden');
+		});
+		document.addEventListener('click', (e) => {
+			if (!sourceHealthPanel.contains(e.target) && e.target !== sourceHealthBtn) {
+				sourceHealthPanel.classList.add('hidden');
+			}
+		});
+	}
+
 	if (window.location.search) {
 		window.history.replaceState({}, '', '/');
 	}
