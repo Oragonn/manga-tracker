@@ -75,6 +75,7 @@ Thumbs.db
 
 # Scalable Vector Graphics
 *.svg
+!web/static/favicon.svg
 *.svgz
 
 # Portable Document Format
