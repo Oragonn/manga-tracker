@@ -1174,6 +1174,56 @@ def api_remove_series_custom_tag(series_id, tag_id):
         return jsonify({'success': True})
     return jsonify({'error': 'Failed to detach tag'}), 500
 
+# Saved filter/sort combinations the dashboard's bookmark dropdown
+# switches between - "Default" (is_builtin) is seeded in init_db() and
+# protected from rename/delete at the database layer.
+@app.route('/api/filter-bookmarks')
+def api_get_filter_bookmarks():
+    from .database import get_filter_bookmarks
+    return jsonify({'bookmarks': get_filter_bookmarks()})
+
+
+@app.route('/api/filter-bookmarks', methods=['POST'])
+def api_create_filter_bookmark():
+    from .database import create_filter_bookmark
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    filter_state = data.get('filter_state')
+    if not name:
+        return jsonify({'error': 'name is required'}), 400
+    if not isinstance(filter_state, dict):
+        return jsonify({'error': 'filter_state is required'}), 400
+    new_id = create_filter_bookmark(name, filter_state)
+    if new_id is None:
+        return jsonify({'error': 'Failed to create bookmark'}), 500
+    return jsonify({'id': new_id}), 201
+
+
+@app.route('/api/filter-bookmarks/<int:bookmark_id>', methods=['PATCH'])
+def api_update_filter_bookmark(bookmark_id):
+    from .database import update_filter_bookmark
+    data = request.get_json() or {}
+    name = data.get('name')
+    filter_state = data.get('filter_state')
+    if name is not None:
+        name = name.strip()
+        if not name:
+            return jsonify({'error': 'name cannot be empty'}), 400
+    ok, err = update_filter_bookmark(bookmark_id, name=name, filter_state=filter_state)
+    if not ok:
+        return jsonify({'error': err}), 400
+    return jsonify({'success': True})
+
+
+@app.route('/api/filter-bookmarks/<int:bookmark_id>', methods=['DELETE'])
+def api_delete_filter_bookmark(bookmark_id):
+    from .database import delete_filter_bookmark
+    ok, err = delete_filter_bookmark(bookmark_id)
+    if not ok:
+        return jsonify({'error': err}), 400
+    return jsonify({'success': True})
+
+
 @app.route('/api/unread-reading-count')
 def api_unread_count():
     count = get_unread_reading_count()

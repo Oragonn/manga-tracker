@@ -596,6 +596,114 @@ def remove_custom_tag_from_series(series_id, tag_id):
         return False
 
 
+def get_filter_bookmarks():
+    """All saved filter bookmarks, built-in ("Default") first, then by
+    saved position."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, name, is_builtin, position, filter_state
+        FROM filter_bookmarks
+        ORDER BY is_builtin DESC, position ASC, id ASC
+    """)
+    rows = cursor.fetchall()
+    release_db(conn)
+    result = []
+    for row in rows:
+        try:
+            filter_state = json.loads(row[4])
+        except Exception:
+            filter_state = {}
+        result.append({
+            'id': row[0],
+            'name': row[1],
+            'is_builtin': bool(row[2]),
+            'position': row[3],
+            'filter_state': filter_state
+        })
+    return result
+
+
+def create_filter_bookmark(name, filter_state):
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM filter_bookmarks")
+        next_position = cursor.fetchone()[0]
+        cursor.execute("""
+            INSERT INTO filter_bookmarks (name, is_builtin, position, filter_state)
+            VALUES (?, 0, ?, ?)
+        """, (name, next_position, json.dumps(filter_state)))
+        new_id = cursor.lastrowid
+        release_db(conn)
+        return new_id
+    except Exception as e:
+        print(f"[Database] Failed to create filter bookmark: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return None
+
+
+def update_filter_bookmark(bookmark_id, name=None, filter_state=None):
+    """Returns (ok, error_message). Refuses to touch the built-in bookmark -
+    it always reflects the app's actual defaults, nothing to rename or
+    re-save it to."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT is_builtin FROM filter_bookmarks WHERE id = ?", (bookmark_id,))
+        row = cursor.fetchone()
+        if not row:
+            release_db(conn)
+            return False, 'Bookmark not found'
+        if row[0]:
+            release_db(conn)
+            return False, 'The Default bookmark cannot be modified'
+        if name is not None:
+            cursor.execute("UPDATE filter_bookmarks SET name = ? WHERE id = ?", (name, bookmark_id))
+        if filter_state is not None:
+            cursor.execute(
+                "UPDATE filter_bookmarks SET filter_state = ? WHERE id = ?",
+                (json.dumps(filter_state), bookmark_id)
+            )
+        release_db(conn)
+        return True, None
+    except Exception as e:
+        print(f"[Database] Failed to update filter bookmark: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False, str(e)
+
+
+def delete_filter_bookmark(bookmark_id):
+    """Returns (ok, error_message). Refuses to delete the built-in bookmark."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT is_builtin FROM filter_bookmarks WHERE id = ?", (bookmark_id,))
+        row = cursor.fetchone()
+        if not row:
+            release_db(conn)
+            return False, 'Bookmark not found'
+        if row[0]:
+            release_db(conn)
+            return False, 'The Default bookmark cannot be deleted'
+        cursor.execute("DELETE FROM filter_bookmarks WHERE id = ?", (bookmark_id,))
+        release_db(conn)
+        return True, None
+    except Exception as e:
+        print(f"[Database] Failed to delete filter bookmark: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False, str(e)
+
+
 def init_db():
     os.makedirs("data", exist_ok=True)
     conn = get_db()
@@ -716,6 +824,42 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_custom_tags_series ON series_custom_tags(series_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_custom_tags_tag ON series_custom_tags(tag_id)")
+
+    # Saved filter/sort combinations ("bookmarks") the dashboard's bookmark
+    # dropdown lets you switch between in one click. "Default" is seeded
+    # below and protected (is_builtin) - it always exists and always
+    # reflects the app's actual default filters, as a safe fallback.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS filter_bookmarks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            is_builtin BOOLEAN DEFAULT 0,
+            position INTEGER DEFAULT 0,
+            filter_state TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("SELECT COUNT(*) FROM filter_bookmarks WHERE is_builtin = 1")
+    if cursor.fetchone()[0] == 0:
+        default_filter_state = json.dumps({
+            'status': 'reading',
+            'sort': 'unread_first',
+            'dir': 'asc',
+            'type': [],
+            'genre': [],
+            'rating': [
+                {'name': 'mature', 'mode': 'exclude'},
+                {'name': 'explicit', 'mode': 'exclude'}
+            ],
+            'pubStatus': [],
+            'readableOn': [],
+            'customTags': []
+        })
+        cursor.execute("""
+            INSERT INTO filter_bookmarks (name, is_builtin, position, filter_state)
+            VALUES ('Default', 1, 0, ?)
+        """, (default_filter_state,))
+        print("[Database] Seeded built-in 'Default' filter bookmark")
 
     # --- 2. Add missing columns to existing tables ---
     cursor.execute("PRAGMA table_info(series)")

@@ -529,6 +529,280 @@ html {
   font-weight: 600;
 }
 
+/* Bookmark dropdown (saved filter/sort views) */
+.bookmark-select-trigger {
+  /* .single-select's 140px min-width is wider than "Default" + icon
+     content, so without this the trigger button only fills part of its
+     wrapper - the wrapper's leftover width still occupies layout space,
+     showing up as an unexplained gap before the next control. */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bookmark-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 1001;
+  width: 260px;
+  background: #141b2f;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 10px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.bookmark-select-menu.hidden {
+  display: none !important;
+}
+
+.bookmark-search-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  margin-bottom: 8px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.bookmark-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.bookmark-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #e2e8f0;
+  font-size: 13px;
+}
+
+.bookmark-item:hover {
+  background: #1a2436;
+}
+
+.bookmark-item.active {
+  background: #1e2c40;
+  color: #678ec9;
+  font-weight: 600;
+}
+
+.bookmark-item-check {
+  color: #678ec9;
+  flex-shrink: 0;
+  visibility: hidden;
+}
+
+.bookmark-item.active .bookmark-item-check {
+  visibility: visible;
+}
+
+.bookmark-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bookmark-empty {
+  color: #64748b;
+  font-size: 12px;
+  padding: 8px;
+  text-align: center;
+}
+
+.bookmark-menu-divider {
+  border-top: 1px solid #334155;
+  margin: 8px 0;
+}
+
+.bookmark-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 4px;
+  border: none;
+  background: none;
+  color: #cbd5e1;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.bookmark-action-btn:hover {
+  background: #1a2436;
+  color: white;
+}
+
+.bookmark-action-btn:disabled {
+  color: #475569;
+  cursor: default;
+}
+
+.bookmark-action-btn:disabled:hover {
+  background: none;
+}
+
+/* Inline "Save as new view" form (swapped in instead of a native prompt()) */
+.bookmark-new-view-form.hidden {
+  display: none !important;
+}
+
+.bookmark-new-view-form .bookmark-search-input {
+  margin-bottom: 8px;
+}
+
+.bookmark-new-view-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.bookmark-form-btn {
+  flex: 1;
+  height: 32px;
+  border-radius: 4px;
+  border: 1px solid #334155;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bookmark-form-cancel {
+  background: #1a2436;
+  color: #cbd5e1;
+}
+
+.bookmark-form-cancel:hover {
+  background: #1e2c40;
+  color: white;
+}
+
+.bookmark-form-confirm {
+  background: #1665f4;
+  border-color: #1665f4;
+  color: white;
+  font-weight: 600;
+}
+
+.bookmark-form-confirm:hover {
+  background: #1456d1;
+}
+
+/* Manage Views modal */
+/* Safety margin in case openManageBookmarksModal()'s drawer-close hasn't
+   finished its transition yet - the shared .modal class' z-index (1000)
+   alone is well below the mobile filter drawer's (3000). */
+#manage-bookmarks-modal {
+  z-index: 3500;
+}
+
+.manage-bookmarks-content {
+  width: 400px;
+  max-width: calc(100vw - 32px);
+}
+
+.manage-bookmarks-list {
+  max-height: 360px;
+  overflow-y: auto;
+  margin: 12px 0;
+}
+
+.manage-bookmark-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #1e293b;
+}
+
+.manage-bookmark-row:last-child {
+  border-bottom: none;
+}
+
+.manage-bookmark-name-input {
+  flex: 1;
+  height: 36px;
+  padding: 0 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.manage-bookmark-name-input:disabled {
+  color: #94a3b8;
+  border-color: #263041;
+}
+
+.manage-bookmark-builtin-label {
+  color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.manage-bookmark-delete-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid #334155;
+  background: #1a2436;
+  color: #f56565;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.manage-bookmark-delete-btn:hover {
+  background: #3a1e24;
+  border-color: #f56565;
+}
+
+/* Inline "Delete this view?" confirm state, swapped into the row in place
+   of the name input + trash icon. */
+.manage-bookmark-confirm-text {
+  flex: 1;
+  color: #e2e8f0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manage-bookmark-confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.manage-bookmark-confirm-actions .bookmark-form-btn {
+  flex: none;
+  padding: 0 12px;
+}
+
+.bookmark-form-delete-confirm {
+  background: #f56565;
+  border-color: #f56565;
+  color: white;
+  font-weight: 600;
+}
+
+.bookmark-form-delete-confirm:hover {
+  background: #e04b4b;
+}
+
 .multi-select-menu input {
   margin-right: 8px;
 }
@@ -3038,10 +3312,12 @@ html {
     gap: 8px;
   }
 
-  /* Hide desktop elements in row 1 */
+  /* Hide desktop elements in row 1 - the bookmark dropdown has its own
+     place at the bottom of the mobile filter drawer instead. */
   .control-row:nth-child(1) .control-group-right,
   .control-row:nth-child(1) #btn-sort-direction,
-  .control-row:nth-child(1) #btn-reset-filters {
+  .control-row:nth-child(1) #btn-reset-filters,
+  .control-row:nth-child(1) #filter-bookmark-container {
     display: none !important;
   }
 
@@ -3233,6 +3509,25 @@ html {
     left: 0 !important;
     right: 0 !important;
     width: 100% !important;
+  }
+
+  /* The bookmark dropdown's menu is its own class (not .multi-select-menu),
+     so it wasn't covered by the override above - same fix, same reason:
+     without it the popup doesn't respect the drawer's own stacking/
+     positioning and can render behind/outside the visible drawer panel. */
+  .filter-drawer .bookmark-select-menu {
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    z-index: 3001;
+  }
+
+  /* Cap to ~4 visible rows instead of desktop's ~7 (220px), so a long
+     list of views doesn't push Update/Save/Manage out of easy reach
+     without scrolling. */
+  .filter-drawer .bookmark-list {
+    max-height: 130px;
   }
 
   .filter-drawer .multi-select-menu label {

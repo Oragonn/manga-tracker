@@ -75,6 +75,18 @@ const state = {
 // Loading state to prevent multiple simultaneous loads
 let isLoadingPage = false;
 
+// Saved filter/sort "bookmarks" (the dropdown left of the status filter).
+// bookmarksCache mirrors /api/filter-bookmarks; state.activeBookmarkId
+// tracks which one is currently applied (used for the checkmark in the
+// list and to decide whether "Save" overwrites it or prompts for a new one).
+let bookmarksCache = [];
+state.activeBookmarkId = null;
+// Staged renames in the Manage Views modal ({id: newName}) - not sent to
+// the server until the modal's Close/Save button is clicked, matching the
+// rest of the app's "stage locally, one button commits" pattern (e.g.
+// Series Settings) instead of saving on every blur.
+let pendingBookmarkRenames = {};
+
 // Track default excluded ratings to hide from count
 const DEFAULT_EXCLUDED_RATINGS = ['mature', 'explicit'];
 
@@ -95,6 +107,554 @@ function formatTagsTriggerText(genreCount, ratingList, customTagCount) {
 	const totalCount = genreCount + activeRatingCount + customTagCount;
 
 	return totalCount === 0 ? 'Tags' : `${totalCount} Selected`;
+}
+
+// ─── Filter Bookmarks (saved views) ───────────────────────────────
+// A bookmark is a named snapshot of every filter/sort dimension at once.
+// Applying one overwrites state.* wholesale and resyncs every control that
+// reflects it (desktop status/sort/checkboxes + the mobile drawer's
+// duplicates, mirroring exactly what resetMobileFilters() already does for
+// the hardcoded defaults, just generalized to arbitrary saved values).
+
+const STATUS_LABELS_FOR_BOOKMARKS = {
+	all: 'All Statuses', reading: 'Reading', plan_to_read: 'Plan to Read',
+	on_hold: 'On Hold', dropped: 'Dropped', completed: 'Completed'
+};
+const SORT_LABELS_FOR_BOOKMARKS = {
+	unread_first: 'Unread First', title: 'Title (A→Z)', latest_release: 'Chapter Released',
+	last_added: 'Last Added', total_chapters: 'Total Chapters', available_chapters: 'Available Chapters'
+};
+const TYPE_LABELS_FOR_BOOKMARKS = { manga: 'Manga', manhwa: 'Manhwa', manhua: 'Manhua', other: 'Other' };
+const PUB_STATUS_LABELS_FOR_BOOKMARKS = {
+	reading: 'Reading', completed: 'Completed', on_hold: 'On Hold', dropped: 'Dropped', plan_to_read: 'Plan to Read'
+};
+const READABLE_ON_LABELS_FOR_BOOKMARKS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans' };
+
+function captureCurrentFilterState() {
+	return {
+		status: state.status,
+		sort: state.sort,
+		dir: state.dir,
+		type: [...state.type],
+		genre: state.genre.map(g => ({ ...g })),
+		rating: state.rating.map(r => ({ ...r })),
+		pubStatus: [...state.pubStatus],
+		readableOn: [...state.readableOn],
+		customTags: [...state.customTags]
+	};
+}
+
+function normalizeFilterStateForCompare(fs) {
+	return JSON.stringify({
+		status: fs.status, sort: fs.sort, dir: fs.dir,
+		type: [...(fs.type || [])].sort(),
+		genre: [...(fs.genre || [])].map(g => ({ name: g.name, mode: g.mode })).sort((a, b) => a.name.localeCompare(b.name)),
+		rating: [...(fs.rating || [])].map(r => ({ name: r.name, mode: r.mode })).sort((a, b) => a.name.localeCompare(b.name)),
+		pubStatus: [...(fs.pubStatus || [])].sort(),
+		readableOn: [...(fs.readableOn || [])].sort(),
+		customTags: [...(fs.customTags || [])].sort((a, b) => a - b)
+	});
+}
+
+function filterStatesEqual(a, b) {
+	return normalizeFilterStateForCompare(a) === normalizeFilterStateForCompare(b);
+}
+
+function applyFilterBookmarkState(fs) {
+	state.status = fs.status || 'reading';
+	state.sort = fs.sort || 'unread_first';
+	state.dir = fs.dir || 'asc';
+	state.type = Array.isArray(fs.type) ? [...fs.type] : [];
+	state.genre = Array.isArray(fs.genre) ? fs.genre.map(g => ({ ...g })) : [];
+	state.rating = Array.isArray(fs.rating) ? fs.rating.map(r => ({ ...r })) : [];
+	state.pubStatus = Array.isArray(fs.pubStatus) ? [...fs.pubStatus] : [];
+	state.readableOn = Array.isArray(fs.readableOn) ? [...fs.readableOn] : [];
+	state.customTags = Array.isArray(fs.customTags) ? [...fs.customTags] : [];
+	state.tagsMode = 'include';
+	state.page = 1;
+
+	// Tags-mode toggle (desktop + mobile) resets to Include - the applied
+	// genre/rating filters are self-describing via their own per-entry
+	// mode either way, same as the plain Reset flow.
+	[document.getElementById('btn-tags-mode'), document.getElementById('mobile-btn-tags-mode')].forEach(btn => {
+		if (!btn) return;
+		btn.dataset.mode = 'include';
+		const icon = btn.querySelector('svg');
+		const text = btn.querySelector('span');
+		if (icon) icon.innerHTML = '<path d="M20 6L9 17l-5-5"/>';
+		if (text) text.textContent = 'Include Mode';
+	});
+
+	// Clear every checkbox (desktop + mobile), then set only what this
+	// bookmark specifies.
+	document.querySelectorAll(`
+		#filter-type-container input[type="checkbox"],
+		#filter-genre-container input[type="checkbox"],
+		#filter-genre-container .rating-checkbox,
+		#filter-pub-status-container input[type="checkbox"],
+		#filter-readable-on-container input[type="checkbox"],
+		#mobile-filter-type-container input[type="checkbox"],
+		#mobile-filter-genre-container input[type="checkbox"],
+		#mobile-filter-genre-container .rating-checkbox,
+		#mobile-filter-pub-status-container input[type="checkbox"],
+		#mobile-filter-readable-on-container input[type="checkbox"]
+	`).forEach(cb => { cb.checked = false; });
+	document.querySelectorAll(`
+		#filter-genre-container .genre-list-section input[type="checkbox"],
+		#mobile-filter-genre-container .genre-list-section input[type="checkbox"],
+		#filter-genre-container .rating-checkbox,
+		#mobile-filter-genre-container .rating-checkbox
+	`).forEach(cb => { delete cb.dataset.mode; });
+
+	state.type.forEach(v => {
+		document.querySelectorAll(`#filter-type-container input[value="${v}"], #mobile-filter-type-container input[value="${v}"]`)
+			.forEach(cb => { cb.checked = true; });
+	});
+	state.pubStatus.forEach(v => {
+		document.querySelectorAll(`#filter-pub-status-container input[value="${v}"], #mobile-filter-pub-status-container input[value="${v}"]`)
+			.forEach(cb => { cb.checked = true; });
+	});
+	state.readableOn.forEach(v => {
+		document.querySelectorAll(`#filter-readable-on-container input[value="${v}"], #mobile-filter-readable-on-container input[value="${v}"]`)
+			.forEach(cb => { cb.checked = true; });
+	});
+	state.genre.forEach(g => {
+		document.querySelectorAll(`#filter-genre-container .genre-list-section input[value="${g.name}"], #mobile-filter-genre-container .genre-list-section input[value="${g.name}"]`)
+			.forEach(cb => { cb.dataset.mode = g.mode; });
+	});
+	state.rating.forEach(r => {
+		document.querySelectorAll(`#filter-genre-container .rating-checkbox[value="${r.name}"], #mobile-filter-genre-container .rating-checkbox[value="${r.name}"]`)
+			.forEach(cb => { cb.dataset.mode = r.mode; });
+	});
+	state.customTags.forEach(tagId => {
+		document.querySelectorAll(`#filter-genre-container .custom-tags-section input[value="${tagId}"], #mobile-filter-genre-container .custom-tags-section input[value="${tagId}"]`)
+			.forEach(cb => { cb.checked = true; });
+	});
+
+	const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+	setText('filter-status-trigger', STATUS_LABELS_FOR_BOOKMARKS[state.status] || state.status);
+	setText('sort-order-trigger', SORT_LABELS_FOR_BOOKMARKS[state.sort] || state.sort);
+	document.querySelectorAll('.single-select-menu .option-item').forEach(opt => {
+		opt.classList.remove('selected');
+		if ((opt.dataset.value === state.status && opt.closest('#filter-status-container')) ||
+			(opt.dataset.value === state.sort && opt.closest('#sort-order-container'))) {
+			opt.classList.add('selected');
+		}
+	});
+
+	const typeTrigger = document.getElementById('filter-type-trigger');
+	const mobileTypeTrigger = document.getElementById('mobile-filter-type-trigger');
+	if (typeTrigger) updateTriggerText(typeTrigger, state.type, TYPE_LABELS_FOR_BOOKMARKS, 'Content Type');
+	if (mobileTypeTrigger) updateTriggerText(mobileTypeTrigger, state.type, TYPE_LABELS_FOR_BOOKMARKS, 'Content Type');
+
+	const pubTrigger = document.getElementById('filter-pub-status-trigger');
+	const mobilePubTrigger = document.getElementById('mobile-filter-pub-status-trigger');
+	if (pubTrigger) updateTriggerText(pubTrigger, state.pubStatus, PUB_STATUS_LABELS_FOR_BOOKMARKS, 'Publication Status');
+	if (mobilePubTrigger) updateTriggerText(mobilePubTrigger, state.pubStatus, PUB_STATUS_LABELS_FOR_BOOKMARKS, 'Publication Status');
+
+	const readableTrigger = document.getElementById('filter-readable-on-trigger');
+	const mobileReadableTrigger = document.getElementById('mobile-filter-readable-on-trigger');
+	if (readableTrigger) updateTriggerText(readableTrigger, state.readableOn, READABLE_ON_LABELS_FOR_BOOKMARKS, 'Readable On');
+	if (mobileReadableTrigger) updateTriggerText(mobileReadableTrigger, state.readableOn, READABLE_ON_LABELS_FOR_BOOKMARKS, 'Readable On');
+
+	const tagsText = formatTagsTriggerText(state.genre.length, state.rating, state.customTags.length);
+	setText('filter-genre-trigger', tagsText);
+	setText('mobile-filter-genre-trigger', tagsText);
+
+	const sortIcon = document.getElementById('sort-direction-icon');
+	if (sortIcon) sortIcon.innerHTML = SORT_ICONS[state.dir];
+	const mobileSortIcon = document.querySelector('#mobile-sort-direction svg');
+	if (mobileSortIcon) mobileSortIcon.innerHTML = SORT_ICONS[state.dir];
+
+	document.querySelectorAll('.multi-select-menu, .single-select-menu').forEach(menu => {
+		menu.classList.add('hidden');
+	});
+}
+
+async function fetchFilterBookmarks() {
+	try {
+		const res = await fetch('/api/filter-bookmarks');
+		if (!res.ok) return;
+		const data = await res.json();
+		bookmarksCache = data.bookmarks || [];
+	} catch (e) {
+		console.error('Failed to load filter bookmarks:', e);
+	}
+}
+
+function updateBookmarkTriggerText(name) {
+	['filter-bookmark-trigger-text', 'mobile-filter-bookmark-trigger-text'].forEach(id => {
+		const el = document.getElementById(id);
+		if (el) el.textContent = name;
+	});
+}
+
+function closeBookmarkMenus() {
+	document.getElementById('filter-bookmark-menu')?.classList.add('hidden');
+	document.getElementById('mobile-filter-bookmark-menu')?.classList.add('hidden');
+	document.getElementById('bookmark-new-view-form')?.classList.add('hidden');
+	document.getElementById('mobile-bookmark-new-view-form')?.classList.add('hidden');
+}
+
+function renderBookmarkList() {
+	[['bookmark-list', 'bookmark-search-input'], ['mobile-bookmark-list', 'mobile-bookmark-search-input']].forEach(([listId, searchId]) => {
+		const el = document.getElementById(listId);
+		if (!el) return;
+		const q = (document.getElementById(searchId)?.value || '').trim().toLowerCase();
+		const filtered = bookmarksCache.filter(b => b.name.toLowerCase().includes(q));
+		el.innerHTML = filtered.length === 0
+			? '<p class="bookmark-empty">No views match.</p>'
+			: filtered.map(b => `
+				<div class="bookmark-item ${b.id === state.activeBookmarkId ? 'active' : ''}" data-bookmark-id="${b.id}">
+					<span class="bookmark-item-name">${escapeHtml(b.name)}</span>
+					<svg class="bookmark-item-check" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+						<polyline points="20 6 9 17 4 12"/>
+					</svg>
+				</div>
+			`).join('');
+		el.querySelectorAll('.bookmark-item').forEach(item => {
+			item.addEventListener('click', () => selectBookmarkById(parseInt(item.dataset.bookmarkId, 10)));
+		});
+	});
+}
+
+function updateBookmarkUpdateButtonState() {
+	// "Update current view" only makes sense for a non-builtin bookmark
+	// that's actually diverged from its saved state - Default is always
+	// protected regardless, and there's nothing to write back if nothing
+	// changed. "Save as new view" has no such restriction - always enabled.
+	const activeBookmark = bookmarksCache.find(b => b.id === state.activeBookmarkId);
+	const matchesActive = activeBookmark ? filterStatesEqual(captureCurrentFilterState(), activeBookmark.filter_state) : true;
+	const canUpdate = !!activeBookmark && !activeBookmark.is_builtin && !matchesActive;
+	['bookmark-update-btn', 'mobile-bookmark-update-btn'].forEach(id => {
+		const btn = document.getElementById(id);
+		if (btn) btn.disabled = !canUpdate;
+	});
+}
+
+function selectBookmarkById(id) {
+	const bm = bookmarksCache.find(b => b.id === id);
+	if (!bm) return;
+	state.activeBookmarkId = bm.id;
+	applyFilterBookmarkState(bm.filter_state);
+	updateBookmarkTriggerText(bm.name);
+	closeBookmarkMenus();
+	renderBookmarkList();
+	updateBookmarkUpdateButtonState();
+	loadPage();
+}
+
+async function handleUpdateCurrentViewClick() {
+	const activeBookmark = bookmarksCache.find(b => b.id === state.activeBookmarkId);
+	if (!activeBookmark || activeBookmark.is_builtin) return; // button should be disabled anyway
+	const currentFs = captureCurrentFilterState();
+	try {
+		const res = await fetch(`/api/filter-bookmarks/${activeBookmark.id}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ filter_state: currentFs })
+		});
+		if (res.ok) {
+			activeBookmark.filter_state = currentFs;
+			updateBookmarkUpdateButtonState();
+			showNotification(`Updated view "${activeBookmark.name}"`, 'read');
+		} else {
+			showNotification('Failed to update view', 'error');
+		}
+	} catch (e) {
+		showNotification('Failed to update view', 'error');
+	}
+}
+
+// Inline name-entry form for "Save as new view" - swaps in over the whole
+// list/actions area (not just appended below the button that opened it)
+// instead of the browser's native prompt().
+function showNewViewForm(formId, nameInputId, mainId) {
+	document.getElementById(mainId)?.classList.add('hidden');
+	document.getElementById(formId)?.classList.remove('hidden');
+	const input = document.getElementById(nameInputId);
+	if (input) { input.value = ''; input.focus(); }
+}
+
+function hideNewViewForm(formId, mainId) {
+	document.getElementById(formId)?.classList.add('hidden');
+	document.getElementById(mainId)?.classList.remove('hidden');
+}
+
+async function submitNewView(nameInputId, formId, mainId) {
+	const input = document.getElementById(nameInputId);
+	const name = (input?.value || '').trim();
+	if (!name) { input?.focus(); return; }
+
+	const currentFs = captureCurrentFilterState();
+	try {
+		const res = await fetch('/api/filter-bookmarks', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name, filter_state: currentFs })
+		});
+		if (res.ok) {
+			const { id } = await res.json();
+			await fetchFilterBookmarks();
+			state.activeBookmarkId = id;
+			const newBookmark = bookmarksCache.find(b => b.id === id);
+			if (newBookmark) updateBookmarkTriggerText(newBookmark.name);
+			hideNewViewForm(formId, mainId);
+			renderBookmarkList();
+			updateBookmarkUpdateButtonState();
+			showNotification(`Saved view "${name}"`, 'read');
+		} else {
+			showNotification('Failed to save view', 'error');
+		}
+	} catch (e) {
+		showNotification('Failed to save view', 'error');
+	}
+}
+
+function setupNewViewForm(newBtnId, formId, nameInputId, confirmId, cancelId, mainId) {
+	document.getElementById(newBtnId)?.addEventListener('click', () => showNewViewForm(formId, nameInputId, mainId));
+	document.getElementById(cancelId)?.addEventListener('click', () => hideNewViewForm(formId, mainId));
+	document.getElementById(confirmId)?.addEventListener('click', () => submitNewView(nameInputId, formId, mainId));
+	const nameInput = document.getElementById(nameInputId);
+	if (nameInput) {
+		nameInput.addEventListener('click', (e) => e.stopPropagation());
+		nameInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') { e.preventDefault(); submitNewView(nameInputId, formId, mainId); }
+			else if (e.key === 'Escape') { e.preventDefault(); hideNewViewForm(formId, mainId); }
+		});
+	}
+}
+
+function setupBookmarkDropdown(triggerId, menuId, searchId, formId, mainId) {
+	const trigger = document.getElementById(triggerId);
+	const menu = document.getElementById(menuId);
+	if (!trigger || !menu) return;
+	// Auto-focusing the search box on mobile summons the on-screen keyboard,
+	// eating most of the drawer's remaining vertical space - only do it on
+	// desktop, where there's no keyboard to worry about.
+	const isMobileDrawer = triggerId.startsWith('mobile-');
+
+	document.addEventListener('click', (e) => {
+		if (!menu.contains(e.target) && e.target !== trigger && !trigger.contains(e.target)) {
+			menu.classList.add('hidden');
+		}
+	});
+
+	trigger.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const wasHidden = menu.classList.contains('hidden');
+		closeAllMultiSelectMenus();
+		menu.classList.toggle('hidden', !wasHidden);
+		if (wasHidden) {
+			// Always reopen to the search/list view, even if a "save as new
+			// view" form was left open the last time this was closed.
+			hideNewViewForm(formId, mainId);
+			const searchInput = document.getElementById(searchId);
+			if (searchInput) {
+				searchInput.value = '';
+				if (!isMobileDrawer) searchInput.focus();
+			}
+			renderBookmarkList();
+		}
+	});
+
+	const searchInput = document.getElementById(searchId);
+	if (searchInput) {
+		searchInput.addEventListener('input', () => renderBookmarkList());
+		searchInput.addEventListener('click', (e) => e.stopPropagation());
+	}
+}
+
+function renderManageBookmarksList() {
+	const container = document.getElementById('manage-bookmarks-list');
+	if (!container) return;
+	container.innerHTML = bookmarksCache.map(b => `
+		<div class="manage-bookmark-row" data-bookmark-id="${b.id}">
+			<input type="text" class="manage-bookmark-name-input" value="${escapeHtml(pendingBookmarkRenames[b.id] ?? b.name)}" ${b.is_builtin ? 'disabled' : ''} />
+			${b.is_builtin
+				? '<span class="manage-bookmark-builtin-label">Protected</span>'
+				: `<button type="button" class="manage-bookmark-delete-btn" title="Delete view">
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<polyline points="3 6 5 6 21 6"/>
+						<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+					</svg>
+				</button>`
+			}
+		</div>
+	`).join('');
+
+	container.querySelectorAll('.manage-bookmark-row').forEach(row => {
+		const id = parseInt(row.dataset.bookmarkId, 10);
+		const bm = bookmarksCache.find(b => b.id === id);
+		if (!bm) return;
+
+		const input = row.querySelector('.manage-bookmark-name-input');
+		if (input && !bm.is_builtin) {
+			input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
+			// Staged, not saved here - the Close/Save button at the bottom
+			// commits every pending rename at once.
+			input.addEventListener('input', () => {
+				const newName = input.value.trim();
+				if (!newName || newName === bm.name) {
+					delete pendingBookmarkRenames[id];
+				} else {
+					pendingBookmarkRenames[id] = newName;
+				}
+				updateManageBookmarksButtonState();
+			});
+		}
+
+		const deleteBtn = row.querySelector('.manage-bookmark-delete-btn');
+		if (deleteBtn) {
+			// Swaps the row into an inline "Delete "X"? Cancel / Delete"
+			// confirm state instead of deleting on the first click - matches
+			// the app's avoidance of native confirm() elsewhere.
+			deleteBtn.addEventListener('click', () => {
+				row.innerHTML = `
+					<span class="manage-bookmark-confirm-text">Delete "${escapeHtml(bm.name)}"?</span>
+					<div class="manage-bookmark-confirm-actions">
+						<button type="button" class="bookmark-form-btn bookmark-form-cancel manage-bookmark-cancel-delete">Cancel</button>
+						<button type="button" class="bookmark-form-btn bookmark-form-delete-confirm manage-bookmark-confirm-delete">Delete</button>
+					</div>
+				`;
+				row.querySelector('.manage-bookmark-cancel-delete')?.addEventListener('click', renderManageBookmarksList);
+				row.querySelector('.manage-bookmark-confirm-delete')?.addEventListener('click', async () => {
+					try {
+						const res = await fetch(`/api/filter-bookmarks/${id}`, { method: 'DELETE' });
+						if (res.ok) {
+							const wasActive = state.activeBookmarkId === id;
+							bookmarksCache = bookmarksCache.filter(b => b.id !== id);
+							delete pendingBookmarkRenames[id]; // no point saving a rename for a view that's gone
+							renderManageBookmarksList();
+							updateManageBookmarksButtonState();
+							renderBookmarkList();
+							if (wasActive) {
+								const fallback = bookmarksCache.find(b => b.is_builtin);
+								if (fallback) selectBookmarkById(fallback.id);
+							}
+							showNotification('View deleted', 'read');
+						} else {
+							showNotification('Failed to delete view', 'error');
+						}
+					} catch (e) {
+						showNotification('Failed to delete view', 'error');
+					}
+				});
+			});
+		}
+	});
+}
+
+async function openManageBookmarksModal() {
+	// Manage views is reachable from inside the mobile filter drawer;
+	// #manage-bookmarks-modal's z-index (3500) is set above the drawer's
+	// (3000) specifically so both can stay open at once instead of forcing
+	// the drawer closed.
+	pendingBookmarkRenames = {};
+	await fetchFilterBookmarks();
+	renderManageBookmarksList();
+	updateManageBookmarksButtonState();
+	document.getElementById('manage-bookmarks-modal')?.classList.remove('hidden');
+}
+
+function updateManageBookmarksButtonState() {
+	const btn = document.getElementById('btn-manage-bookmarks-close');
+	if (!btn) return;
+	const hasPending = Object.keys(pendingBookmarkRenames).length > 0;
+	btn.textContent = hasPending ? 'Save' : 'Close';
+	btn.classList.toggle('btn-primary', hasPending);
+	btn.classList.toggle('btn-secondary', !hasPending);
+}
+
+async function handleManageBookmarksCloseClick() {
+	const entries = Object.entries(pendingBookmarkRenames);
+	if (entries.length === 0) {
+		closeManageBookmarksModal();
+		return;
+	}
+
+	const btn = document.getElementById('btn-manage-bookmarks-close');
+	if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+	try {
+		const results = await Promise.all(entries.map(([id, name]) =>
+			fetch(`/api/filter-bookmarks/${id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name })
+			}).then(res => ({ id: parseInt(id, 10), name, ok: res.ok }))
+		));
+
+		const failed = results.filter(r => !r.ok);
+		results.filter(r => r.ok).forEach(r => {
+			const bm = bookmarksCache.find(b => b.id === r.id);
+			if (bm) bm.name = r.name;
+			if (state.activeBookmarkId === r.id) updateBookmarkTriggerText(r.name);
+			delete pendingBookmarkRenames[r.id];
+		});
+		renderBookmarkList();
+
+		if (failed.length > 0) {
+			showNotification(`Failed to rename ${failed.length} view(s)`, 'error');
+			renderManageBookmarksList();
+			updateManageBookmarksButtonState();
+			// Leave the modal open so the still-pending ones aren't lost.
+		} else {
+			showNotification('Views updated', 'read');
+			closeManageBookmarksModal();
+		}
+	} catch (e) {
+		showNotification('Failed to save changes', 'error');
+	} finally {
+		if (btn) btn.disabled = false;
+	}
+}
+
+function closeManageBookmarksModal() {
+	document.getElementById('manage-bookmarks-modal')?.classList.add('hidden');
+}
+
+// Reset Filters sets state.* directly rather than going through
+// applyFilterBookmarkState()/selectBookmarkById(), so it has to separately
+// tell the bookmark tracker "we're back to Default" - otherwise the
+// dropdown keeps showing whatever was last explicitly selected even
+// though the actual filters reverted.
+function markDefaultBookmarkActive() {
+	const def = bookmarksCache.find(b => b.is_builtin);
+	if (!def) return;
+	state.activeBookmarkId = def.id;
+	updateBookmarkTriggerText(def.name);
+	renderBookmarkList();
+	updateBookmarkUpdateButtonState();
+}
+
+async function initBookmarkDropdown() {
+	await fetchFilterBookmarks();
+	const def = bookmarksCache.find(b => b.is_builtin);
+	if (def) {
+		state.activeBookmarkId = def.id;
+		updateBookmarkTriggerText(def.name);
+	}
+	renderBookmarkList();
+	updateBookmarkUpdateButtonState();
+
+	setupBookmarkDropdown('filter-bookmark-trigger', 'filter-bookmark-menu', 'bookmark-search-input', 'bookmark-new-view-form', 'bookmark-menu-main');
+	setupBookmarkDropdown('mobile-filter-bookmark-trigger', 'mobile-filter-bookmark-menu', 'mobile-bookmark-search-input', 'mobile-bookmark-new-view-form', 'mobile-bookmark-menu-main');
+
+	document.getElementById('bookmark-update-btn')?.addEventListener('click', handleUpdateCurrentViewClick);
+	document.getElementById('mobile-bookmark-update-btn')?.addEventListener('click', handleUpdateCurrentViewClick);
+	setupNewViewForm('bookmark-new-btn', 'bookmark-new-view-form', 'bookmark-new-view-name', 'bookmark-new-view-confirm', 'bookmark-new-view-cancel', 'bookmark-menu-main');
+	setupNewViewForm('mobile-bookmark-new-btn', 'mobile-bookmark-new-view-form', 'mobile-bookmark-new-view-name', 'mobile-bookmark-new-view-confirm', 'mobile-bookmark-new-view-cancel', 'mobile-bookmark-menu-main');
+	document.getElementById('bookmark-manage-btn')?.addEventListener('click', () => { closeBookmarkMenus(); openManageBookmarksModal(); });
+	document.getElementById('mobile-bookmark-manage-btn')?.addEventListener('click', () => { closeBookmarkMenus(); openManageBookmarksModal(); });
+	document.getElementById('btn-manage-bookmarks-close')?.addEventListener('click', handleManageBookmarksCloseClick);
+	// Click on the dimmed backdrop (not the panel itself) closes it too -
+	// routed through the same save-if-pending handler as the button so a
+	// staged rename isn't silently discarded just because it was closed a
+	// different way.
+	document.getElementById('manage-bookmarks-modal')?.addEventListener('click', (e) => {
+		if (e.target.id === 'manage-bookmarks-modal') handleManageBookmarksCloseClick();
+	});
 }
 
 // ─── Bulk Selection State ────────────────────────────────────────
@@ -2024,7 +2584,12 @@ async function loadPage() {
 	// Prevent concurrent loads
 	if (isLoadingPage) return;
 	isLoadingPage = true;
-	
+
+	// Every filter/sort interaction ends up calling loadPage(), so this is
+	// the one place that reliably catches "current filters no longer match
+	// the active bookmark" without hooking every individual control.
+	updateBookmarkUpdateButtonState();
+
 	const { page, status, sort, dir, type, genre, rating, pubStatus, readableOn } = state;
 
 	// FIX: Check both desktop and mobile search inputs
@@ -2163,7 +2728,7 @@ function updateTriggerText(trigger, selected, labelMap = null, defaultText = 'Se
 }
 
 function closeAllMultiSelectMenus(exceptMenu = null) {
-	document.querySelectorAll('.multi-select-menu, .single-select-menu').forEach(menu => {
+	document.querySelectorAll('.multi-select-menu, .single-select-menu, .bookmark-select-menu').forEach(menu => {
 		if (menu !== exceptMenu) {
 			menu.classList.add('hidden');
 		}
@@ -2277,6 +2842,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	updateSourceHealth();
 	setInterval(updateSourceHealth, 30000);
+
+	initBookmarkDropdown();
 	const sourceHealthBtn = document.getElementById('btn-source-alert');
 	const sourceHealthPanel = document.getElementById('source-health-panel');
 	if (sourceHealthBtn && sourceHealthPanel) {
@@ -3537,6 +4104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelectorAll('.multi-select-menu, .single-select-menu').forEach(menu => {
 			menu.classList.add('hidden');
 		});
+		markDefaultBookmarkActive();
 		loadPage();
 	});
 
@@ -4200,6 +4768,55 @@ function createFilterDrawer() {
           </div>
         </div>
 
+        <!-- Bookmark (saved filter/sort views) -->
+        <div class="filter-section">
+          <h3>Saved Views</h3>
+          <div class="single-select bookmark-select" id="mobile-filter-bookmark-container">
+            <button class="control-input single-select-trigger bookmark-select-trigger" id="mobile-filter-bookmark-trigger" style="width: 100%;">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+              </svg>
+              <span id="mobile-filter-bookmark-trigger-text">Default</span>
+            </button>
+            <div class="bookmark-select-menu hidden" id="mobile-filter-bookmark-menu">
+              <div id="mobile-bookmark-menu-main">
+                <input type="text" class="bookmark-search-input" id="mobile-bookmark-search-input" placeholder="Search views..." />
+                <div class="bookmark-list" id="mobile-bookmark-list"></div>
+                <div class="bookmark-menu-divider"></div>
+                <button type="button" class="bookmark-action-btn" id="mobile-bookmark-update-btn" disabled>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                    <polyline points="17 21 17 13 7 13 7 21"/>
+                    <polyline points="7 3 7 8 15 8"/>
+                  </svg>
+                  Update current view
+                </button>
+                <button type="button" class="bookmark-action-btn" id="mobile-bookmark-new-btn">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  Save as new view
+                </button>
+              </div>
+              <div class="bookmark-new-view-form hidden" id="mobile-bookmark-new-view-form">
+                <input type="text" class="bookmark-search-input" id="mobile-bookmark-new-view-name" placeholder="View name..." maxlength="60" />
+                <div class="bookmark-new-view-form-actions">
+                  <button type="button" class="bookmark-form-btn bookmark-form-cancel" id="mobile-bookmark-new-view-cancel">Cancel</button>
+                  <button type="button" class="bookmark-form-btn bookmark-form-confirm" id="mobile-bookmark-new-view-confirm">Save</button>
+                </div>
+              </div>
+              <button type="button" class="bookmark-action-btn" id="mobile-bookmark-manage-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="3"/>
+                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+                Manage views
+              </button>
+            </div>
+          </div>
+        </div>
+
       </div>
       <div class="filter-drawer-footer">
         <button class="btn-reset-filters-mobile" id="mobile-reset-filters">Reset All Filters</button>
@@ -4786,6 +5403,7 @@ function resetMobileFilters() {
     menu.classList.add('hidden');
   });
   
+  markDefaultBookmarkActive();
   loadPage();
   closeFilterDrawer();
 }
