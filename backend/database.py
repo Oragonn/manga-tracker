@@ -250,7 +250,8 @@ def get_unhealthy_sources(threshold=3):
     cursor = conn.cursor()
     cursor.execute("""
         SELECT ss.id, ss.series_id, s.title, ss.source_type, ss.source_url,
-               ss.consecutive_failures, ss.last_error, ss.last_failure_at
+               ss.consecutive_failures, ss.last_error, ss.last_failure_at,
+               s.status, s.content_rating
         FROM series_sources ss
         JOIN series s ON s.id = ss.series_id
         WHERE ss.consecutive_failures >= ?
@@ -267,7 +268,9 @@ def get_unhealthy_sources(threshold=3):
             'source_url': r[4],
             'consecutive_failures': r[5],
             'last_error': r[6],
-            'last_failure_at': r[7]
+            'last_failure_at': r[7],
+            'status': r[8],
+            'content_rating': r[9]
         }
         for r in rows
     ]

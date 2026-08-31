@@ -1491,8 +1491,30 @@ function renderSourceList(sources) {
 	list.querySelectorAll('[data-action="remove"]').forEach(btn => {
 		btn.addEventListener('click', (e) => {
 			e.stopPropagation();
-			removeSeriesSource(btn.dataset.sourceId);
+			const row = btn.closest('.settings-source-item');
+			if (row) showRemoveSourceConfirm(row, btn.dataset.sourceId);
 		});
+	});
+}
+
+// Swaps a source row into an inline "Remove this source? Cancel / Remove"
+// confirm state instead of removing on the first click - matches the app's
+// avoidance of native confirm() elsewhere (e.g. Manage Views' delete confirm).
+function showRemoveSourceConfirm(row, sourceId) {
+	row.innerHTML = `
+		<span class="settings-source-confirm-text">Remove this source?</span>
+		<div class="settings-source-confirm-actions">
+			<button type="button" class="bookmark-form-btn bookmark-form-cancel settings-source-cancel-remove">Cancel</button>
+			<button type="button" class="bookmark-form-btn bookmark-form-delete-confirm settings-source-confirm-remove">Remove</button>
+		</div>
+	`;
+	row.querySelector('.settings-source-cancel-remove')?.addEventListener('click', async (e) => {
+		e.stopPropagation();
+		renderSourceList(currentSeriesSourcesPromise ? await currentSeriesSourcesPromise : []);
+	});
+	row.querySelector('.settings-source-confirm-remove')?.addEventListener('click', (e) => {
+		e.stopPropagation();
+		removeSeriesSource(sourceId);
 	});
 }
 
@@ -1542,7 +1564,6 @@ async function setSeriesSourceAsPrimary(sourceId) {
 
 async function removeSeriesSource(sourceId) {
 	if (!currentSeriesIdForEdit) return;
-	if (!confirm('Remove this source? Chapters already tracked from it will stay, but it will stop being scanned.')) return;
 	try {
 		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources/${sourceId}`, { method: 'DELETE' });
 		if (res.ok) {
@@ -2469,6 +2490,7 @@ function renderPagination(current, total, status, sort) {
 // up with a count of series that have a source stuck failing 3+ scheduler
 // scans in a row.
 let sourceHealthList = [];
+let sourceHealthCount = 0;
 const SOURCE_HEALTH_TYPE_LABELS = {
 	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', unknown: 'Unknown'
 };
@@ -2479,30 +2501,48 @@ async function updateSourceHealth() {
 		if (!res.ok) return;
 		const { count, sources } = await res.json();
 		sourceHealthList = sources || [];
-		const badge = document.getElementById('source-health-count');
-		if (badge) {
-			if (count > 0) {
-				badge.textContent = count;
-				badge.style.display = 'inline';
-			} else {
-				badge.style.display = 'none';
-			}
-		}
-		renderSourceHealthPanel();
+		sourceHealthCount = count || 0;
+		renderSourceHealthUI();
 	} catch (e) {
 		// silent fail
 	}
 }
 
+// Re-applies the last-fetched health state to whichever badge/list elements
+// currently exist in the DOM. Needed on its own (not just inside
+// updateSourceHealth's fetch callback) because the mobile header is built by
+// JS after this module's first DOMContentLoaded fetch already ran - without
+// this, the mobile panel would stay blank until the next 30s poll.
+function renderSourceHealthUI() {
+	['source-health-count', 'mobile-source-health-count'].forEach(id => {
+		const badge = document.getElementById(id);
+		if (!badge) return;
+		if (sourceHealthCount > 0) {
+			badge.textContent = sourceHealthCount;
+			badge.style.display = 'inline';
+		} else {
+			badge.style.display = 'none';
+		}
+	});
+	renderSourceHealthPanel();
+}
+
 function renderSourceHealthPanel() {
-	const list = document.getElementById('source-health-list');
+	[
+		{ listId: 'source-health-list', panelId: 'source-health-panel' },
+		{ listId: 'mobile-source-health-list', panelId: 'mobile-source-health-panel' }
+	].forEach(({ listId, panelId }) => renderSourceHealthList(listId, panelId));
+}
+
+function renderSourceHealthList(listId, panelId) {
+	const list = document.getElementById(listId);
 	if (!list) return;
 	if (sourceHealthList.length === 0) {
 		list.innerHTML = '<p class="source-health-empty">All sources healthy.</p>';
 		return;
 	}
 	list.innerHTML = sourceHealthList.map(s => `
-		<button type="button" class="source-health-item" data-title="${escapeHtml(s.series_title)}">
+		<button type="button" class="source-health-item" data-source-id="${s.source_id}">
 			<div class="source-health-item-title">${escapeHtml(s.series_title)}</div>
 			<div class="source-health-item-meta">${escapeHtml(SOURCE_HEALTH_TYPE_LABELS[s.source_type] || s.source_type)} — failed ${s.consecutive_failures}x in a row</div>
 			${s.last_error ? `<div class="source-health-item-error" title="${escapeHtml(s.last_error)}">${escapeHtml(s.last_error)}</div>` : ''}
@@ -2511,14 +2551,29 @@ function renderSourceHealthPanel() {
 
 	// Clicking a row surfaces that series via the existing search filter
 	// (rather than duplicating Series Settings' own source-management UI
-	// here) - the user picks it up from there.
+	// here) - the user picks it up from there. Also clears every other
+	// filter (status, rating, tags, etc.) so a series sitting outside the
+	// currently-applied status/rating doesn't stay hidden despite matching
+	// the search text - status and rating are set to the series' own
+	// values, everything else is cleared entirely.
 	list.querySelectorAll('.source-health-item').forEach(item => {
 		item.addEventListener('click', () => {
+			const s = sourceHealthList.find(x => String(x.source_id) === item.dataset.sourceId);
+			if (!s) return;
+
+			applyFilterBookmarkState({
+				status: s.status || 'reading',
+				sort: state.sort,
+				dir: state.dir,
+				type: [], genre: [], rating: [], pubStatus: [], readableOn: [], customTags: []
+			});
+
 			const searchInput = document.getElementById('search-input');
 			const mobileSearch = document.getElementById('mobile-search-input');
-			if (searchInput) searchInput.value = item.dataset.title;
-			if (mobileSearch) mobileSearch.value = item.dataset.title;
-			document.getElementById('source-health-panel')?.classList.add('hidden');
+			if (searchInput) searchInput.value = s.series_title;
+			if (mobileSearch) mobileSearch.value = s.series_title;
+
+			document.getElementById(panelId)?.classList.add('hidden');
 			loadPage();
 		});
 	});
@@ -4580,11 +4635,42 @@ function createMobileHeader() {
         </svg>
       </button>
       <h1 style="font-size: 18px; font-weight: 600; margin: 0;">Manga Tracker</h1>
-      <div style="width: 44px;"></div>
+      <div class="mobile-source-health-wrap">
+        <button class="hamburger-btn" id="mobile-btn-source-alert" title="Source Alerts">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 30" width="18" height="18">
+            <path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M25,27H7c-2.2,0-4-1.8-4-4V9c0-2.2,1.8-4,4-4h18c2.2,0,4,1.8,4,4v14C29,25.2,27.2,27,25,27z"/>
+            <polyline fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round" points="3,10 16,18 29,10 "/>
+          </svg>
+          <span id="mobile-source-health-count" class="source-health-badge" style="display:none;"></span>
+        </button>
+        <div id="mobile-source-health-panel" class="source-health-panel mobile-source-health-panel hidden">
+          <p class="source-health-panel-title">Sources needing attention</p>
+          <div id="mobile-source-health-list"></div>
+        </div>
+      </div>
     </div>
   `;
 
   document.getElementById('mobile-menu-btn')?.addEventListener('click', toggleMobileMenu);
+
+  const mobileSourceHealthBtn = document.getElementById('mobile-btn-source-alert');
+  const mobileSourceHealthPanel = document.getElementById('mobile-source-health-panel');
+  if (mobileSourceHealthBtn && mobileSourceHealthPanel) {
+    mobileSourceHealthBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      mobileSourceHealthPanel.classList.toggle('hidden');
+    });
+    document.addEventListener('click', (e) => {
+      if (!mobileSourceHealthPanel.contains(e.target) && e.target !== mobileSourceHealthBtn) {
+        mobileSourceHealthPanel.classList.add('hidden');
+      }
+    });
+  }
+
+  // The header (and its source-health elements) is built after the page's
+  // first fetch may have already run - reapply whatever state is already
+  // known instead of leaving the mobile panel blank until the next 30s poll.
+  renderSourceHealthUI();
 }
 
 // ================================

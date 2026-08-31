@@ -2356,6 +2356,29 @@ html {
   padding: 5px;
 }
 
+/* Inline "Remove this source?" confirm state, swapped into the row in
+   place of the name/badge/actions - same pattern as Manage Views' delete
+   confirm (.manage-bookmark-confirm-*), just source-scoped. */
+.settings-source-confirm-text {
+  flex: 1;
+  color: #e2e8f0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-source-confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.settings-source-confirm-actions .bookmark-form-btn {
+  flex: none;
+  padding: 0 12px;
+}
+
 /* ─── Series Settings modal: Status + Tags row ─── */
 .settings-status-tags-row {
   display: flex;
@@ -2945,6 +2968,7 @@ html {
   max-width: 400px;
   animation: slideIn 0.3s ease-out;
   overflow: hidden;
+  touch-action: none; /* let JS own vertical drag for swipe-to-dismiss */
 }
 
 .notification.closing {
@@ -3421,6 +3445,26 @@ html {
   #btn-reset-filters,
   .source-health-wrap {
     display: none !important;
+  }
+
+  /* Source Alerts, mobile header's right-hand button (mirrors the
+     hamburger button on the left so the title stays centered). */
+  .mobile-source-health-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+
+  /* Full-width sheet under the sticky header instead of a small dropdown -
+     a 320px dropdown anchored to a 40px button in the header's right grid
+     column would either overflow the screen or need right:0 tricks. */
+  .mobile-source-health-panel {
+    position: fixed;
+    top: 56px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+    max-height: 60vh;
+    z-index: 1001;
   }
 
   /* Ensure mobile-only elements are visible */

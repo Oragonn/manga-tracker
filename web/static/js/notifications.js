@@ -169,25 +169,79 @@ function showNotification(message, type = 'added', duration = 4000) {
   closeBtn.addEventListener('click', () => {
     closeNotification(notification);
   });
-  
+
+  attachSwipeToDismiss(notification);
+
   // Add to container
   notificationContainer.appendChild(notification);
-  
+
   // Auto-close after duration
   setTimeout(() => {
     closeNotification(notification);
   }, duration);
 }
 
+// Touch-drag a notification upward to dismiss it (mobile only in practice --
+// nothing here fires without touch events). Downward drags rubber-band back
+// instead of dismissing, since "up" is the only direction that means dismiss.
+const SWIPE_DISMISS_THRESHOLD = 60;
+
+function attachSwipeToDismiss(notification) {
+  let startY = null;
+  let deltaY = 0;
+  let dragging = false;
+
+  notification.addEventListener('touchstart', (e) => {
+    if (notification.dataset.closing) return;
+    startY = e.touches[0].clientY;
+    dragging = true;
+    notification.style.transition = 'none';
+  }, { passive: true });
+
+  notification.addEventListener('touchmove', (e) => {
+    if (!dragging || startY === null) return;
+    const rawDelta = e.touches[0].clientY - startY;
+    deltaY = rawDelta < 0 ? rawDelta : rawDelta * 0.25; // resist downward drags
+    notification.style.transform = `translateY(${deltaY}px)`;
+    const progress = Math.min(1, Math.abs(Math.min(0, deltaY)) / (SWIPE_DISMISS_THRESHOLD * 2));
+    notification.style.opacity = String(1 - progress * 0.6);
+  }, { passive: true });
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging = false;
+    notification.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
+    if (deltaY <= -SWIPE_DISMISS_THRESHOLD) {
+      closeNotification(notification, 'up');
+    } else {
+      notification.style.transform = 'translateY(0)';
+      notification.style.opacity = '1';
+    }
+    startY = null;
+    deltaY = 0;
+  };
+
+  notification.addEventListener('touchend', endDrag);
+  notification.addEventListener('touchcancel', endDrag);
+}
+
 /**
  * Close a notification with animation
  * @param {HTMLElement} notification - The notification element to close
+ * @param {string} direction - 'right' (default slideOut) or 'up' (swipe-dismiss)
  */
-function closeNotification(notification) {
-  if (!notification || notification.classList.contains('closing')) return;
-  
-  notification.classList.add('closing');
-  
+function closeNotification(notification, direction = 'right') {
+  if (!notification || notification.dataset.closing) return;
+  notification.dataset.closing = 'true';
+
+  if (direction === 'up') {
+    notification.style.transition = 'transform 0.25s ease-in, opacity 0.25s ease-in';
+    notification.style.transform = 'translateY(-120%)';
+    notification.style.opacity = '0';
+  } else {
+    notification.classList.add('closing');
+  }
+
   // Remove from DOM after animation
   setTimeout(() => {
     if (notification.parentNode) {
