@@ -37,6 +37,15 @@ class MangaScheduler:
             retention_days=30
         )
 
+        # Per-status fetch state for the /scheduler page - tracked in memory
+        # since none of this (last activity, live scan progress) needs to
+        # survive a restart, unlike everything else the scheduler touches.
+        self._status_lock = threading.Lock()
+        self._status_state = {
+            status: {'last_scanned_at': None, 'scanning': False, 'progress_current': 0, 'progress_total': 0}
+            for status in ('reading', 'plan_to_read', 'on_hold', 'dropped', 'completed')
+        }
+
     def _cleanup_logs(self):
         """Background thread to cleanup old activity logs every 24 hours."""
         while self.active:
@@ -107,16 +116,46 @@ class MangaScheduler:
                     row[2] or ''
                 ))
 
-                tick_start = time.time()
-                for i, (sid, status, last_check) in enumerate(due):
-                    if not self.active:
-                        break
-                    if time.time() - tick_start > self.MAX_SCAN_SECONDS_PER_TICK:
-                        print(f"[Scheduler] Tick budget reached, deferring "
-                              f"{len(due) - i} due series to next tick")
-                        break
-                    self.scan_series(sid)
-                    time.sleep(0.4)
+                # Give the /scheduler page a live progress bar for this
+                # tick's due series, same as a manual Scan Now - but don't
+                # touch a status that's already mid manual scan (its own
+                # thread owns that state; stomping on it here would corrupt
+                # its progress numbers or end its "scanning" flag early).
+                due_counts_by_status = {}
+                for _, status, _ in due:
+                    due_counts_by_status[status] = due_counts_by_status.get(status, 0) + 1
+
+                statuses_started_here = set()
+                with self._status_lock:
+                    for status, count in due_counts_by_status.items():
+                        state = self._status_state.get(status)
+                        if state and not state['scanning']:
+                            state['scanning'] = True
+                            state['progress_current'] = 0
+                            state['progress_total'] = count
+                            statuses_started_here.add(status)
+
+                try:
+                    tick_start = time.time()
+                    for i, (sid, status, last_check) in enumerate(due):
+                        if not self.active:
+                            break
+                        if time.time() - tick_start > self.MAX_SCAN_SECONDS_PER_TICK:
+                            print(f"[Scheduler] Tick budget reached, deferring "
+                                  f"{len(due) - i} due series to next tick")
+                            break
+                        self.scan_series(sid)
+                        if status in self._status_state:
+                            with self._status_lock:
+                                self._status_state[status]['last_scanned_at'] = \
+                                    datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                                if status in statuses_started_here:
+                                    self._status_state[status]['progress_current'] += 1
+                        time.sleep(0.4)
+                finally:
+                    with self._status_lock:
+                        for status in statuses_started_here:
+                            self._status_state[status]['scanning'] = False
 
                 time.sleep(60)
             except Exception as e:
@@ -356,6 +395,114 @@ class MangaScheduler:
             )
             print(f"[Scheduler] Scan error for {series_id}: {e}")
 
+            # Still bump last_check even though this scan failed unexpectedly -
+            # otherwise a series that keeps throwing (bad data, a bug in a
+            # tracker module, etc.) stays permanently "due", gets retried
+            # every single tick forever, and pins the /scheduler page's
+            # "next fetch" countdown at "Due now" indefinitely even though
+            # every other series in its status is scanning normally.
+            try:
+                conn_fail = get_db()
+                try:
+                    self._update_last_check(series_id, conn_fail)
+                finally:
+                    release_db(conn_fail)
+            except Exception as update_err:
+                print(f"[Scheduler] Failed to update last_check after scan error for {series_id}: {update_err}")
+
+
+    def get_status_summary(self):
+        """Per-reading-status fetch info for the /scheduler page: how many
+        series are due right now, when the next one comes due, and any
+        live scan-now progress."""
+        from .database import get_db, release_db
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT status, last_check FROM series")
+        rows = cursor.fetchall()
+        release_db(conn)
+
+        now = datetime.now(timezone.utc)
+        checks_by_status = {status: [] for status in self._status_state}
+        for status, last_check in rows:
+            if status in checks_by_status:
+                checks_by_status[status].append(last_check)
+
+        result = {}
+        with self._status_lock:
+            for status, checks in checks_by_status.items():
+                interval = self.get_check_interval(status)
+                due_count = 0
+                soonest_due_at = None
+                for last_check in checks:
+                    if last_check:
+                        last = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
+                        due_at = last + timedelta(seconds=interval)
+                    else:
+                        due_at = now  # never checked -- due immediately
+                    if due_at <= now:
+                        due_count += 1
+                    if soonest_due_at is None or due_at < soonest_due_at:
+                        soonest_due_at = due_at
+
+                state = self._status_state[status]
+                result[status] = {
+                    'total_series': len(checks),
+                    'due_count': due_count,
+                    'last_scanned_at': state['last_scanned_at'],
+                    'next_due_at': soonest_due_at.isoformat().replace('+00:00', 'Z') if soonest_due_at else None,
+                    'scanning': state['scanning'],
+                    'progress_current': state['progress_current'],
+                    'progress_total': state['progress_total'],
+                }
+        return result
+
+    def scan_status_now(self, status):
+        """Force-scan every series with this reading status right now,
+        ignoring each one's normal check interval. Runs on a background
+        thread so the triggering request returns immediately; progress is
+        polled via get_status_summary(). Returns False if this status is
+        already mid-scan (caller should refuse to start another)."""
+        if status not in self._status_state:
+            return False
+
+        with self._status_lock:
+            if self._status_state[status]['scanning']:
+                return False
+            self._status_state[status]['scanning'] = True
+            self._status_state[status]['progress_current'] = 0
+            self._status_state[status]['progress_total'] = 0
+
+        def _worker():
+            try:
+                from .database import get_db, release_db
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM series WHERE status = ?", (status,))
+                series_ids = [r[0] for r in cursor.fetchall()]
+                release_db(conn)
+
+                with self._status_lock:
+                    self._status_state[status]['progress_total'] = len(series_ids)
+
+                for i, sid in enumerate(series_ids):
+                    if not self.active:
+                        break
+                    self.scan_series(sid)
+                    with self._status_lock:
+                        self._status_state[status]['progress_current'] = i + 1
+                        self._status_state[status]['last_scanned_at'] = \
+                            datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                    time.sleep(0.4)
+            except Exception as e:
+                print(f"[Scheduler] scan_status_now('{status}') error: {e}")
+            finally:
+                with self._status_lock:
+                    self._status_state[status]['scanning'] = False
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return True
 
     def start_scanning(self):
         self.thread.start()

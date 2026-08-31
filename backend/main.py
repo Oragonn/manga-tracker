@@ -692,6 +692,32 @@ def backups_page():
     """Render backups management page."""
     return render_template('backups.html')
 
+@app.route('/scheduler')
+def scheduler_page():
+    """Render fetch-scheduler status page."""
+    return render_template('scheduler.html')
+
+VALID_SCAN_STATUSES = {'reading', 'plan_to_read', 'on_hold', 'dropped', 'completed'}
+
+@app.route('/api/scheduler/status')
+def api_scheduler_status():
+    from . import api
+    if not hasattr(api, 'manga_scheduler'):
+        return jsonify({'error': 'Scheduler not available'}), 500
+    return jsonify(api.manga_scheduler.get_status_summary())
+
+@app.route('/api/scheduler/scan-now/<status>', methods=['POST'])
+def api_scheduler_scan_now(status):
+    if status not in VALID_SCAN_STATUSES:
+        return jsonify({'error': 'Invalid status'}), 400
+    from . import api
+    if not hasattr(api, 'manga_scheduler'):
+        return jsonify({'error': 'Scheduler not available'}), 500
+    started = api.manga_scheduler.scan_status_now(status)
+    if not started:
+        return jsonify({'error': 'Already scanning'}), 409
+    return jsonify({'success': True})
+
 # --- Series CSV backups (Kenmei-import-shaped snapshot of the series list) ---
 
 def _is_safe_series_backup_filename(filename):

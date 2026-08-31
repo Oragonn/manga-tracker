@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fetch Scheduler - Manga Tracker</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <meta name="csrf-token" content="{{ csrf_token() }}" />
+  <script src="/static/js/notifications.js"></script>
+  <style>
+    .scheduler-container {
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+
+    .scheduler-status-card {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+
+    .scheduler-status-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .scheduler-status-card-header h2 {
+      font-size: 16px;
+      color: white;
+      margin: 0;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: #94a3b8;
+    }
+
+    .stat-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: white;
+    }
+
+    .scan-progress {
+      margin-bottom: 16px;
+    }
+
+    .scan-progress.hidden {
+      display: none;
+    }
+
+    .scan-progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+
+    .scan-progress-bar {
+      width: 100%;
+      height: 8px;
+      background: #1a2436;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .scan-progress-fill {
+      height: 100%;
+      background: #1665f4;
+      transition: width 0.3s ease;
+    }
+
+    .scheduler-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn-scheduler {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1665f4;
+      border-color: #1665f4;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+
+    .btn-scheduler:hover:not(:disabled) {
+      background: #1256d0;
+    }
+
+    .btn-scheduler:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-scheduler.secondary {
+      background: #1a2436;
+      border-color: #334155;
+    }
+
+    .btn-scheduler.secondary:hover:not(:disabled) {
+      background: #2d3f5f;
+    }
+
+    .scheduler-page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .mobile-menu-overlay,
+    .mobile-menu {
+      display: none;
+    }
+
+    /* Mobile styles */
+    @media (max-width: 768px) {
+      .scheduler-container {
+        padding: 12px;
+        margin: 0;
+      }
+
+      .scheduler-page-header {
+        display: none;
+      }
+
+      /* The shared #back-to-top rule (see style.css's "BACK TO TOP IN BULK
+         MODE" block) hides it on mobile everywhere except the dashboard's
+         bulk-select mode (.show-bulk) - this page uses the plain .show
+         toggle instead, so it needs its own higher-specificity override. */
+      #back-to-top.show {
+        display: flex !important;
+      }
+
+      .scheduler-status-card {
+        padding: 16px;
+        margin-bottom: 12px;
+      }
+
+      .status-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .stat-item {
+        padding: 10px;
+        background: #1a2436;
+        border-radius: 8px;
+      }
+
+      .stat-label {
+        font-size: 11px;
+        color: #64748b;
+        margin-bottom: 4px;
+      }
+
+      .stat-value {
+        font-size: 15px;
+      }
+
+      .scheduler-actions {
+        width: 100%;
+      }
+
+      .btn-scheduler {
+        width: 100%;
+        min-height: 44px;
+      }
+
+      .mobile-menu-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 998;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease, visibility 0.3s ease;
+      }
+
+      .mobile-menu-overlay.active {
+        display: block;
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .mobile-menu {
+        position: fixed;
+        top: 0;
+        right: -100%;
+        width: 280px;
+        height: 100%;
+        background: #0f172a;
+        z-index: 999;
+        transition: right 0.3s ease;
+        display: block;
+      }
+
+      .mobile-menu.active {
+        right: 0;
+      }
+
+      .fab-container {
+        position: fixed;
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        right: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        z-index: 999;
+      }
+
+      .fab-primary {
+        width: 50px;
+        height: 50px;
+        background: #334155;
+        border: none;
+        border-radius: 50%;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        transition: transform 0.2s ease;
+      }
+
+      .fab-primary:active {
+        transform: scale(0.95);
+      }
+
+      @keyframes spin {
+        from { transform: rotate(360deg); }
+        to { transform: rotate(0deg); }
+      }
+
+      .fab-primary.refreshing svg {
+        animation: spin 0.6s linear;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header class="header-full">
+  <nav class="nav-container">
+    <div class="nav-links">
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
+      <a href="/scheduler" class="nav-link">Scheduler</a>
+      <a href="/errors" class="nav-link">
+        Errors
+        <span id="unread-error-count" style="
+          display: none;
+          background: #e53e3e;
+          color: white;
+          font-size: 11px;
+          font-weight: bold;
+          padding: 2px 6px;
+          border-radius: 10px;
+          margin-left: 6px;
+        "></span>
+      </a>
+      <a href="/backups" class="nav-link">Backups</a>
+      <a href="/logs" class="nav-link">Activity Log</a>
+      <a href="/stats" class="nav-link">Stats</a>
+    </div>
+  </nav>
+</header>
+
+<!-- Mobile Menu Overlay -->
+<div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
+<div class="mobile-menu" id="mobile-menu">
+  <div class="mobile-menu-header">
+    <h2>Menu</h2>
+    <button class="hamburger-btn" id="mobile-menu-close">
+      <svg class="icon-close" viewBox="0 0 24 24">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+  <div class="mobile-menu-links">
+    <a href="/dashboard">Dashboard</a>
+    <a href="https://kenmei.co/discovery" target="_blank">
+      Discovery
+      <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+      </svg>
+    </a>
+    <a href="/scheduler">Scheduler</a>
+    <a href="/errors">
+      Errors
+      <span id="mobile-error-badge" style="display:none;background:#e53e3e;color:white;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:10px;"></span>
+    </a>
+    <a href="/backups">Backups</a>
+    <a href="/logs">Activity Log</a>
+    <a href="/stats">Stats</a>
+  </div>
+</div>
+
+<div class="scheduler-container">
+  <div class="scheduler-page-header">
+    <h1 style="color: white; margin: 0;">Fetch Scheduler</h1>
+    <button class="btn-scheduler secondary" id="btn-scheduler-refresh">↻ Refresh</button>
+  </div>
+
+  <div id="scheduler-cards">
+    <p style="color: #94a3b8;">Loading...</p>
+  </div>
+</div>
+
+<!-- Mobile FAB Buttons -->
+<div class="fab-container" id="fab-container" style="display: none;">
+  <button class="fab-primary" id="fab-refresh">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+    </svg>
+  </button>
+</div>
+
+<script>
+
+const STATUSES = ['reading', 'plan_to_read', 'on_hold', 'dropped', 'completed'];
+const STATUS_LABELS = {
+  reading: 'Reading',
+  plan_to_read: 'Plan to Read',
+  on_hold: 'On Hold',
+  dropped: 'Dropped',
+  completed: 'Completed'
+};
+
+let schedulerData = {};
+let schedulerPollTimer = null;
+
+function formatRelativeTime(isoString) {
+  if (!isoString) return 'Never';
+  try {
+    const date = new Date(isoString);
+    const diffMs = Date.now() - date.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return 'Just now';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  } catch (e) {
+    return 'Unknown';
+  }
+}
+
+function formatCountdown(isoString) {
+  if (!isoString) return 'Unknown';
+  try {
+    const date = new Date(isoString);
+    const diffMs = date.getTime() - Date.now();
+    if (diffMs <= 0) return 'Due now';
+    const diffSec = Math.floor(diffMs / 1000);
+    if (diffSec < 60) return `${diffSec}s`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m`;
+    const diffHours = Math.floor(diffMin / 60);
+    const remMin = diffMin % 60;
+    if (diffHours < 24) return remMin > 0 ? `${diffHours}h ${remMin}m` : `${diffHours}h`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d`;
+  } catch (e) {
+    return 'Unknown';
+  }
+}
+
+function renderSchedulerCards() {
+  const container = document.getElementById('scheduler-cards');
+  if (!container) return;
+
+  container.innerHTML = STATUSES.map(status => {
+    const s = schedulerData[status] || {};
+    const scanning = !!s.scanning;
+    const progressPct = s.progress_total > 0
+      ? Math.round((s.progress_current / s.progress_total) * 100)
+      : 0;
+
+    return `
+      <div class="scheduler-status-card">
+        <div class="scheduler-status-card-header">
+          <h2>${STATUS_LABELS[status]}</h2>
+        </div>
+
+        <div class="status-grid">
+          <div class="stat-item">
+            <div class="stat-label">Next Fetch</div>
+            <div class="stat-value" data-field="next" data-status="${status}">${scanning ? 'Scanning…' : formatCountdown(s.next_due_at)}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Last Scanned</div>
+            <div class="stat-value">${formatRelativeTime(s.last_scanned_at)}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Due Now</div>
+            <div class="stat-value">${s.due_count ?? 0}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Total Series</div>
+            <div class="stat-value">${s.total_series ?? 0}</div>
+          </div>
+        </div>
+
+        <div class="scan-progress ${scanning ? '' : 'hidden'}">
+          <div class="scan-progress-label">
+            <span>Scanning…</span>
+            <span>${s.progress_current ?? 0} / ${s.progress_total ?? 0}</span>
+          </div>
+          <div class="scan-progress-bar">
+            <div class="scan-progress-fill" style="width: ${progressPct}%"></div>
+          </div>
+        </div>
+
+        <div class="scheduler-actions">
+          <button class="btn-scheduler" data-status="${status}" ${scanning ? 'disabled' : ''} onclick="scanNow('${status}')">
+            ${scanning ? 'Scanning…' : 'Scan Now'}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadSchedulerStatus() {
+  try {
+    const res = await fetch('/api/scheduler/status');
+    if (!res.ok) return;
+    schedulerData = await res.json();
+    renderSchedulerCards();
+  } catch (e) {
+    console.error('Failed to load scheduler status:', e);
+  }
+}
+
+async function scanNow(status) {
+  try {
+    const res = await fetch(`/api/scheduler/scan-now/${status}`, { method: 'POST' });
+    if (res.ok) {
+      showNotification(`Scanning ${STATUS_LABELS[status]} now`, 'added');
+      loadSchedulerStatus();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      showNotification(data.error || 'Failed to start scan', 'error');
+    }
+  } catch (e) {
+    showNotification('Failed to start scan', 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initNotifications();
+  loadSchedulerStatus();
+  schedulerPollTimer = setInterval(loadSchedulerStatus, 2000);
+
+  document.getElementById('btn-scheduler-refresh')?.addEventListener('click', () => {
+    loadSchedulerStatus();
+  });
+});
+
+// Mobile menu functionality
+(function() {
+  function isMobile() {
+    return window.innerWidth <= 768;
+  }
+
+  if (isMobile()) {
+    const header = document.querySelector('.header-full');
+    const navContainer = header?.querySelector('.nav-container');
+
+    if (navContainer) {
+      navContainer.innerHTML = `
+        <div class="mobile-header">
+          <button class="hamburger-btn" id="mobile-menu-btn">
+            <svg class="icon-menu" viewBox="0 0 24 24">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <h1 style="font-size: 18px; font-weight: 600; margin: 0;">Fetch Scheduler</h1>
+          <div style="width: 44px;"></div>
+        </div>
+      `;
+    }
+
+    let menuOpen = false;
+    let scrollY = 0;
+
+    function openMobileMenu() {
+      menuOpen = true;
+      scrollY = window.scrollY;
+      document.getElementById('mobile-menu-overlay')?.classList.add('active');
+      document.getElementById('mobile-menu')?.classList.add('active');
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+      document.body.style.top = `-${scrollY}px`;
+    }
+
+    function closeMobileMenu() {
+      menuOpen = false;
+      document.getElementById('mobile-menu-overlay')?.classList.remove('active');
+      document.getElementById('mobile-menu')?.classList.remove('active');
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      window.scrollTo(0, scrollY);
+    }
+
+    document.getElementById('mobile-menu-btn')?.addEventListener('click', openMobileMenu);
+    document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
+    document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
+
+    const fabContainer = document.getElementById('fab-container');
+    if (fabContainer) fabContainer.style.display = 'flex';
+
+    const fabRefresh = document.getElementById('fab-refresh');
+    if (fabRefresh) {
+      fabRefresh.addEventListener('click', async () => {
+        if (fabRefresh.disabled || fabRefresh.classList.contains('refreshing')) return;
+        fabRefresh.disabled = true;
+        fabRefresh.classList.remove('refreshing');
+        void fabRefresh.offsetWidth;
+        fabRefresh.classList.add('refreshing');
+
+        await loadSchedulerStatus();
+
+        setTimeout(() => {
+          fabRefresh.classList.remove('refreshing');
+          fabRefresh.disabled = false;
+        }, 600);
+      });
+    }
+  }
+})();
+</script>
+
+<button id="back-to-top" title="Back to top">
+    <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+    <polyline points="18 15 12 9 6 15"></polyline>
+  </svg>
+</button>
+<script>
+(() => {
+  const backToTopBtn = document.getElementById('back-to-top');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 300) {
+      backToTopBtn.classList.add('show');
+    } else {
+      backToTopBtn.classList.remove('show');
+    }
+  });
+  backToTopBtn.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+})();
+</script>
+
+</body>
+</html>

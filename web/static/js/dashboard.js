@@ -4160,22 +4160,24 @@ document.addEventListener('DOMContentLoaded', () => {
 			menu.classList.add('hidden');
 		});
 		markDefaultBookmarkActive();
+		updateSourceHealth();
 		loadPage();
 	});
 
 	// Refresh
 	document.getElementById('btn-refresh')?.addEventListener('click', async () => {
 	if (isLoadingPage) return; // Prevent refresh during load
-	
+
 	const btn = document.getElementById('btn-refresh');
-	
+
 	// Add refreshing class to trigger animation
 	btn.classList.add('refreshing');
-	
+
 	// Disable button during refresh
 	btn.disabled = true;
-	
+
 	try {
+		updateSourceHealth();
 		await loadPage();
 	} finally {
 		// Remove animation class after page loads
@@ -4700,13 +4702,14 @@ function createMobileMenu() {
             <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
           </svg>
         </a>
-        <a href="/stats">Stats</a>
-        <a href="/logs">Activity Log</a>
+        <a href="/scheduler">Scheduler</a>
         <a href="/errors">
           Errors
           <span id="mobile-error-badge" style="display:none;background:#e53e3e;color:white;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:10px;"></span>
         </a>
         <a href="/backups">Backups</a>
+        <a href="/logs">Activity Log</a>
+        <a href="/stats">Stats</a>
       </div>
     </div>
   `;
@@ -5490,6 +5493,7 @@ function resetMobileFilters() {
   });
   
   markDefaultBookmarkActive();
+  updateSourceHealth();
   loadPage();
   closeFilterDrawer();
 }
@@ -7483,8 +7487,9 @@ function createFABButtons() {
       
       fabSecondary.classList.add('refreshing');
       fabSecondary.disabled = true;
-      
+
       try {
+        updateSourceHealth();
         await loadPage();
       } finally {
         setTimeout(() => {
