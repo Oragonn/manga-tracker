@@ -1179,6 +1179,26 @@ def api_unread_count():
     count = get_unread_reading_count()
     return jsonify({'count': count})
 
+@app.route('/api/series/<int:series_id>')
+def api_get_single_series(series_id):
+    """Single-series fetch, same row shape as the /api/series list items -
+    used by the frontend to refresh one card in place after an edit instead
+    of reloading the whole grid."""
+    from .database import get_db, release_db
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT *, COALESCE(latest_chapter, 0) - current_chapter AS unread_count
+        FROM series WHERE id = ?
+    """, (series_id,))
+    row = cursor.fetchone()
+    release_db(conn)
+    if not row:
+        return jsonify({'error': 'Series not found'}), 404
+    return jsonify(dict(row))
+
+
 @app.route('/api/series/<int:series_id>', methods=['PATCH'])
 def api_update_series(series_id):
     data = request.get_json()

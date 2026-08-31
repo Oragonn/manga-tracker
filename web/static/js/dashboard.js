@@ -1386,30 +1386,7 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 			card.originalIndex = pendingIndex;
 			card.pendingChapterNumber = pendingChapterNumber;
 			card.pendingHasExactMatch = pendingHasExactMatch;
-			const coverContainer = card.querySelector('.series-cover-container');
-			const existingBadge = coverContainer.querySelector('.unread-badge');
-			if (existingBadge) existingBadge.remove();
-			let unreadCount = 0;
-			if (sortedChapters.length > 0) {
-				const numeric = sortedChapters.filter(ch => !ch.is_oneshot);
-				if (numeric.length > 0) {
-					if (pendingIndex === -1) {
-						unreadCount = numeric.length;
-					} else {
-						unreadCount = sortedChapters
-							.slice(pendingIndex + 1)
-							.filter(ch => !ch.is_oneshot).length;
-					}
-				} else if (pendingIndex === -1) {
-					unreadCount = sortedChapters.length;
-				}
-			}
-			if (unreadCount > 0) {
-				const badge = document.createElement('div');
-				badge.className = 'unread-badge';
-				badge.textContent = String(unreadCount);
-				coverContainer.insertBefore(badge, coverContainer.firstChild);
-			}
+			updateUnreadBadge();
 			updateChapterDisplay();
 			updateButtonState();
 		} catch (e) {
@@ -1421,6 +1398,33 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 			updateButtonState();
 		}
 	})();
+
+	function updateUnreadBadge() {
+		const sorted = card.sortedChapters || [];
+		const pendingIndex = card.pendingIndex;
+		const coverContainer = card.querySelector('.series-cover-container');
+		const existingBadge = coverContainer.querySelector('.unread-badge');
+		if (existingBadge) existingBadge.remove();
+		let unreadCount = 0;
+		if (sorted.length > 0) {
+			const numeric = sorted.filter(ch => !ch.is_oneshot);
+			if (numeric.length > 0) {
+				if (pendingIndex === -1) {
+					unreadCount = numeric.length;
+				} else {
+					unreadCount = sorted.slice(pendingIndex + 1).filter(ch => !ch.is_oneshot).length;
+				}
+			} else if (pendingIndex === -1) {
+				unreadCount = sorted.length;
+			}
+		}
+		if (unreadCount > 0) {
+			const badge = document.createElement('div');
+			badge.className = 'unread-badge';
+			badge.textContent = String(unreadCount);
+			coverContainer.insertBefore(badge, coverContainer.firstChild);
+		}
+	}
 
 	function updateChapterDisplay() {
 		const sorted = card.sortedChapters || [];
@@ -1662,12 +1666,27 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 	btnInc.addEventListener('touchend', stopHoldRepeat);
 	btnInc.addEventListener('touchcancel', stopHoldRepeat);
 
+	// Updates the card in place instead of reloading the whole grid - the
+	// saved chapter is exactly what pendingIndex already points at, so
+	// there's nothing to re-fetch, just commit it as the new baseline.
+	function applyAcceptedChapter(newChapterNumber) {
+		series.current_chapter = newChapterNumber;
+		card.originalIndex = card.pendingIndex;
+		updateUnreadBadge();
+		updateChapterDisplay();
+		updateButtonState();
+	}
+
 	btnAccept.addEventListener('click', () => {
 		if (card.pendingIndex === -1) {
-			saveChapter(series.id, -1, series.current_chapter).then(() => loadPage());
+			saveChapter(series.id, -1, series.current_chapter).then(res => {
+				if (res.ok) applyAcceptedChapter(-1);
+			});
 		} else {
 			const ch = card.sortedChapters[card.pendingIndex];
-			saveChapter(series.id, ch.chapter_number, series.current_chapter).then(() => loadPage());
+			saveChapter(series.id, ch.chapter_number, series.current_chapter).then(res => {
+				if (res.ok) applyAcceptedChapter(ch.chapter_number);
+			});
 		}
 	});
 	btnSet.addEventListener('click', () => openEditModal(series));
@@ -1967,6 +1986,40 @@ async function updateUnreadErrorCount() {
 }
 
 // ─── Load Page (Main Logic) ───────────────────────────────────
+// Refreshes one series' card without reloading the whole grid - used after
+// Series Settings Save, which can touch title/cover/status/chapter/tags/
+// primary source all at once, so (unlike btnAccept, which already knows
+// the exact new value) this re-fetches that one series fresh and either
+// replaces its card or removes it if it no longer matches the active
+// status tab - other filters (search/genre/etc.) aren't re-checked, so a
+// card that no longer matches one of those may linger until the next
+// natural reload, which is an acceptable rare edge case here.
+async function refreshSeriesCardInPlace(seriesId) {
+	try {
+		const res = await fetch(`/api/series/${seriesId}`);
+		if (!res.ok) { loadPage(); return; }
+		const freshSeries = await res.json();
+
+		if (Array.isArray(state.allSeries)) {
+			const idx = state.allSeries.findIndex(s => s.id === seriesId);
+			if (idx !== -1) state.allSeries[idx] = freshSeries;
+		}
+
+		const oldCard = document.querySelector(`.series-card[data-series-id="${seriesId}"]`);
+		if (!oldCard) return; // not on the current page/filter view - nothing to update
+
+		if (state.status !== 'all' && freshSeries.status !== state.status) {
+			oldCard.remove();
+			return;
+		}
+
+		const newCard = renderSeriesCard(freshSeries);
+		oldCard.replaceWith(newCard);
+	} catch (e) {
+		loadPage(); // fall back to a full reload on any unexpected error
+	}
+}
+
 async function loadPage() {
 	// Prevent concurrent loads
 	if (isLoadingPage) return;
@@ -3299,7 +3352,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				if (primarySourceChanged) parts.push('source');
 				showNotification(`Updated ${parts.join(', ')}`, 'read');
 				closeEditSeriesModal();
-				loadPage();
+				refreshSeriesCardInPlace(currentSeriesIdForEdit);
 			} else {
 				showNotification('Failed to save changes', 'error');
 			}
