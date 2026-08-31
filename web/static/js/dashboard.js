@@ -4196,7 +4196,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		const btn = document.getElementById('btn-add-submit');
 		const originalText = btn.textContent;
 		const urlInput = document.getElementById('new-series-url');
-		const url = urlInput?.value.trim();
+		// Multiple URLs can be pasted at once, comma-separated - the first
+		// becomes the primary source, the rest get attached once the series
+		// exists (same pattern as the Kenmei import page's per-row field).
+		const urls = (urlInput?.value || '').split(',').map(u => u.trim()).filter(Boolean);
+		const [url, ...extraUrls] = urls;
 		const statusSelect = document.getElementById('new-series-status');
 		const selectedStatus = statusSelect?.value || 'reading';
 		if (!url) {
@@ -4255,9 +4259,25 @@ document.addEventListener('DOMContentLoaded', () => {
 								'on_hold': 'On Hold',
 								'dropped': 'Dropped',
 								'completed': 'Completed'
-							};			
+							};
 							const statusText = statusMap[status] || status;
-							showNotification(`Series added to ${statusText}`, 'added');
+
+							if (extraUrls.length && statusData.id) {
+								const results = await Promise.all(extraUrls.map(u =>
+									fetch(`/api/series/${statusData.id}/sources`, {
+										method: 'POST',
+										headers: { 'Content-Type': 'application/json' },
+										body: JSON.stringify({ source_url: u })
+									}).then(r => r.json().catch(() => ({}))).then(data => ({ ok: !data.error, error: data.error }))
+								));
+								const failedCount = results.filter(r => !r.ok).length;
+								const extraMsg = failedCount === 0
+									? `, +${results.length} source${results.length > 1 ? 's' : ''} added`
+									: `, ${results.length - failedCount}/${results.length} extra source(s) added`;
+								showNotification(`Series added to ${statusText}${extraMsg}`, 'added');
+							} else {
+								showNotification(`Series added to ${statusText}`, 'added');
+							}
 							loadGenres();
 						}
 						loadPage();
