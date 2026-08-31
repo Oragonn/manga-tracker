@@ -82,11 +82,14 @@ class MangaScheduler:
         'completed': 3,
     }
 
-    # Cap how long a single tick spends scanning, so a large backlog spreads
-    # across multiple ticks (60s apart) instead of one long uninterrupted
-    # burst hammering external APIs. Combined with the priority sort above,
-    # "reading" series always get first crack at this budget every tick.
-    MAX_SCAN_SECONDS_PER_TICK = 30
+    # Series are scanned this many at a time per tick (each series itself
+    # already fans out to its own sources concurrently inside scan_series).
+    # At ~1.5-2s per series scanned one at a time, a status whose series all
+    # share a last_check timestamp (e.g. right after a restart) could take
+    # longer to clear than its own check interval, permanently falling
+    # behind - 8-way concurrency here keeps a few hundred series comfortably
+    # inside a single 60s tick instead of dribbling out over many ticks.
+    CONCURRENT_SCAN_WORKERS = 8
 
     def _run(self):
         from .database import get_db, release_db  # Ensure consistent import
@@ -137,21 +140,33 @@ class MangaScheduler:
 
                 try:
                     tick_start = time.time()
-                    for i, (sid, status, last_check) in enumerate(due):
-                        if not self.active:
-                            break
-                        if time.time() - tick_start > self.MAX_SCAN_SECONDS_PER_TICK:
-                            print(f"[Scheduler] Tick budget reached, deferring "
-                                  f"{len(due) - i} due series to next tick")
-                            break
-                        self.scan_series(sid)
-                        if status in self._status_state:
-                            with self._status_lock:
-                                self._status_state[status]['last_scanned_at'] = \
-                                    datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-                                if status in statuses_started_here:
-                                    self._status_state[status]['progress_current'] += 1
-                        time.sleep(0.4)
+                    submitted = 0
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor:
+                        future_to_status = {}
+                        for sid, status, last_check in due:
+                            if not self.active:
+                                break
+                            future_to_status[executor.submit(self.scan_series, sid)] = status
+                            submitted += 1
+
+                        for future in concurrent.futures.as_completed(future_to_status):
+                            status = future_to_status[future]
+                            try:
+                                future.result()
+                            except Exception as e:
+                                # scan_series() catches its own errors, so this is
+                                # only for something unexpected escaping it.
+                                print(f"[Scheduler] Unhandled error during concurrent scan: {e}")
+                            if status in self._status_state:
+                                with self._status_lock:
+                                    self._status_state[status]['last_scanned_at'] = \
+                                        datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                                    if status in statuses_started_here:
+                                        self._status_state[status]['progress_current'] += 1
+
+                    if submitted:
+                        print(f"[Scheduler] Tick scanned {submitted} due series in "
+                              f"{time.time() - tick_start:.1f}s ({self.CONCURRENT_SCAN_WORKERS} workers)")
                 finally:
                     with self._status_lock:
                         for status in statuses_started_here:
@@ -486,15 +501,22 @@ class MangaScheduler:
                 with self._status_lock:
                     self._status_state[status]['progress_total'] = len(series_ids)
 
-                for i, sid in enumerate(series_ids):
-                    if not self.active:
-                        break
-                    self.scan_series(sid)
-                    with self._status_lock:
-                        self._status_state[status]['progress_current'] = i + 1
-                        self._status_state[status]['last_scanned_at'] = \
-                            datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-                    time.sleep(0.4)
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor:
+                    futures = []
+                    for sid in series_ids:
+                        if not self.active:
+                            break
+                        futures.append(executor.submit(self.scan_series, sid))
+
+                    for future in concurrent.futures.as_completed(futures):
+                        try:
+                            future.result()
+                        except Exception as e:
+                            print(f"[Scheduler] Unhandled error during scan_status_now('{status}'): {e}")
+                        with self._status_lock:
+                            self._status_state[status]['progress_current'] += 1
+                            self._status_state[status]['last_scanned_at'] = \
+                                datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             except Exception as e:
                 print(f"[Scheduler] scan_status_now('{status}') error: {e}")
             finally:
