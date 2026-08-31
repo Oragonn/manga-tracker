@@ -1,8 +1,8 @@
-# 📚 **Manga Tracker – Complete Project Summary (Updated August 30, 2026)**
+# 📚 **Manga Tracker – Complete Project Summary (Updated August 31, 2026)**
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane, Atsumaru, AsuraScans) with manual chapter control, automated background checking, bulk operations, activity logging with undo, automated hourly backups, multi-source support per series, a statistics dashboard with historical trends, toast notifications, full mobile UI across all pages, and (added Aug 30, 2026) a single-user login gate with CSRF/rate-limiting/XSS hardening so it can be safely reached from outside the home network via a free Cloudflare Tunnel.
+A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane, Atsumaru, AsuraScans) with manual chapter control, automated background checking (now concurrent, up to 8 series in parallel), bulk operations, activity logging with undo (now covering source/bookmark changes, not just series), automated hourly backups, multi-source support per series (including pasting several source URLs at once when first adding a series), saved filter/sort views ("Filter Bookmarks"), a dedicated fetch-scheduler status page, a statistics dashboard with historical trends, toast notifications (with swipe-to-dismiss on mobile), full mobile UI across all pages, and (added Aug 30, 2026) a single-user login gate with CSRF/rate-limiting/XSS hardening so it can be safely reached from outside the home network via a free Cloudflare Tunnel.
 
 This file is meant to be handed to a fresh chat/assistant to resume work without re-exploring the whole codebase. It describes **current state**, not a changelog — check `git log` for history.
 
@@ -23,8 +23,8 @@ manga-tracker/
 ├── backend/
 │   ├── api.py                    # Flask routes, queue-based series adding, stats endpoints (~1400+ lines)
 │   ├── database.py               # SQLite operations, global lock, stats history aggregation
-│   ├── scheduler.py              # Background chapter checking (adaptive intervals)
-│   ├── main.py                   # App entrypoint / extra routes (errors, logs, backups, stats)
+│   ├── scheduler.py              # Background chapter checking (adaptive per-status intervals, 8-way concurrent scanning, per-status live progress state for /scheduler)
+│   ├── main.py                   # App entrypoint / extra routes (errors, logs, backups, stats, scheduler)
 │   ├── error_logger.py           # 7-day rotating error logs
 │   ├── activity_logger.py        # 14-day activity log with undo
 │   ├── backup_manager.py         # Hourly database backups (backups/database/), gzip, 7-day + 2GB-cap retention
@@ -50,8 +50,8 @@ manga-tracker/
 │   ├── static/
 │   │   ├── css/style.css         # ~3170 lines, includes mobile breakpoints
 │   │   └── js/
-│   │       ├── dashboard.js      # ~5230 lines — main dashboard logic + mobile UI
-│   │       ├── notifications.js  # Toast notifications + shared escapeHtml()/CSRF-fetch-wrapper (shared across all pages)
+│   │       ├── dashboard.js      # ~7700+ lines — main dashboard logic + mobile UI
+│   │       ├── notifications.js  # Toast notifications (swipe-to-dismiss on touch) + shared escapeHtml()/CSRF-fetch-wrapper (shared across all pages)
 │   │       └── backups.js        # Backup management UI
 │   └── templates/
 │       ├── index.html            # Main dashboard
@@ -59,6 +59,8 @@ manga-tracker/
 │       ├── logs.html             # Activity log viewer
 │       ├── backups.html          # Backup management
 │       ├── stats.html            # Statistics dashboard
+│       ├── scheduler.html        # Fetch-scheduler status page (added Aug 31, 2026) — per-status next-fetch/due-count/live-progress + manual "Scan Now"
+│       ├── import_kenmei.html    # Personal Kenmei CSV import helper, not linked in nav on purpose
 │       └── login.html            # Login page (password + show/hide eye toggle) — added Aug 30, 2026
 ├── extension/                    # Companion browser extension
 ├── .env                          # Secrets (SECRET_KEY, AUTH_PASSWORD_HASH, NOTIFY_*) — gitignored, not committed
@@ -118,8 +120,12 @@ CREATE TABLE series_sources (
     source_url TEXT NOT NULL UNIQUE,
     source_type TEXT NOT NULL,                     -- 'mangadex', 'kagane', etc
     is_primary BOOLEAN DEFAULT 0,
+    cover_url TEXT,
     last_check DATETIME,
     added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    consecutive_failures INTEGER DEFAULT 0,        -- powers the Source Alerts bell (desktop + mobile) at >=3
+    last_error TEXT,
+    last_failure_at DATETIME,
     FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
 );
 ```
@@ -145,9 +151,11 @@ CREATE TABLE chapters (
 CREATE TABLE activity_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-    action_type TEXT NOT NULL,                     -- 'added', 'deleted', 'progress', 'status', 'edited'
+    action_type TEXT NOT NULL,                     -- 'added', 'deleted', 'progress', 'status', 'edited',
+                                                     -- 'source_added', 'source_removed' (added Aug 31, 2026),
+                                                     -- 'bookmark_added', 'bookmark_updated', 'bookmark_deleted' (added Aug 31, 2026)
     series_id INTEGER,
-    series_title TEXT,
+    series_title TEXT,                              -- also holds the bookmark name for bookmark_* entries (no series_id then)
     old_value TEXT,                                 -- JSON: before state
     new_value TEXT,                                 -- JSON: after state
     is_bulk BOOLEAN DEFAULT 0,
@@ -156,6 +164,19 @@ CREATE TABLE activity_log (
     FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE SET NULL
 );
 ```
+Every action_type above has a matching undo branch in **both** `api_undo_log` (single-entry) and, if it can ever be bulked, `api_undo_bulk` (main.py) — these are separate, duplicated implementations that don't share code; a new `log_activity()` call site needs both updated. `source_added`/`source_removed`/`bookmark_*` are never bulked (always single actions). Deleting a series snapshots its full `series_sources` list and custom tags (not just the legacy primary source) so undo restores everything, not just the primary source.
+
+#### `filter_bookmarks` — Saved filter/sort views (added Aug 31, 2026)
+```sql
+CREATE TABLE filter_bookmarks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    is_builtin BOOLEAN DEFAULT 0,   -- the protected "Default" view, seeded by init_db(), can't be renamed/deleted
+    position INTEGER NOT NULL,
+    filter_state TEXT NOT NULL      -- JSON: {status, sort, dir, type, genre, rating, pubStatus, readableOn, customTags}
+);
+```
+Dropdown left of the status filter (desktop) / bottom of filter drawer (mobile) on the dashboard. `applyFilterBookmarkState(fs)` in `dashboard.js` is the canonical "replace all filter UI state from an object" function — reused elsewhere too (e.g. clicking a Source Alerts row jumps to that series' actual status/rating this way). Covered by the normal hourly whole-file DB backup automatically, no special-casing needed.
 
 #### `stats_history` — Historical stats snapshots (added ~Jan 2026)
 ```sql
@@ -189,7 +210,7 @@ CREATE TABLE meta (
 
 2. **Manual chapter control** — +/− with hold-to-repeat (300ms delay, 50ms repeat), volume-aware sorting, season-aware parsing for Kagane, confirm button disabled until an actual change is made.
 
-3. **Background scheduler (APScheduler)** — adaptive check intervals:
+3. **Background scheduler** — adaptive per-status check intervals:
    ```python
    intervals = {
        'reading': 1800,        # 30 minutes
@@ -199,10 +220,11 @@ CREATE TABLE meta (
        'completed': 604800     # 7 days
    }
    ```
+   Ticks every 60s, checks which series are due, scans up to **8 series concurrently** (added Aug 31, 2026 — was one at a time; a status whose whole library shared a clustered `last_check` could take longer to clear than its own interval and never catch up past ~450 series at the old sequential rate, now ~3600/cycle). Each series' own sources are *also* fetched concurrently inside `scan_series()`, on top of that. Live per-status state (`_status_state`, `MangaScheduler._status_lock`) tracks last-scanned time and scan-in-progress/progress-count, surfaced on the new `/scheduler` page (see below) via `GET /api/scheduler/status` / `POST /api/scheduler/scan-now/<status>`.
 
 4. **Bulk operations** — select multiple series, mark as read, change status, delete, all logged to activity log with grouped undo.
 
-5. **Activity log with undo** — 7-day undo window, 14-day retention, hover tooltips with full timestamp, bulk-safe (won't break if you manually re-add a deleted series before undoing).
+5. **Activity log with undo** — 7-day undo window, 14-day retention, hover tooltips with full timestamp, bulk-safe (won't break if you manually re-add a deleted series before undoing). As of Aug 31, 2026 also logs (and supports undo for) source add/remove and Filter Bookmark create/rename/delete, not just series-level changes — see the `activity_log` schema note above for the full undo-coverage picture. Undo toast wording now reflects what actually happened per action type (Removed/Reverted/Restored) instead of always saying "Restored X".
 
 6. **Database backups** — hourly, gzip compressed, 7-day retention (~35 MB typical), manual backup/restore via `/backups` UI, safety backup taken before any restore.
 
@@ -221,6 +243,16 @@ CREATE TABLE meta (
 13. **UI polish (desktop)** — back-to-top FAB (now on **every** page, not just the dashboard, as of Aug 2026), dropdown trigger arrows are SVG chevrons that rotate 180° when their menu is open (replaced a tiny "▾" text glyph), pagination buttons have real contrast against the page background (previously nearly invisible — `#0f172a` pill with visible border, muted-but-legible disabled arrows), disabled buttons (e.g. Refresh mid-refresh) now visibly dim instead of just blocking clicks, Tags dropdown menu is 1.6× the trigger's width so long tag names aren't clipped (still left-aligned to the button), middle-click support on Search/Source/Continue buttons, drag-and-drop source reordering.
 
 14. **Remote access & security** (added Aug 30, 2026) — single-user login gate with automatic LAN bypass, CSRF protection, login rate-limiting/lockout, auth + visitor IP logging, and a free Cloudflare Quick Tunnel (with email/Discord URL-change alerts) for reaching the app from outside the home network. See the dedicated Security section below for the full picture.
+
+15. **Filter Bookmarks** (added Aug 31, 2026) — saved combinations of every filter+sort control (status, sort/dir, content type, genre/rating tags with exclude mode, publication status, readable-on, custom tags), selectable from a dropdown left of the status filter (desktop) / bottom of the filter drawer (mobile). Built-in protected "Default" view seeded on init; users create/rename/delete their own via the dropdown's "Save as new view"/"Update current view" split action or a separate "Manage Views" modal. See the `filter_bookmarks` schema note above.
+
+16. **Source Alerts, now on mobile too** (added Aug 31, 2026) — the desktop bell showing series with 3+ consecutive scan failures now has a mobile equivalent, placed in the mobile header's right-hand slot (previously an empty spacer). Clicking a row jumps to that series by search text *and* sets the status filter to its actual status and clears the rating filter, so a Mature/non-default-status series doesn't stay hidden despite the search matching.
+
+17. **Fetch Scheduler page** (`/scheduler`, added Aug 31, 2026) — per reading-status card showing next-fetch countdown, due count, last-scanned time, and live scan progress (works for both background ticks and manual scans), plus a manual "Scan Now" per status (disabled while that status is already scanning). Mirrors the `/backups` page's visual pattern. Nav order (desktop + mobile hamburger, every page): Dashboard / Discovery / Scheduler / Errors / Backups / Activity Log / Stats.
+
+18. **Multi-source Add Series** (added Aug 31, 2026) — the "Add New Series" modal's URL field now accepts multiple comma-separated URLs (same pattern the Kenmei import page already used per-row): the first becomes the primary source, the rest get attached as additional sources right after the series is created, instead of requiring a second trip through Series Settings.
+
+19. **Swipe-to-dismiss notifications** (added Aug 31, 2026) — on touch devices, dragging a toast notification upward past a threshold dismisses it, with live drag-following/fade; downward drags rubber-band back. Desktop mouse interaction (close button, auto-timeout) is unchanged.
 
 ---
 
@@ -398,7 +430,9 @@ separately). No paid Turnstile-solving service was needed or added.
 - If the server fails to start with a Windows socket error ("address not valid in its context" or similar), check `backend/api.py`'s `app.run(host=...)` — it should be `0.0.0.0`, not a hardcoded IP.
 - If the server fails to start with `RuntimeError: SECRET_KEY environment variable is not set` (or `AUTH_PASSWORD_HASH`), `.env` is missing/incomplete — see the Security section and `.env.example`.
 - If it crashes at import time with `CamoufoxNotInstalled`, run `camoufox fetch` once in the venv (separate from `pip install`, downloads the actual browser binary) — unrelated to the security work, just a per-machine one-time setup step.
-- Don't use `alert()`/`confirm()` for new UI feedback — use the existing toast system in `notifications.js` to stay consistent.
+- Don't use `alert()`/`confirm()`/`prompt()` for new UI feedback or confirmations — use the existing toast system (`notifications.js`) for feedback, and an inline confirm-row swap (see `showRemoveSourceConfirm()` in `dashboard.js`, or the Manage Views delete-confirm) for anything destructive that needs a yes/no.
+- `backend/database.py`'s `get_db()`/`release_db()` hold a single **global** `threading.Lock()` (`_db_lock`) across the whole app for the lifetime of every DB connection — any code doing concurrent work (e.g. `scheduler.py`'s 8-way concurrent series scanning) will naturally serialize on DB writes; this is fine since DB ops are fast and network I/O is the actual bottleneck, but don't assume DB access is safe to leave un-locked or expect real read/write parallelism from it.
+- `backend/scheduler.py`'s `get_check_interval()` per-status values are sometimes temporarily lowered (e.g. `'reading': 60`) for live testing — always grep for a stray non-standard interval value before committing/deploying scheduler changes.
 - Any new text inserted into `innerHTML` from series/tag/source data (i.e. anything not a hardcoded string) must go through `escapeHtml()` (global, defined in `notifications.js`) — see the Security section for why.
 - This project has no build step — CSS/JS are edited directly and served as static files; a hard refresh (or cache-busted reload) may be needed to see changes in a browser that already cached the old stylesheet/script. Template (`.html`) edits auto-reload on a plain refresh now; `.py` edits still need a server restart.
 - When testing locally with multiple `python -m backend.main` starts in a row, check `netstat -ano | findstr :8080` (or `Get-NetTCPConnection -LocalPort 8080` in PowerShell) before assuming only one instance is running — stray background processes from earlier test runs are easy to leave behind and will silently serve stale code.
