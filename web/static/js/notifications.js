@@ -40,7 +40,15 @@ const NOTIFICATION_ICONS = {
   added: '<path d="M12 5v14M5 12h14"></path>',
   undo: '<path d="M4 10h13a4 4 0 0 1 4 4v0a4 4 0 0 1-4 4h-5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="m7 6-4 4 4 4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
   backup: '<rect x="2" y="2" width="20" height="6" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="2" y="9" width="20" height="6" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><rect x="2" y="16" width="20" height="6" rx="1" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="6" cy="5" r="0.5" fill="currentColor"/><circle cx="8" cy="5" r="0.5" fill="currentColor"/><circle cx="6" cy="12" r="0.5" fill="currentColor"/><circle cx="8" cy="12" r="0.5" fill="currentColor"/><circle cx="6" cy="19" r="0.5" fill="currentColor"/><circle cx="8" cy="19" r="0.5" fill="currentColor"/>',
-  close: '<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 0 1 1.414 0L10 8.586l4.293-4.293a1 1 0 1 1 1.414 1.414L11.414 10l4.293 4.293a1 1 0 0 1-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 0 1-1.414-1.414L8.586 10 4.293 5.707a1 1 0 0 1 0-1.414" clip-rule="evenodd"></path>'
+  close: '<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 0 1 1.414 0L10 8.586l4.293-4.293a1 1 0 1 1 1.414 1.414L11.414 10l4.293 4.293a1 1 0 0 1-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 0 1-1.414-1.414L8.586 10 4.293 5.707a1 1 0 0 1 0-1.414" clip-rule="evenodd"></path>',
+  // Same glyphs as the Activity Log's source_added/source_removed and
+  // bookmark_* icons (web/templates/logs.html) - kept identical so a toast
+  // and its corresponding log entry are visually the same event.
+  source_added: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>',
+  source_removed: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>',
+  bookmark_added: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>',
+  bookmark_updated: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>',
+  bookmark_deleted: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>'
 };
 
 // Escapes text that gets inserted into innerHTML. Needed anywhere a series

@@ -48,36 +48,40 @@ def detect_source_type(url):
         return 'AsuraScans'
     return 'Unknown'
 
-def log_activity(action_type, series_id=None, series_title=None, old_value=None, new_value=None, 
-                 is_bulk=False, bulk_id=None):
+def log_activity(action_type, series_id=None, series_title=None, old_value=None, new_value=None,
+                 is_bulk=False, bulk_id=None, can_undo=True):
     """
     Log an activity to the database.
-    
+
     Args:
-        action_type: 'added', 'deleted', 'progress', 'status', 'edited'
-        series_id: ID of the series (None if deleted)
-        series_title: Title of the series
+        action_type: 'added', 'deleted', 'progress', 'status', 'edited',
+                     'source_added', 'source_removed',
+                     'bookmark_added', 'bookmark_updated', 'bookmark_deleted'
+        series_id: ID of the series (None if deleted, or not series-scoped)
+        series_title: Title of the series (or bookmark name, for bookmark events)
         old_value: Dict of old values (will be JSON-encoded)
         new_value: Dict of new values (will be JSON-encoded)
         is_bulk: Whether this is part of a bulk operation
         bulk_id: Unique ID grouping bulk operations
+        can_undo: Whether the undo endpoint knows how to revert this action type.
+                  Set False for action types /api/logs/undo doesn't have a branch for.
     """
     try:
         conn = get_db()
         cursor = conn.cursor()
-        
+
         old_json = json.dumps(old_value, ensure_ascii=False) if old_value else None
         new_json = json.dumps(new_value, ensure_ascii=False) if new_value else None
-        
+
         timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-        
+
         cursor.execute("""
             INSERT INTO activity_log (
                 timestamp, action_type, series_id, series_title,
                 old_value, new_value, is_bulk, bulk_id, can_undo
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
-        """, (timestamp, action_type, series_id, series_title, old_json, new_json, 
-              int(is_bulk), bulk_id))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (timestamp, action_type, series_id, series_title, old_json, new_json,
+              int(is_bulk), bulk_id, int(can_undo)))
         
         release_db(conn)
     except Exception as e:
@@ -98,25 +102,60 @@ def get_series_snapshot(series_id):
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM series WHERE id = ?", (series_id,))
         row = cursor.fetchone()
-        
+
         if not row:
             release_db(conn)
             return None
-        
+
         # Get column names
         columns = [desc[0] for desc in cursor.description]
         series_dict = dict(zip(columns, row))
-        
-        # Store as future-proof multi-source format
-        snapshot = {
-            'title': series_dict.get('title'),
-            'sources': [{
+
+        # All sources, not just the legacy primary column -- series_sources
+        # rows cascade-delete with the series, so anything not captured here
+        # is unrecoverable by undo. Primary first (matches the historical
+        # sources[0]-is-primary assumption the undo handler relies on).
+        cursor.execute("""
+            SELECT source_url, source_type, is_primary, cover_url
+            FROM series_sources WHERE series_id = ?
+            ORDER BY is_primary DESC, id ASC
+        """, (series_id,))
+        source_rows = cursor.fetchall()
+
+        if source_rows:
+            sources = [{
+                'url': r[0], 'type': r[1], 'is_primary': bool(r[2]), 'cover_url': r[3]
+            } for r in source_rows]
+        else:
+            # Pre-multi-source series (or the migration hasn't run): fall
+            # back to the legacy single source_url column.
+            sources = [{
                 'url': series_dict.get('source_url'),
                 'type': detect_source_type(series_dict.get('source_url', '')),
                 'is_primary': True,
-                'current_chapter': series_dict.get('current_chapter'),
-                'latest_chapter': series_dict.get('latest_chapter')
-            }],
+                'cover_url': None
+            }]
+        # current_chapter/latest_chapter are series-level, not per-source --
+        # attach them to the primary entry since that's what the undo
+        # handler reads them off of.
+        sources[0]['current_chapter'] = series_dict.get('current_chapter')
+        sources[0]['latest_chapter'] = series_dict.get('latest_chapter')
+
+        # Custom tags cascade-delete with the series too. Store names, not
+        # ids -- create_custom_tag() is idempotent by name, so restoring
+        # doesn't care whether the original tag row still exists.
+        cursor.execute("""
+            SELECT ct.name FROM series_custom_tags sct
+            JOIN custom_tags ct ON ct.id = sct.tag_id
+            WHERE sct.series_id = ?
+        """, (series_id,))
+        custom_tags = [r[0] for r in cursor.fetchall()]
+
+        # Store as future-proof multi-source format
+        snapshot = {
+            'title': series_dict.get('title'),
+            'sources': sources,
+            'custom_tags': custom_tags,
             'status': series_dict.get('status'),
             'cover_url': series_dict.get('cover_url'),
             'banner_url': series_dict.get('banner_url'),
@@ -130,7 +169,7 @@ def get_series_snapshot(series_id):
             'genres': series_dict.get('genres'),
             'content_rating': series_dict.get('content_rating', 'unknown')
         }
-        
+
         release_db(conn)
         return snapshot
     except Exception as e:
@@ -195,8 +234,13 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
         where_parts = []
         params = []
         
-        # Type filter
-        if type_filter != 'all':
+        # Type filter. 'source' and 'bookmark' are grouped filters covering
+        # multiple underlying action_type values (added/removed/updated).
+        if type_filter == 'source':
+            where_parts.append("action_type IN ('source_added', 'source_removed')")
+        elif type_filter == 'bookmark':
+            where_parts.append("action_type IN ('bookmark_added', 'bookmark_updated', 'bookmark_deleted')")
+        elif type_filter != 'all':
             where_parts.append("action_type = ?")
             params.append(type_filter)
         

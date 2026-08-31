@@ -357,7 +357,7 @@ async function handleUpdateCurrentViewClick() {
 		if (res.ok) {
 			activeBookmark.filter_state = currentFs;
 			updateBookmarkUpdateButtonState();
-			showNotification(`Updated view "${activeBookmark.name}"`, 'read');
+			showNotification(`Updated view "${activeBookmark.name}"`, 'bookmark_updated');
 		} else {
 			showNotification('Failed to update view', 'error');
 		}
@@ -402,7 +402,7 @@ async function submitNewView(nameInputId, formId, mainId) {
 			hideNewViewForm(formId, mainId);
 			renderBookmarkList();
 			updateBookmarkUpdateButtonState();
-			showNotification(`Saved view "${name}"`, 'read');
+			showNotification(`Saved view "${name}"`, 'bookmark_added');
 		} else {
 			showNotification('Failed to save view', 'error');
 		}
@@ -532,7 +532,7 @@ function renderManageBookmarksList() {
 								const fallback = bookmarksCache.find(b => b.is_builtin);
 								if (fallback) selectBookmarkById(fallback.id);
 							}
-							showNotification('View deleted', 'read');
+							showNotification('View deleted', 'bookmark_deleted');
 						} else {
 							showNotification('Failed to delete view', 'error');
 						}
@@ -600,7 +600,7 @@ async function handleManageBookmarksCloseClick() {
 			updateManageBookmarksButtonState();
 			// Leave the modal open so the still-pending ones aren't lost.
 		} else {
-			showNotification('Views updated', 'read');
+			showNotification('Views updated', 'bookmark_updated');
 			closeManageBookmarksModal();
 		}
 	} catch (e) {
@@ -1306,7 +1306,7 @@ async function saveSourceChanges(seriesId) {
 		if (res.ok) {
 		// ADDED: Show notification for source removed
 		const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
-		showNotification(`Source removed from ${seriesTitle}`, 'delete');
+		showNotification(`Source removed from ${seriesTitle}`, 'source_removed');
 		await loadSeriesSources(seriesId);
 		} else {
 		const data = await res.json();
@@ -1331,7 +1331,7 @@ async function removeSource(seriesId, sourceId) {
 		if (res.ok) {
 			// ADDED: Show notification for source removed
 			const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
-			showNotification(`Source removed from ${seriesTitle}`, 'delete');
+			showNotification(`Source removed from ${seriesTitle}`, 'source_removed');
 			await loadSeriesSources(seriesId);
 		} else {
 			const data = await res.json();
@@ -1387,7 +1387,7 @@ async function addNewSource() {
 		if (res.ok) {
 			// ADDED: Show notification for source added
 			const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
-			showNotification(`Source added to ${seriesTitle}`, 'added');
+			showNotification(`Source added to ${seriesTitle}`, 'source_added');
 			hideAddSourceForm();
 			await loadSeriesSources(currentSeriesIdForEdit);
 		} else {
@@ -1547,7 +1547,7 @@ async function removeSeriesSource(sourceId) {
 		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources/${sourceId}`, { method: 'DELETE' });
 		if (res.ok) {
 			await refreshSourcesUI();
-			showNotification('Source removed', 'read');
+			showNotification('Source removed', 'source_removed');
 			loadPage();
 		} else {
 			const data = await res.json().catch(() => ({}));
@@ -1569,7 +1569,7 @@ async function addSeriesSource(url) {
 		const data = await res.json().catch(() => ({}));
 		if (res.ok) {
 			await refreshSourcesUI();
-			showNotification('Source added', 'read');
+			showNotification('Source added', 'source_added');
 			loadPage();
 		} else {
 			showNotification(data.error || 'Failed to add source', 'error');
@@ -6620,7 +6620,7 @@ async function removeMobileSource(seriesId, sourceId) {
       }
       
       const seriesTitle = series?.title || 'Series';
-      showNotification(`Source removed from ${seriesTitle}`, 'delete');
+      showNotification(`Source removed from ${seriesTitle}`, 'source_removed');
       
       await loadMobileSeriesSources(seriesId);
     } else {
@@ -6692,7 +6692,7 @@ if (res.ok) {
       }
       
       const seriesTitle = series?.title || 'Series';
-      showNotification(`Source added to ${seriesTitle}`, 'added');
+      showNotification(`Source added to ${seriesTitle}`, 'source_added');
       
       hideMobileAddSourceForm();
       await loadMobileSeriesSources(seriesId);

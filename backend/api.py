@@ -1186,6 +1186,7 @@ def api_get_filter_bookmarks():
 @app.route('/api/filter-bookmarks', methods=['POST'])
 def api_create_filter_bookmark():
     from .database import create_filter_bookmark
+    from .activity_logger import log_activity
     data = request.get_json() or {}
     name = (data.get('name') or '').strip()
     filter_state = data.get('filter_state')
@@ -1196,12 +1197,18 @@ def api_create_filter_bookmark():
     new_id = create_filter_bookmark(name, filter_state)
     if new_id is None:
         return jsonify({'error': 'Failed to create bookmark'}), 500
+    try:
+        log_activity(action_type='bookmark_added', series_title=name,
+                     new_value={'id': new_id, 'name': name, 'filter_state': filter_state})
+    except Exception as log_err:
+        print(f"[Filter Bookmark] Logging failed: {log_err}")
     return jsonify({'id': new_id}), 201
 
 
 @app.route('/api/filter-bookmarks/<int:bookmark_id>', methods=['PATCH'])
 def api_update_filter_bookmark(bookmark_id):
-    from .database import update_filter_bookmark
+    from .database import update_filter_bookmark, get_filter_bookmarks
+    from .activity_logger import log_activity
     data = request.get_json() or {}
     name = data.get('name')
     filter_state = data.get('filter_state')
@@ -1209,18 +1216,48 @@ def api_update_filter_bookmark(bookmark_id):
         name = name.strip()
         if not name:
             return jsonify({'error': 'name cannot be empty'}), 400
+
+    before = next((b for b in get_filter_bookmarks() if b['id'] == bookmark_id), None)
+
     ok, err = update_filter_bookmark(bookmark_id, name=name, filter_state=filter_state)
     if not ok:
         return jsonify({'error': err}), 400
+
+    try:
+        if before:
+            old_name = before['name']
+            new_name = name if name is not None else old_name
+            new_filter_state = filter_state if filter_state is not None else before['filter_state']
+            log_activity(
+                action_type='bookmark_updated',
+                series_title=new_name,
+                old_value={'id': bookmark_id, 'name': old_name, 'filter_state': before['filter_state']},
+                new_value={
+                    'id': bookmark_id,
+                    'name': new_name,
+                    'filter_state': new_filter_state,
+                    'renamed': bool(name is not None and name != old_name)
+                }
+            )
+    except Exception as log_err:
+        print(f"[Filter Bookmark] Logging failed: {log_err}")
     return jsonify({'success': True})
 
 
 @app.route('/api/filter-bookmarks/<int:bookmark_id>', methods=['DELETE'])
 def api_delete_filter_bookmark(bookmark_id):
-    from .database import delete_filter_bookmark
+    from .database import delete_filter_bookmark, get_filter_bookmarks
+    from .activity_logger import log_activity
+    before = next((b for b in get_filter_bookmarks() if b['id'] == bookmark_id), None)
     ok, err = delete_filter_bookmark(bookmark_id)
     if not ok:
         return jsonify({'error': err}), 400
+    try:
+        if before:
+            log_activity(action_type='bookmark_deleted', series_title=before['name'],
+                         old_value={'name': before['name'], 'filter_state': before['filter_state']})
+    except Exception as log_err:
+        print(f"[Filter Bookmark] Logging failed: {log_err}")
     return jsonify({'success': True})
 
 

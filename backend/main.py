@@ -147,7 +147,7 @@ def api_get_logs():
     """
     Get activity logs with filters.
     Query params:
-      - type: all|added|deleted|progress|status|edited
+      - type: all|added|deleted|progress|status|edited|source|bookmark
       - time: all|today|week|month
       - search: series title search
     """
@@ -163,7 +163,11 @@ def api_undo_log(log_id):
     """Undo a single log entry."""
     try:
         from datetime import datetime, timezone, timedelta
-        from .database import get_db, release_db, update_series
+        from .database import (
+            get_db, release_db, update_series, add_source_to_series, remove_source,
+            get_filter_bookmarks, create_filter_bookmark, update_filter_bookmark, delete_filter_bookmark,
+            create_custom_tag, add_custom_tag_to_series, delete_series
+        )
         
         conn = get_db()
         cursor = conn.cursor()
@@ -249,13 +253,55 @@ def api_undo_log(log_id):
                         # Restore chapter progress if available
                         if 'current_chapter' in source and source['current_chapter'] is not None:
                             update_series(series_id, {'current_chapter': source['current_chapter']})
-                        
+
+                        # Restore any secondary sources (sources[0] was
+                        # already added as primary by db_add_series above).
+                        for extra_source in old_value['sources'][1:]:
+                            if extra_source.get('url'):
+                                try:
+                                    add_source_to_series(
+                                        series_id,
+                                        extra_source['url'],
+                                        extra_source.get('type', 'unknown'),
+                                        is_primary=False,
+                                        cover_url=extra_source.get('cover_url')
+                                    )
+                                except Exception as src_err:
+                                    print(f"[Undo] Failed to restore secondary source {extra_source.get('url')}: {src_err}")
+
+                        # Restore custom tags (idempotent by name, so this is
+                        # safe even if some of the original tags still exist).
+                        for tag_name in old_value.get('custom_tags', []):
+                            try:
+                                tag_id = create_custom_tag(tag_name)
+                                if tag_id is not None:
+                                    add_custom_tag_to_series(series_id, tag_id)
+                            except Exception as tag_err:
+                                print(f"[Undo] Failed to restore custom tag '{tag_name}': {tag_err}")
+
                         need_check_now = True
                         restored_series_id = series_id
                     except Exception as e:
                         print(f"[Undo] Failed to restore series: {e}")
                         return jsonify({'error': f'Failed to restore series: {str(e)}'}), 500
         
+        elif action_type == 'added' and series_id:
+            # Undo an add by deleting the series again.
+            conn_check = get_db()
+            cursor_check = conn_check.cursor()
+            cursor_check.execute("SELECT id FROM series WHERE id = ?", (series_id,))
+            existing = cursor_check.fetchone()
+            release_db(conn_check)
+
+            if existing:
+                try:
+                    if not delete_series(series_id):
+                        return jsonify({'error': 'Failed to undo series add'}), 500
+                except Exception as e:
+                    print(f"[Undo] Failed to delete added series: {e}")
+                    return jsonify({'error': f'Failed to undo series add: {str(e)}'}), 500
+            # else: already deleted some other way -- nothing to do, just mark undone.
+
         elif action_type == 'progress' and series_id:
             # Revert chapter progress
             if old_value and 'chapter' in old_value:
@@ -288,7 +334,83 @@ def api_undo_log(log_id):
                 except Exception as e:
                     print(f"[Undo] Failed to revert edits: {e}")
                     return jsonify({'error': f'Failed to revert edits: {str(e)}'}), 500
-        
+
+        elif action_type == 'source_removed' and series_id:
+            # Re-add the removed source, unless something already re-added
+            # the same URL in the meantime (source_url is unique table-wide).
+            if old_value and old_value.get('source_url'):
+                try:
+                    conn_check = get_db()
+                    cursor_check = conn_check.cursor()
+                    cursor_check.execute(
+                        "SELECT id FROM series_sources WHERE source_url = ?",
+                        (old_value['source_url'],)
+                    )
+                    existing = cursor_check.fetchone()
+                    release_db(conn_check)
+
+                    if not existing:
+                        new_source_id = add_source_to_series(
+                            series_id,
+                            old_value['source_url'],
+                            old_value.get('source_type', 'unknown'),
+                            is_primary=False
+                        )
+                        if new_source_id is None:
+                            return jsonify({'error': 'Failed to restore source'}), 500
+                        need_check_now = True
+                        restored_series_id = series_id
+                except Exception as e:
+                    print(f"[Undo] Failed to restore source: {e}")
+                    return jsonify({'error': f'Failed to restore source: {str(e)}'}), 500
+
+        elif action_type == 'source_added' and series_id:
+            # Remove the source that was added, if it's still there.
+            if new_value and new_value.get('source_url'):
+                try:
+                    conn_check = get_db()
+                    cursor_check = conn_check.cursor()
+                    cursor_check.execute(
+                        "SELECT id FROM series_sources WHERE series_id = ? AND source_url = ?",
+                        (series_id, new_value['source_url'])
+                    )
+                    row_check = cursor_check.fetchone()
+                    release_db(conn_check)
+
+                    if row_check:
+                        if not remove_source(row_check[0]):
+                            return jsonify({'error': 'Cannot remove primary or last source'}), 400
+                except Exception as e:
+                    print(f"[Undo] Failed to remove source: {e}")
+                    return jsonify({'error': f'Failed to remove source: {str(e)}'}), 500
+
+        elif action_type == 'bookmark_added':
+            # Delete the bookmark that was created, if it's still there.
+            if new_value and new_value.get('id'):
+                existing = next((b for b in get_filter_bookmarks() if b['id'] == new_value['id']), None)
+                if existing:
+                    ok, err = delete_filter_bookmark(new_value['id'])
+                    if not ok:
+                        return jsonify({'error': err or 'Failed to undo bookmark creation'}), 500
+
+        elif action_type == 'bookmark_updated':
+            # Restore the previous name/filter_state.
+            if old_value and old_value.get('id'):
+                existing = next((b for b in get_filter_bookmarks() if b['id'] == old_value['id']), None)
+                if existing:
+                    ok, err = update_filter_bookmark(
+                        old_value['id'], name=old_value.get('name'), filter_state=old_value.get('filter_state')
+                    )
+                    if not ok:
+                        return jsonify({'error': err or 'Failed to undo bookmark update'}), 500
+
+        elif action_type == 'bookmark_deleted':
+            # Recreate the bookmark (gets a new id -- the old row is gone for good).
+            if old_value and old_value.get('name') and old_value.get('filter_state') is not None:
+                new_bookmark_id = create_filter_bookmark(old_value['name'], old_value['filter_state'])
+                if new_bookmark_id is None:
+                    return jsonify({'error': 'Failed to restore bookmark'}), 500
+
         # Mark as undone
         mark_log_undone(log_id=log_id)
         
@@ -317,7 +439,10 @@ def api_undo_bulk(bulk_id):
     """Undo all entries in a bulk operation."""
     try:
         from datetime import datetime, timezone
-        from .database import get_db, release_db, update_series
+        from .database import (
+            get_db, release_db, update_series, add_source_to_series,
+            create_custom_tag, add_custom_tag_to_series
+        )
         import json
         
         conn = get_db()
@@ -406,7 +531,31 @@ def api_undo_bulk(bulk_id):
                         
                         if 'current_chapter' in source and source['current_chapter'] is not None:
                             update_series(new_series_id, {'current_chapter': source['current_chapter']})
-                        
+
+                        # Restore secondary sources (sources[0] was already
+                        # added as primary by db_add_series above).
+                        for extra_source in old_value['sources'][1:]:
+                            if extra_source.get('url'):
+                                try:
+                                    add_source_to_series(
+                                        new_series_id,
+                                        extra_source['url'],
+                                        extra_source.get('type', 'unknown'),
+                                        is_primary=False,
+                                        cover_url=extra_source.get('cover_url')
+                                    )
+                                except Exception as src_err:
+                                    print(f"[Undo Bulk] Failed to restore secondary source {extra_source.get('url')}: {src_err}")
+
+                        # Restore custom tags (idempotent by name).
+                        for tag_name in old_value.get('custom_tags', []):
+                            try:
+                                tag_id = create_custom_tag(tag_name)
+                                if tag_id is not None:
+                                    add_custom_tag_to_series(new_series_id, tag_id)
+                            except Exception as tag_err:
+                                print(f"[Undo Bulk] Failed to restore custom tag '{tag_name}': {tag_err}")
+
                         restored_series_ids.append(new_series_id)
                     except Exception as e:
                         print(f"[Undo Bulk] Failed to restore '{old_value.get('title')}': {e}")
@@ -454,7 +603,15 @@ def api_undo_bulk(bulk_id):
             except Exception as e:
                 print(f"[Undo Bulk] Failed to trigger check-now: {e}")
         
-        return jsonify({'success': True, 'restored_count': len(restored_series_ids)})
+        # restored_count is only meaningful for a bulk delete-undo (the other
+        # bulk action types never touch restored_series_ids); affected_count
+        # is the entry count regardless of type, for the frontend's toast.
+        return jsonify({
+            'success': True,
+            'restored_count': len(restored_series_ids),
+            'affected_count': len(logs),
+            'action_type': first_log[1]
+        })
     
     except Exception as e:
         print(f"[Undo Bulk] Error: {e}")
@@ -720,6 +877,18 @@ def api_add_source(series_id):
                 elif not isinstance(new_alt_titles, list):
                     new_alt_titles = [str(new_alt_titles)] if new_alt_titles else []
 
+                # genres can hit the same shape problem as alt_titles above --
+                # normalize both sides the same way before merging.
+                if isinstance(existing_genres, dict):
+                    existing_genres = list(existing_genres.values())
+                elif not isinstance(existing_genres, list):
+                    existing_genres = [str(existing_genres)] if existing_genres else []
+
+                if isinstance(new_genres, dict):
+                    new_genres = list(new_genres.values())
+                elif not isinstance(new_genres, list):
+                    new_genres = [str(new_genres)] if new_genres else []
+
                 merged_alt_titles = list(set(existing_alt_titles + new_alt_titles))
                 merged_genres = list(set(existing_genres + new_genres))
 
@@ -800,7 +969,24 @@ def api_add_source(series_id):
                 api.manga_scheduler.scan_series(series_id)
         except Exception as e:
             print(f"[Add Source] Failed to trigger scan: {e}")
-        
+
+        try:
+            from .activity_logger import log_activity
+            conn = get_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+            title_row = cursor.fetchone()
+            release_db(conn)
+            if title_row:
+                log_activity(
+                    action_type='source_added',
+                    series_id=series_id,
+                    series_title=title_row[0],
+                    new_value={'source_url': source_url, 'source_type': source_type}
+                )
+        except Exception as log_err:
+            print(f"[Add Source] Logging failed: {log_err}")
+
         return jsonify({'success': True, 'source_id': source_id})
             
     except Exception as e:
@@ -887,9 +1073,19 @@ def api_set_primary_source(series_id, source_id):
 def api_remove_source(series_id, source_id):
     """Remove a source from a series."""
     try:
-        from .database import remove_source
+        from .database import remove_source, get_db, release_db
+
+        # Snapshot title/source info before it's gone -- needed for the log entry.
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+        title_row = cursor.fetchone()
+        cursor.execute("SELECT source_url, source_type FROM series_sources WHERE id = ?", (source_id,))
+        source_row = cursor.fetchone()
+        release_db(conn)
+
         success = remove_source(source_id)
-        
+
         if success:
             # Rescan chapters from remaining sources
             try:
@@ -898,7 +1094,19 @@ def api_remove_source(series_id, source_id):
                     api.manga_scheduler.scan_series(series_id)
             except Exception as e:
                 print(f"[Remove Source] Failed to trigger rescan: {e}")
-            
+
+            try:
+                from .activity_logger import log_activity
+                if title_row and source_row:
+                    log_activity(
+                        action_type='source_removed',
+                        series_id=series_id,
+                        series_title=title_row[0],
+                        old_value={'source_url': source_row[0], 'source_type': source_row[1]}
+                    )
+            except Exception as log_err:
+                print(f"[Remove Source] Logging failed: {log_err}")
+
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Cannot remove primary or last source'}), 400

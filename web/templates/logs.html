@@ -222,6 +222,11 @@
     .log-icon.status { background: rgba(234, 179, 8, 0.15); color: #eab308; }
     .log-icon.edited { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
     .log-icon.bulk { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+    .log-icon.source_added { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    .log-icon.source_removed { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .log-icon.bookmark_added { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    .log-icon.bookmark_updated { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+    .log-icon.bookmark_deleted { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
 
     .log-content {
       flex: 1;
@@ -390,6 +395,8 @@
       <option value="progress">Progress</option>
       <option value="status">Status Changed</option>
       <option value="edited">Edited</option>
+      <option value="source">Sources</option>
+      <option value="bookmark">Bookmarks</option>
     </select>
 
     <select id="filter-time" class="control-input" style="width: auto;">
@@ -492,7 +499,7 @@ async function loadLogs() {
             </div>
           </div>
           <div class="log-actions">
-            ${canUndo ? `<button class="btn-undo" onclick="undoAction(${log.id}, '${log.bulk_id || ''}')">Undo</button>` : ''}
+            ${canUndo ? `<button class="btn-undo" onclick="undoAction(${log.id}, '${log.bulk_id || ''}', '${log.action_type}')">Undo</button>` : ''}
           </div>
         </div>
       `;
@@ -509,7 +516,12 @@ function getLogIcon(type) {
     deleted: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>',
     progress: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"> <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/> <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/> <path d="M12 2v10l2.5-1.5L17 12V2"/> </svg>',
     status: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"> <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/> <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/> <path d="M9 12l2 2 4-4"/> </svg>',
-    edited: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>'
+    edited: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    source_added: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+    source_removed: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+    bookmark_added: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
+    bookmark_updated: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
+    bookmark_deleted: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>'
   };
   return icons[type] || icons.edited;
 }
@@ -563,6 +575,20 @@ function getLogDetails(log) {
         return 'Status changed';
       case 'edited':
         return 'Metadata updated';
+      case 'source_added': {
+        const label = sourceTypeLabel(newVal?.source_type);
+        return `Added ${label} as a source`;
+      }
+      case 'source_removed': {
+        const label = sourceTypeLabel(oldVal?.source_type);
+        return `Removed ${label} as a source`;
+      }
+      case 'bookmark_added':
+        return 'Saved view created';
+      case 'bookmark_updated':
+        return newVal?.renamed ? `Renamed to "${newVal.name}"` : 'Filters updated';
+      case 'bookmark_deleted':
+        return 'Saved view deleted';
       default:
         return '';
     }
@@ -571,9 +597,42 @@ function getLogDetails(log) {
   }
 }
 
-async function undoAction(logId, bulkId) {
+function sourceTypeLabel(type) {
+  const labels = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans' };
+  return labels[type] || 'Unknown source';
+}
+
+// What undo actually did, per action_type -- "Restored" is only true for
+// the types that put something back; the others remove/revert instead.
+function getUndoMessage(actionType, name) {
+  const templates = {
+    deleted: n => `Restored ${n}`,
+    added: n => `Removed ${n}`,
+    progress: n => `Reverted progress for ${n}`,
+    status: n => `Reverted status for ${n}`,
+    edited: n => `Reverted changes to ${n}`,
+    source_added: n => `Removed source from ${n}`,
+    source_removed: n => `Restored source to ${n}`,
+    bookmark_added: n => `Removed view "${n}"`,
+    bookmark_updated: n => `Reverted view "${n}"`,
+    bookmark_deleted: n => `Restored view "${n}"`
+  };
+  return (templates[actionType] || (n => `Undone: ${n}`))(name);
+}
+
+function getBulkUndoMessage(actionType, count) {
+  const templates = {
+    deleted: c => `Restored ${c} series`,
+    progress: c => `Reverted progress for ${c} series`,
+    status: c => `Reverted status for ${c} series`,
+    edited: c => `Reverted changes for ${c} series`
+  };
+  return (templates[actionType] || (c => `Undone for ${c} series`))(count);
+}
+
+async function undoAction(logId, bulkId, actionType) {
   if (!confirm('Undo this action?')) return;
-  
+
   // Get series name from DOM BEFORE making the API call (before reload)
   let seriesNameFromDOM = null;
   if (!bulkId) {
@@ -583,25 +642,25 @@ async function undoAction(logId, bulkId) {
     const titleElement = logEntry?.querySelector('.log-title');
     seriesNameFromDOM = titleElement?.textContent?.trim() || null;
   }
-  
+
   try {
     const url = bulkId ? `/api/logs/undo-bulk/${bulkId}` : `/api/logs/undo/${logId}`;
     const res = await fetch(url, { method: 'POST' });
-    
+
     if (res.ok) {
       const data = await res.json();
-      
+
       if (bulkId) {
         // Bulk undo
-        const count = data.restored_count || 'Multiple';
-        showNotification(`Restored ${count} series`, 'undo');
+        const count = data.affected_count || data.restored_count || 'Multiple';
+        showNotification(getBulkUndoMessage(data.action_type || actionType, count), 'undo');
       } else {
         // Single undo - try backend response first, then use DOM value
         const seriesName = data.series?.title || data.title || data.series_title || seriesNameFromDOM || 'Series';
-        showNotification(`Restored ${seriesName}`, 'undo');
+        showNotification(getUndoMessage(actionType, seriesName), 'undo');
       }
-      
-      loadLogs();    
+
+      loadLogs();
     } else {
       showNotification('Failed to undo action', 'error');
     }

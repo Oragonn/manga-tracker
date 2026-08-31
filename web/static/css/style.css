@@ -3004,6 +3004,11 @@ html {
 .notification-icon.added { color: #22c55e; }
 .notification-icon.undo { color: #eab308; }
 .notification-icon.backup { color: #678ec9; }
+.notification-icon.source_added { color: #22c55e; }
+.notification-icon.source_removed { color: #ef4444; }
+.notification-icon.bookmark_added { color: #22c55e; }
+.notification-icon.bookmark_updated { color: #a855f7; }
+.notification-icon.bookmark_deleted { color: #ef4444; }
 
 .notification-message {
   flex: 1;
