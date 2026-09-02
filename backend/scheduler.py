@@ -142,10 +142,17 @@ class MangaScheduler:
                 # page. A wave can span multiple ticks if this status's due
                 # series don't all cross their threshold at once (e.g. a
                 # library scanned in a tight burst last time comes due in a
-                # tight burst again) - so wave_total is only set once, when
-                # the wave is first noticed, and only cleared once due_count
-                # drops back to 0. Skip any status a manual Scan Now already
-                # owns, so this doesn't corrupt or prematurely end that run.
+                # slightly-staggered tight burst again, 60s+ apart) - so
+                # wave_total grows to cover new arrivals that join an
+                # already-in-progress wave instead of staying frozen at
+                # whatever the count was when first noticed (that caused
+                # progress_current = wave_total - due_count to go negative,
+                # clamp to 0, and make Y jump back up to total_series until
+                # due_count fell back under the stale wave_total - visible as
+                # Y decreasing, then jumping up, then decreasing again).
+                # Only cleared once due_count actually drops to 0. Skip any
+                # status a manual Scan Now already owns, so this doesn't
+                # corrupt or prematurely end that run.
                 due_counts_by_status = {}
                 for _, status, _ in due:
                     due_counts_by_status[status] = due_counts_by_status.get(status, 0) + 1
@@ -157,8 +164,8 @@ class MangaScheduler:
                         count_now = due_counts_by_status.get(status, 0)
                         if count_now == 0:
                             state['wave_total'] = 0
-                        elif state['wave_total'] == 0:
-                            state['wave_total'] = count_now
+                        else:
+                            state['wave_total'] = max(state['wave_total'], count_now)
 
                 tick_start = time.time()
                 submitted = 0
