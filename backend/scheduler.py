@@ -40,9 +40,28 @@ class MangaScheduler:
         # Per-status fetch state for the /scheduler page - tracked in memory
         # since none of this (last activity, live scan progress) needs to
         # survive a restart, unlike everything else the scheduler touches.
+        #
+        # Two independent tracks, merged for display in get_status_summary():
+        #  - manual_* : a "Scan Now" run (single continuous operation, same
+        #    as before).
+        #  - wave_total: a background due-backlog "wave" that can legitimately
+        #    span multiple 60s ticks if more series in the same status keep
+        #    crossing their due threshold while an earlier tick is still
+        #    being worked through. wave_total is frozen at whatever the due
+        #    count was when the wave was first noticed, and NOT reset every
+        #    tick - only when due_count returns to 0 (wave fully cleared).
+        #    progress within the wave is derived (wave_total - live due_count)
+        #    rather than incremented, since due_count already reflects
+        #    exactly how many are still left the moment any series finishes.
         self._status_lock = threading.Lock()
         self._status_state = {
-            status: {'last_scanned_at': None, 'scanning': False, 'progress_current': 0, 'progress_total': 0}
+            status: {
+                'last_scanned_at': None,
+                'manual_scanning': False,
+                'manual_progress_current': 0,
+                'manual_progress_total': 0,
+                'wave_total': 0,
+            }
             for status in ('reading', 'plan_to_read', 'on_hold', 'dropped', 'completed')
         }
 
@@ -119,58 +138,54 @@ class MangaScheduler:
                     row[2] or ''
                 ))
 
-                # Give the /scheduler page a live progress bar for this
-                # tick's due series, same as a manual Scan Now - but don't
-                # touch a status that's already mid manual scan (its own
-                # thread owns that state; stomping on it here would corrupt
-                # its progress numbers or end its "scanning" flag early).
+                # Track a due-backlog "wave" per status for the /scheduler
+                # page. A wave can span multiple ticks if this status's due
+                # series don't all cross their threshold at once (e.g. a
+                # library scanned in a tight burst last time comes due in a
+                # tight burst again) - so wave_total is only set once, when
+                # the wave is first noticed, and only cleared once due_count
+                # drops back to 0. Skip any status a manual Scan Now already
+                # owns, so this doesn't corrupt or prematurely end that run.
                 due_counts_by_status = {}
                 for _, status, _ in due:
                     due_counts_by_status[status] = due_counts_by_status.get(status, 0) + 1
 
-                statuses_started_here = set()
                 with self._status_lock:
-                    for status, count in due_counts_by_status.items():
-                        state = self._status_state.get(status)
-                        if state and not state['scanning']:
-                            state['scanning'] = True
-                            state['progress_current'] = 0
-                            state['progress_total'] = count
-                            statuses_started_here.add(status)
+                    for status, state in self._status_state.items():
+                        if state['manual_scanning']:
+                            continue
+                        count_now = due_counts_by_status.get(status, 0)
+                        if count_now == 0:
+                            state['wave_total'] = 0
+                        elif state['wave_total'] == 0:
+                            state['wave_total'] = count_now
 
-                try:
-                    tick_start = time.time()
-                    submitted = 0
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor:
-                        future_to_status = {}
-                        for sid, status, last_check in due:
-                            if not self.active:
-                                break
-                            future_to_status[executor.submit(self.scan_series, sid)] = status
-                            submitted += 1
+                tick_start = time.time()
+                submitted = 0
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor:
+                    future_to_status = {}
+                    for sid, status, last_check in due:
+                        if not self.active:
+                            break
+                        future_to_status[executor.submit(self.scan_series, sid)] = status
+                        submitted += 1
 
-                        for future in concurrent.futures.as_completed(future_to_status):
-                            status = future_to_status[future]
-                            try:
-                                future.result()
-                            except Exception as e:
-                                # scan_series() catches its own errors, so this is
-                                # only for something unexpected escaping it.
-                                print(f"[Scheduler] Unhandled error during concurrent scan: {e}")
-                            if status in self._status_state:
-                                with self._status_lock:
-                                    self._status_state[status]['last_scanned_at'] = \
-                                        datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-                                    if status in statuses_started_here:
-                                        self._status_state[status]['progress_current'] += 1
+                    for future in concurrent.futures.as_completed(future_to_status):
+                        status = future_to_status[future]
+                        try:
+                            future.result()
+                        except Exception as e:
+                            # scan_series() catches its own errors, so this is
+                            # only for something unexpected escaping it.
+                            print(f"[Scheduler] Unhandled error during concurrent scan: {e}")
+                        if status in self._status_state:
+                            with self._status_lock:
+                                self._status_state[status]['last_scanned_at'] = \
+                                    datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 
-                    if submitted:
-                        print(f"[Scheduler] Tick scanned {submitted} due series in "
-                              f"{time.time() - tick_start:.1f}s ({self.CONCURRENT_SCAN_WORKERS} workers)")
-                finally:
-                    with self._status_lock:
-                        for status in statuses_started_here:
-                            self._status_state[status]['scanning'] = False
+                if submitted:
+                    print(f"[Scheduler] Tick scanned {submitted} due series in "
+                          f"{time.time() - tick_start:.1f}s ({self.CONCURRENT_SCAN_WORKERS} workers)")
 
                 time.sleep(60)
             except Exception as e:
@@ -480,14 +495,30 @@ class MangaScheduler:
                         soonest_due_at = due_at
 
                 state = self._status_state[status]
+                if state['manual_scanning']:
+                    scanning = True
+                    progress_current = state['manual_progress_current']
+                    progress_total = state['manual_progress_total']
+                elif state['wave_total'] > 0:
+                    # Derived, not tracked - due_count already reflects
+                    # exactly how many of the wave are still left, the
+                    # instant any of them finishes.
+                    scanning = True
+                    progress_total = state['wave_total']
+                    progress_current = max(0, state['wave_total'] - due_count)
+                else:
+                    scanning = False
+                    progress_current = 0
+                    progress_total = 0
+
                 result[status] = {
                     'total_series': len(checks),
                     'due_count': due_count,
                     'last_scanned_at': state['last_scanned_at'],
                     'next_due_at': soonest_due_at.isoformat().replace('+00:00', 'Z') if soonest_due_at else None,
-                    'scanning': state['scanning'],
-                    'progress_current': state['progress_current'],
-                    'progress_total': state['progress_total'],
+                    'scanning': scanning,
+                    'progress_current': progress_current,
+                    'progress_total': progress_total,
                 }
         return result
 
@@ -501,11 +532,15 @@ class MangaScheduler:
             return False
 
         with self._status_lock:
-            if self._status_state[status]['scanning']:
+            state = self._status_state[status]
+            # Refuse if either a manual scan or a background wave already
+            # owns this status - avoids two scans hammering the same
+            # sources at once.
+            if state['manual_scanning'] or state['wave_total'] > 0:
                 return False
-            self._status_state[status]['scanning'] = True
-            self._status_state[status]['progress_current'] = 0
-            self._status_state[status]['progress_total'] = 0
+            state['manual_scanning'] = True
+            state['manual_progress_current'] = 0
+            state['manual_progress_total'] = 0
 
         def _worker():
             try:
@@ -517,7 +552,7 @@ class MangaScheduler:
                 release_db(conn)
 
                 with self._status_lock:
-                    self._status_state[status]['progress_total'] = len(series_ids)
+                    self._status_state[status]['manual_progress_total'] = len(series_ids)
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor:
                     futures = []
@@ -532,14 +567,14 @@ class MangaScheduler:
                         except Exception as e:
                             print(f"[Scheduler] Unhandled error during scan_status_now('{status}'): {e}")
                         with self._status_lock:
-                            self._status_state[status]['progress_current'] += 1
+                            self._status_state[status]['manual_progress_current'] += 1
                             self._status_state[status]['last_scanned_at'] = \
                                 datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
             except Exception as e:
                 print(f"[Scheduler] scan_status_now('{status}') error: {e}")
             finally:
                 with self._status_lock:
-                    self._status_state[status]['scanning'] = False
+                    self._status_state[status]['manual_scanning'] = False
 
         threading.Thread(target=_worker, daemon=True).start()
         return True
