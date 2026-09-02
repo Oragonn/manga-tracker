@@ -718,6 +718,16 @@ def api_scheduler_scan_now(status):
         return jsonify({'error': 'Already scanning'}), 409
     return jsonify({'success': True})
 
+@app.route('/api/scheduler/cancel/<status>', methods=['POST'])
+def api_scheduler_cancel(status):
+    if status not in VALID_SCAN_STATUSES:
+        return jsonify({'error': 'Invalid status'}), 400
+    from . import api
+    if not hasattr(api, 'manga_scheduler'):
+        return jsonify({'error': 'Scheduler not available'}), 500
+    api.manga_scheduler.cancel_status(status)
+    return jsonify({'success': True})
+
 # --- Series CSV backups (Kenmei-import-shaped snapshot of the series list) ---
 
 def _is_safe_series_backup_filename(filename):

@@ -92,6 +92,7 @@
 
     .scheduler-actions {
       display: flex;
+      justify-content: space-between;
       gap: 12px;
     }
 
@@ -123,6 +124,17 @@
 
     .btn-scheduler.secondary:hover:not(:disabled) {
       background: #2d3f5f;
+    }
+
+    .btn-scheduler.danger {
+      background: #1a2436;
+      border-color: #e53e3e;
+      color: #e53e3e;
+    }
+
+    .btn-scheduler.danger:hover:not(:disabled) {
+      background: #e53e3e;
+      color: white;
     }
 
     .scheduler-page-header {
@@ -408,19 +420,16 @@ function renderSchedulerCards() {
     const progressPct = s.progress_total > 0
       ? Math.round((s.progress_current / s.progress_total) * 100)
       : 0;
-    // While a scan is actively running (manual Scan Now or a background
-    // tick), "left to fetch" tracks that scan's own remaining count instead
-    // of the due count - forcing a scan doesn't make not-yet-due series
-    // "due", so due_count alone would stay flat at 0 for a manual scan of a
-    // status that had nothing overdue yet.
-    const leftToFetch = scanning
-      ? Math.max(0, (s.progress_total ?? 0) - (s.progress_current ?? 0))
-      : (s.due_count ?? 0);
-    // fetchedSoFar (C) rises as the active scan completes each series, so
-    // total - C falls - not the same number as leftToFetch, which counts
-    // down from the other direction.
-    const fetchedSoFar = scanning ? (s.progress_current ?? 0) : 0;
-    const notYetLeft = Math.max(0, (s.total_series ?? 0) - fetchedSoFar);
+    // Two distinct plain numbers, both computed backend-side so there's
+    // nothing for this rendering code to derive or get wrong:
+    //  - Due Now: how many series are past their check interval right now
+    //    (live, from the DB - due_count).
+    //  - Left to Fetch: how many series in the WHOLE status still haven't
+    //    been fetched in the current sweep, counting down from total_series
+    //    to 0 across every tick/batch and snapping back to total_series only
+    //    once every series has been fetched at least once (left_to_fetch).
+    const dueNow = s.due_count ?? 0;
+    const leftToFetch = s.left_to_fetch ?? 0;
 
     return `
       <div class="scheduler-status-card">
@@ -438,8 +447,12 @@ function renderSchedulerCards() {
             <div class="stat-value">${formatRelativeTime(s.last_scanned_at)}</div>
           </div>
           <div class="stat-item">
+            <div class="stat-label">Due Now</div>
+            <div class="stat-value">${dueNow}</div>
+          </div>
+          <div class="stat-item">
             <div class="stat-label">Left to Fetch</div>
-            <div class="stat-value">${leftToFetch} / ${notYetLeft}</div>
+            <div class="stat-value">${leftToFetch}</div>
           </div>
           <div class="stat-item">
             <div class="stat-label">Total Series</div>
@@ -460,6 +473,9 @@ function renderSchedulerCards() {
         <div class="scheduler-actions">
           <button class="btn-scheduler" data-status="${status}" ${scanning ? 'disabled' : ''} onclick="scanNow('${status}')">
             ${scanning ? 'Scanning…' : 'Scan Now'}
+          </button>
+          <button class="btn-scheduler danger" data-status="${status}" ${(scanning || dueNow > 0 || leftToFetch > 0) ? '' : 'disabled'} onclick="cancelFetch('${status}')">
+            Cancel
           </button>
         </div>
       </div>
@@ -490,6 +506,21 @@ async function scanNow(status) {
     }
   } catch (e) {
     showNotification('Failed to start scan', 'error');
+  }
+}
+
+async function cancelFetch(status) {
+  try {
+    const res = await fetch(`/api/scheduler/cancel/${status}`, { method: 'POST' });
+    if (res.ok) {
+      showNotification(`Cancelled ${STATUS_LABELS[status]} fetch`, 'delete');
+      loadSchedulerStatus();
+    } else {
+      const data = await res.json().catch(() => ({}));
+      showNotification(data.error || 'Failed to cancel', 'error');
+    }
+  } catch (e) {
+    showNotification('Failed to cancel', 'error');
   }
 }
 

@@ -41,18 +41,23 @@ class MangaScheduler:
         # since none of this (last activity, live scan progress) needs to
         # survive a restart, unlike everything else the scheduler touches.
         #
-        # Two independent tracks, merged for display in get_status_summary():
-        #  - manual_* : a "Scan Now" run (single continuous operation, same
-        #    as before).
-        #  - wave_total: a background due-backlog "wave" that can legitimately
-        #    span multiple 60s ticks if more series in the same status keep
-        #    crossing their due threshold while an earlier tick is still
-        #    being worked through. wave_total is frozen at whatever the due
-        #    count was when the wave was first noticed, and NOT reset every
-        #    tick - only when due_count returns to 0 (wave fully cleared).
-        #    progress within the wave is derived (wave_total - live due_count)
-        #    rather than incremented, since due_count already reflects
-        #    exactly how many are still left the moment any series finishes.
+        # "How many are left to fetch" is deliberately NOT tracked here at
+        # all - get_status_summary() derives it live from the DB every call
+        # (last_check vs. each status's interval), so it can never drift out
+        # of sync with reality the way an in-memory counter can.
+        #
+        # What IS tracked here is just scan progress, for the progress bar,
+        # in two independent tracks merged for display in
+        # get_status_summary():
+        #  - manual_* : a "Scan Now" run - a single fixed batch of series ids
+        #    captured up front, so current/total is exact for its whole life.
+        #  - background_* : one background tick's batch for this status.
+        #    Deliberately scoped to a single tick (not a multi-tick "wave"):
+        #    due series are snapshotted once at tick start, so this is always
+        #    an exact, bounded count/total with nothing to reconcile against
+        #    new arrivals - anything that becomes due mid-tick simply isn't
+        #    part of this tick's batch and waits for the next one, which
+        #    starts its own fresh background_progress_current/total at 0.
         self._status_lock = threading.Lock()
         self._status_state = {
             status: {
@@ -60,8 +65,66 @@ class MangaScheduler:
                 'manual_scanning': False,
                 'manual_progress_current': 0,
                 'manual_progress_total': 0,
-                'wave_total': 0,
+                'background_scanning': False,
+                'background_progress_current': 0,
+                'background_progress_total': 0,
+                # Whole-status sweep tracking for the "Left to Fetch" stat -
+                # separate from due_count ("Due Now") and from the per-tick
+                # background_* progress bar above. sweep_active latches True
+                # the moment something is due or a scan starts, and stays
+                # True across the quiet gaps between due sub-batches (not
+                # every series in a status crosses its threshold at once) -
+                # it only goes False once swept_ids covers every current id
+                # in the status, i.e. a full lap is actually done. While
+                # inactive, "Left to Fetch" reports 0 instead of jumping to
+                # total_series with nothing happening.
+                'sweep_active': False,
+                'swept_ids': set(),
+                # Caps the displayed "Due Now" number while a scan is in
+                # flight, so it can only fall (as fetches complete) rather
+                # than also rising (as new series cross their own interval
+                # mid-scan) - the two effects landing on the same number at
+                # once is what reads as "not really decreasing". Captured
+                # fresh the moment a scan starts, cleared the moment it
+                # ends so the display re-syncs to the true live count
+                # (which may jump up) while nothing is actively fetching.
+                'due_count_ceiling': None,
+                # Set by cancel_status(). While True, get_status_summary()
+                # forces Due Now/Left to Fetch/scanning/progress to 0 for
+                # this status regardless of live state. Purely a DISPLAY
+                # override - cleared the moment this status next actually
+                # starts scanning (manual or background), same as before.
+                # It is NOT what protects against stale completions (see
+                # scan_generation below) - a bool can't tell "this old run"
+                # apart from "a newer run that already started", which is
+                # exactly the gap that let a straggling completion from an
+                # already-cancelled run get miscounted into whatever scan
+                # was active by the time it finally finished.
+                'cancelled': False,
+                # Bumped every time a fresh scan starts for this status
+                # (background tick or manual Scan Now) AND on every
+                # cancel_status() call. Each tick/run captures its own
+                # generation number locally and compares it against the
+                # live value before applying any completion to shared
+                # state - a completion whose captured generation no longer
+                # matches is from a superseded run (cancelled, or simply an
+                # old tick that's still draining an unkillable in-flight
+                # fetch) and is ignored, no matter what's running now. This
+                # is what actually prevents cross-run bleed; 'cancelled'
+                # alone can't, since it gets cleared as soon as anything
+                # new starts.
+                'scan_generation': 0,
             }
+            for status in ('reading', 'plan_to_read', 'on_hold', 'dropped', 'completed')
+        }
+        # Futures currently submitted for each status, so cancel_status()
+        # can cancel the ones that haven't started running yet (a queued
+        # Future can be cancelled outright; one already mid-fetch can't be
+        # force-killed - no cross-thread interrupt in Python - so it just
+        # finishes naturally in the background, its result ignored because
+        # 'cancelled' is checked before that status's state gets updated).
+        self._active_futures = {
+            status: set()
             for status in ('reading', 'plan_to_read', 'on_hold', 'dropped', 'completed')
         }
 
@@ -77,9 +140,24 @@ class MangaScheduler:
                 print(f"[Cleanup] Error: {e}")
                 time.sleep(3600)  # Retry in 1 hour on error
 
+    def _get_kagane_series_ids(self):
+        """Series ids with at least one Kagane source. The Kagane browser
+        client (camoufox_kagane.py) is a singleton with its own internal
+        lock serializing every fetch (each can take up to ~40s waiting out
+        a Cloudflare challenge) - submitting several to the general 8-way
+        pool just wastes worker slots blocked on that lock instead of doing
+        real parallel work for the other trackers, so these get routed to
+        their own single-worker lane instead."""
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT series_id FROM series_sources WHERE source_type = 'kagane'")
+        ids = {r[0] for r in cursor.fetchall()}
+        release_db(conn)
+        return ids
+
     def get_check_interval(self, status):
         intervals = {
-            'reading': 1800,
+            'reading': 600,
             'plan_to_read': 10800,
             'on_hold': 86400,
             'dropped': 604800,
@@ -138,57 +216,100 @@ class MangaScheduler:
                     row[2] or ''
                 ))
 
-                # Track a due-backlog "wave" per status for the /scheduler
-                # page. A wave can span multiple ticks if this status's due
-                # series don't all cross their threshold at once (e.g. a
-                # library scanned in a tight burst last time comes due in a
-                # slightly-staggered tight burst again, 60s+ apart) - so
-                # wave_total grows to cover new arrivals that join an
-                # already-in-progress wave instead of staying frozen at
-                # whatever the count was when first noticed (that caused
-                # progress_current = wave_total - due_count to go negative,
-                # clamp to 0, and make Y jump back up to total_series until
-                # due_count fell back under the stale wave_total - visible as
-                # Y decreasing, then jumping up, then decreasing again).
-                # Only cleared once due_count actually drops to 0. Skip any
+                # Snapshot this tick's batch size per status for the
+                # /scheduler page's progress bar. Scoped to just this tick -
+                # see the __init__ comment on background_* for why. Skip any
                 # status a manual Scan Now already owns, so this doesn't
                 # corrupt or prematurely end that run.
                 due_counts_by_status = {}
                 for _, status, _ in due:
                     due_counts_by_status[status] = due_counts_by_status.get(status, 0) + 1
 
+                # Each status due this tick gets its own generation number,
+                # captured locally - see __init__'s comment on
+                # scan_generation for why a boolean 'cancelled' flag alone
+                # isn't enough to protect against a completion that's still
+                # trickling in from an already-superseded run.
+                tick_generation = {}
                 with self._status_lock:
                     for status, state in self._status_state.items():
                         if state['manual_scanning']:
                             continue
-                        count_now = due_counts_by_status.get(status, 0)
-                        if count_now == 0:
-                            state['wave_total'] = 0
-                        else:
-                            state['wave_total'] = max(state['wave_total'], count_now)
+                        count = due_counts_by_status.get(status, 0)
+                        state['background_scanning'] = count > 0
+                        state['background_progress_current'] = 0
+                        state['background_progress_total'] = count
+                        if count > 0:
+                            # A fresh tick's worth of work for this status is
+                            # about to start - a prior cancel_status() call
+                            # only meant "stop what was happening then", not
+                            # "never scan this status again".
+                            state['cancelled'] = False
+                            state['scan_generation'] += 1
+                            self._active_futures[status] = set()
+                        tick_generation[status] = state['scan_generation']
+
+                kagane_ids = self._get_kagane_series_ids()
 
                 tick_start = time.time()
                 submitted = 0
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor:
-                    future_to_status = {}
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor, \
+                     concurrent.futures.ThreadPoolExecutor(max_workers=1) as kagane_executor:
+                    future_to_item = {}
                     for sid, status, last_check in due:
                         if not self.active:
                             break
-                        future_to_status[executor.submit(self.scan_series, sid)] = status
+                        pool = kagane_executor if sid in kagane_ids else executor
+                        future = pool.submit(self.scan_series, sid)
+                        future_to_item[future] = (sid, status)
+                        if status in self._active_futures:
+                            with self._status_lock:
+                                self._active_futures[status].add(future)
                         submitted += 1
 
-                    for future in concurrent.futures.as_completed(future_to_status):
-                        status = future_to_status[future]
+                    for future in concurrent.futures.as_completed(future_to_item):
+                        sid, status = future_to_item[future]
+                        with self._status_lock:
+                            current_gen = self._status_state[status]['scan_generation'] \
+                                if status in self._status_state else None
+                        if current_gen != tick_generation.get(status):
+                            # This tick's generation for this status has
+                            # moved on (cancelled, or superseded by a manual
+                            # scan) since this future was submitted - it's
+                            # stale, ignore it regardless of what's running
+                            # now.
+                            continue
                         try:
                             future.result()
                         except Exception as e:
                             # scan_series() catches its own errors, so this is
-                            # only for something unexpected escaping it.
+                            # only for something unexpected escaping it (a
+                            # cancelled-before-it-started future also raises
+                            # here, harmlessly, as CancelledError).
                             print(f"[Scheduler] Unhandled error during concurrent scan: {e}")
                         if status in self._status_state:
                             with self._status_lock:
-                                self._status_state[status]['last_scanned_at'] = \
+                                state = self._status_state[status]
+                                if state['scan_generation'] != tick_generation.get(status):
+                                    continue
+                                state['last_scanned_at'] = \
                                     datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                                state['swept_ids'].add(sid)
+                                if state['background_scanning']:
+                                    state['background_progress_current'] += 1
+
+                # This tick's batch is fully processed (the as_completed loop
+                # above only returns once every submitted future is done) -
+                # clear background_scanning so the progress bar disappears
+                # between ticks instead of sitting at "N / N" until the next
+                # one starts. Leaves manual Scan Now runs alone.
+                with self._status_lock:
+                    for status, state in self._status_state.items():
+                        if state['manual_scanning']:
+                            continue
+                        state['background_scanning'] = False
+                        state['background_progress_current'] = 0
+                        state['background_progress_total'] = 0
 
                 if submitted:
                     print(f"[Scheduler] Tick scanned {submitted} due series in "
@@ -468,29 +589,30 @@ class MangaScheduler:
 
     def get_status_summary(self):
         """Per-reading-status fetch info for the /scheduler page: how many
-        series are due right now, when the next one comes due, and any
-        live scan-now progress."""
+        series are due right now ("Due Now"), how many still haven't been
+        fetched this sweep of the whole status ("Left to Fetch"), when the
+        next one comes due, and any live scan-now progress."""
         from .database import get_db, release_db
 
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT status, last_check FROM series")
+        cursor.execute("SELECT id, status, last_check FROM series")
         rows = cursor.fetchall()
         release_db(conn)
 
         now = datetime.now(timezone.utc)
-        checks_by_status = {status: [] for status in self._status_state}
-        for status, last_check in rows:
-            if status in checks_by_status:
-                checks_by_status[status].append(last_check)
+        rows_by_status = {status: [] for status in self._status_state}
+        for sid, status, last_check in rows:
+            if status in rows_by_status:
+                rows_by_status[status].append((sid, last_check))
 
         result = {}
         with self._status_lock:
-            for status, checks in checks_by_status.items():
+            for status, entries in rows_by_status.items():
                 interval = self.get_check_interval(status)
                 due_count = 0
                 soonest_due_at = None
-                for last_check in checks:
+                for _, last_check in entries:
                     if last_check:
                         last = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
                         due_at = last + timedelta(seconds=interval)
@@ -502,25 +624,78 @@ class MangaScheduler:
                         soonest_due_at = due_at
 
                 state = self._status_state[status]
+
+                if state['cancelled']:
+                    # Forced to 0/idle by cancel_status() until this status
+                    # next actually starts scanning - skip the normal
+                    # due/sweep computation entirely so a live due_count
+                    # doesn't immediately re-activate the sweep on the very
+                    # next poll.
+                    result[status] = {
+                        'total_series': len(entries),
+                        'due_count': 0,
+                        'left_to_fetch': 0,
+                        'last_scanned_at': state['last_scanned_at'],
+                        'next_due_at': soonest_due_at.isoformat().replace('+00:00', 'Z') if soonest_due_at else None,
+                        'scanning': False,
+                        'progress_current': 0,
+                        'progress_total': 0,
+                    }
+                    continue
+
                 if state['manual_scanning']:
                     scanning = True
                     progress_current = state['manual_progress_current']
                     progress_total = state['manual_progress_total']
-                elif state['wave_total'] > 0:
-                    # Derived, not tracked - due_count already reflects
-                    # exactly how many of the wave are still left, the
-                    # instant any of them finishes.
+                elif state['background_scanning']:
                     scanning = True
-                    progress_total = state['wave_total']
-                    progress_current = max(0, state['wave_total'] - due_count)
+                    progress_current = state['background_progress_current']
+                    progress_total = state['background_progress_total']
                 else:
                     scanning = False
                     progress_current = 0
                     progress_total = 0
 
+                # "Left to Fetch": every series in this status minus the
+                # ones already swept (fetched) this sweep, whole-status and
+                # persisted across ticks/batches. Latches active the moment
+                # there's something due or scanning, and stays active
+                # through the quiet gaps between due sub-batches - only
+                # deactivates once every current id has actually been
+                # swept, reporting 0 (not total_series) while idle in
+                # between sweeps.
+                if due_count > 0 or scanning:
+                    state['sweep_active'] = True
+
+                current_ids = {sid for sid, _ in entries}
+                remaining_ids = current_ids - state['swept_ids']
+                if state['sweep_active'] and not remaining_ids and current_ids:
+                    state['sweep_active'] = False
+                    state['swept_ids'] = set()
+                    remaining_ids = set()
+                left_to_fetch = len(remaining_ids) if state['sweep_active'] else 0
+
+                # "Due Now" display: a running minimum of the live due_count
+                # while a scan is in flight, so it can only fall as fetches
+                # complete - never rise mid-scan just because other series
+                # cross their own interval in the meantime (that's the "two
+                # effects landing on the same number at once" thrashing).
+                # Cleared the instant nothing is scanning, so it still
+                # catches back up to reality (up or down) between scans.
+                if scanning:
+                    if state['due_count_ceiling'] is None:
+                        state['due_count_ceiling'] = due_count
+                    else:
+                        state['due_count_ceiling'] = min(state['due_count_ceiling'], due_count)
+                    due_count_display = state['due_count_ceiling']
+                else:
+                    state['due_count_ceiling'] = None
+                    due_count_display = due_count
+
                 result[status] = {
-                    'total_series': len(checks),
-                    'due_count': due_count,
+                    'total_series': len(entries),
+                    'due_count': due_count_display,
+                    'left_to_fetch': left_to_fetch,
                     'last_scanned_at': state['last_scanned_at'],
                     'next_due_at': soonest_due_at.isoformat().replace('+00:00', 'Z') if soonest_due_at else None,
                     'scanning': scanning,
@@ -540,14 +715,23 @@ class MangaScheduler:
 
         with self._status_lock:
             state = self._status_state[status]
-            # Refuse if either a manual scan or a background wave already
-            # owns this status - avoids two scans hammering the same
+            # Refuse if either a manual scan or the current background tick
+            # already owns this status - avoids two scans hammering the same
             # sources at once.
-            if state['manual_scanning'] or state['wave_total'] > 0:
+            if state['manual_scanning'] or state['background_scanning']:
                 return False
             state['manual_scanning'] = True
             state['manual_progress_current'] = 0
             state['manual_progress_total'] = 0
+            # A fresh manual run is starting - a prior cancel_status() call
+            # only meant "stop what was happening then". Bump the
+            # generation so any straggling completion from an old run
+            # (cancelled or otherwise superseded) can never be mistaken
+            # for one of THIS run's - see __init__'s scan_generation note.
+            state['cancelled'] = False
+            state['scan_generation'] += 1
+            my_generation = state['scan_generation']
+            self._active_futures[status] = set()
 
         def _worker():
             try:
@@ -561,22 +745,36 @@ class MangaScheduler:
                 with self._status_lock:
                     self._status_state[status]['manual_progress_total'] = len(series_ids)
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor:
-                    futures = []
+                kagane_ids = self._get_kagane_series_ids()
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor, \
+                     concurrent.futures.ThreadPoolExecutor(max_workers=1) as kagane_executor:
+                    future_to_sid = {}
                     for sid in series_ids:
                         if not self.active:
                             break
-                        futures.append(executor.submit(self.scan_series, sid))
+                        pool = kagane_executor if sid in kagane_ids else executor
+                        future = pool.submit(self.scan_series, sid)
+                        future_to_sid[future] = sid
+                        with self._status_lock:
+                            self._active_futures[status].add(future)
 
-                    for future in concurrent.futures.as_completed(futures):
+                    for future in concurrent.futures.as_completed(future_to_sid):
+                        sid = future_to_sid[future]
+                        with self._status_lock:
+                            if self._status_state[status]['scan_generation'] != my_generation:
+                                continue  # superseded (cancelled, or overtaken) - ignore
                         try:
                             future.result()
                         except Exception as e:
                             print(f"[Scheduler] Unhandled error during scan_status_now('{status}'): {e}")
                         with self._status_lock:
+                            if self._status_state[status]['scan_generation'] != my_generation:
+                                continue
                             self._status_state[status]['manual_progress_current'] += 1
                             self._status_state[status]['last_scanned_at'] = \
                                 datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                            self._status_state[status]['swept_ids'].add(sid)
             except Exception as e:
                 print(f"[Scheduler] scan_status_now('{status}') error: {e}")
             finally:
@@ -584,6 +782,49 @@ class MangaScheduler:
                     self._status_state[status]['manual_scanning'] = False
 
         threading.Thread(target=_worker, daemon=True).start()
+        return True
+
+    def cancel_status(self, status):
+        """Cancel this status's fetching only - no other status is
+        affected. Stops the whole in-progress scan (manual or background),
+        not just whatever's in the currently-running batch: every series
+        for this status still queued (not yet started) is cancelled
+        outright, and completions arriving after this point - including
+        ones already mid-fetch when cancel was clicked, which Python can't
+        force-kill mid-network-call - are simply ignored instead of being
+        applied to this status's state. Due Now and Left to Fetch both
+        drop to 0 immediately and stay there until this status next starts
+        a scan on its own (manual or the next background tick due)."""
+        if status not in self._status_state:
+            return False
+
+        with self._status_lock:
+            state = self._status_state[status]
+            state['cancelled'] = True
+            # Invalidates every future already submitted for this status,
+            # including ones already mid-fetch that we can't force-kill -
+            # whenever they finally complete, their captured generation
+            # won't match this new value, so _run()/scan_status_now() will
+            # ignore them even if a completely different scan has started
+            # for this status by then. This is what actually prevents a
+            # stale completion from bleeding into a later run's counters
+            # (see __init__'s scan_generation note) - 'cancelled' alone
+            # can't, since it gets cleared as soon as anything new starts.
+            state['scan_generation'] += 1
+            state['manual_scanning'] = False
+            state['background_scanning'] = False
+            state['manual_progress_current'] = 0
+            state['manual_progress_total'] = 0
+            state['background_progress_current'] = 0
+            state['background_progress_total'] = 0
+            state['sweep_active'] = False
+            state['swept_ids'] = set()
+            state['due_count_ceiling'] = None
+            futures = list(self._active_futures.get(status, ()))
+            self._active_futures[status] = set()
+
+        for future in futures:
+            future.cancel()  # no-op (returns False) if already running/done
         return True
 
     def start_scanning(self):
