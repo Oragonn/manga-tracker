@@ -312,6 +312,24 @@ class MangaScheduler:
                             record_source_failure(source['id'], str(source_error))
                         except Exception:
                             pass
+                        # Kagane already logs its own scan failures (with
+                        # more specific context) inside camoufox_kagane.py's
+                        # browser client, several layers below this - only
+                        # MangaDex/Atsu/Asura had no /errors visibility at
+                        # all for an ongoing source failure, just the
+                        # Source Alerts bell above.
+                        if source_type != 'kagane':
+                            try:
+                                from .error_logger import log_error
+                                conn_title = get_db()
+                                cursor_title = conn_title.cursor()
+                                cursor_title.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+                                row_title = cursor_title.fetchone()
+                                release_db(conn_title)
+                                title = row_title[0] if row_title else f"Series #{series_id}"
+                                log_error(source['source_url'], str(source_error), series_title=title)
+                            except Exception:
+                                pass
                         continue
 
                     try:

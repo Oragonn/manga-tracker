@@ -58,6 +58,28 @@ _FETCH_IMAGE_AS_DATA_URL_JS = """async (url) => {
 }"""
 
 
+def _lookup_series_title(series_id):
+    """Best-effort: this client only knows the Kagane UUID, not which of our
+    tracked series it belongs to - look it up by matching the UUID against
+    stored source_urls (either kagane.to or kagane.org, whichever the source
+    was originally added with) so failure logs show a real title instead of
+    the generic "Kagane Browser Fetch" placeholder."""
+    try:
+        from .database import get_db, release_db
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT s.title FROM series_sources ss JOIN series s ON s.id = ss.series_id "
+            "WHERE ss.source_url LIKE ? LIMIT 1",
+            (f"%{series_id}%",)
+        )
+        row = cursor.fetchone()
+        release_db(conn)
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 class KaganeBrowserClient:
     def __init__(self):
         self.lock = threading.Lock()
@@ -159,7 +181,7 @@ class KaganeBrowserClient:
                     log_error(
                         source_url=f"https://kagane.to/series/{series_id}",
                         error_message=str(e),
-                        series_title="Kagane Browser Fetch"
+                        series_title=_lookup_series_title(series_id) or "Kagane Browser Fetch"
                     )
                 except Exception:
                     pass

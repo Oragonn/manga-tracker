@@ -10,8 +10,58 @@
   <!-- ADDED: Notification system -->
   <script src="/static/js/notifications.js"></script>
     <script>
+    // Only linkify real http(s) URLs - source_url is sometimes a synthetic
+    // value like "series:123" (e.g. the scheduler's unhandled-scan-error
+    // path), which isn't a clickable link and shouldn't be rendered as one.
+    function isSafeUrl(url) {
+      return typeof url === 'string' && /^https?:\/\//i.test(url);
+    }
+
+    function renderErrorUrl(url) {
+      const safeText = escapeHtml(url || '');
+      return isSafeUrl(url)
+        ? `<a href="${safeText}" target="_blank" rel="noopener">${safeText}</a>`
+        : safeText;
+    }
+
+    // Turns any http(s) URL found inside already-escaped HTML text into a
+    // clickable link - error messages often embed the URL that failed (e.g.
+    // "Stuck on Cloudflare challenge page after 25s at https://..."), not
+    // just the dedicated source_url field. Must run on already-escaped text
+    // (never raw), and trims trailing sentence punctuation off the link so
+    // "...at https://example.com." doesn't pull the period into the href.
+    function linkify(escapedText) {
+      return escapedText.replace(/https?:\/\/[^\s<>"']+/g, (match) => {
+        const trailing = match.match(/[.,;:!?)]+$/);
+        const url = trailing ? match.slice(0, -trailing[0].length) : match;
+        const suffix = trailing ? trailing[0] : '';
+        return `<a href="${url}" target="_blank" rel="noopener">${url}</a>${suffix}`;
+      });
+    }
+
+    // Shared by every place this page (re-)renders an error entry client-side
+    // (sidebar date click, desktop/mobile refresh) - also escapes every field,
+    // which none of those call sites were doing before.
+    function renderErrorEntryHTML(err) {
+      return `
+        <div class="error-time">
+          ${escapeHtml(err.display_time)}
+          ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
+        </div>
+        <div class="error-title">${escapeHtml(err.series_title)}</div>
+        <div class="error-url">${renderErrorUrl(err.source_url)}</div>
+        <div class="error-message">${linkify(escapeHtml(err.error))}</div>
+      `;
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       initNotifications();
+    // Server-rendered error messages (initial page load) aren't linkified by
+    // Jinja - .innerHTML on an already-escaped text node gives back the same
+    // safe-escaped string linkify() expects, so this is safe to run as-is.
+    document.querySelectorAll('.error-message').forEach(el => {
+      el.innerHTML = linkify(el.innerHTML);
+    });
     // Handle date link clicks
     document.querySelectorAll('.sidebar a[href^="/logs/"]').forEach(link => {
         link.addEventListener('click', async (e) => {
@@ -37,15 +87,7 @@
                 let html = `<h2>Errors — ${dateStr.split('-').reverse().join('/')}</h2>`;
                 if (data.errors.length > 0) {
                 html += data.errors.map(err => `
-                    <div class="error-entry">
-                    <div class="error-time">
-                        ${err.display_time}
-                        ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
-                    </div>
-                    <div class="error-title">${err.series_title}</div>
-                    <div class="error-url">${err.source_url}</div>
-                    <div class="error-message">${err.error}</div>
-                    </div>
+                    <div class="error-entry">${renderErrorEntryHTML(err)}</div>
                 `).join('');
                 } else {
                 html += '<p>No errors found for this date.</p>';
@@ -113,21 +155,35 @@
       word-break: break-word;
       overflow-wrap: break-word;
     }
-    .error-url { 
-      color: #678ec9; 
+    .error-url {
+      color: #678ec9;
       word-break: break-all;
       /* ADDED: Ensure URLs don't overflow */
       overflow-wrap: anywhere;
       max-width: 100%;
     }
-    .error-message { 
-      color: #f56565; 
-      margin-top: 6px; 
+    .error-url a {
+      color: inherit;
+      text-decoration: underline;
+    }
+    .error-url a:hover {
+      color: #8fb3e8;
+    }
+    .error-message {
+      color: #f56565;
+      margin-top: 6px;
       white-space: pre-wrap;
       /* ADDED: Force text wrapping for long error messages */
       word-break: break-word;
       overflow-wrap: break-word;
       max-width: 100%;
+    }
+    .error-message a {
+      color: inherit;
+      text-decoration: underline;
+    }
+    .error-message a:hover {
+      color: #ff8080;
     }
 
     h2 {
@@ -444,7 +500,13 @@
               {% endif %}
             </div>
             <div class="error-title">{{ err.series_title }}</div>
-            <div class="error-url">{{ err.source_url }}</div>
+            <div class="error-url">
+              {% if err.source_url and (err.source_url.startswith('http://') or err.source_url.startswith('https://')) %}
+                <a href="{{ err.source_url }}" target="_blank" rel="noopener">{{ err.source_url }}</a>
+              {% else %}
+                {{ err.source_url }}
+              {% endif %}
+            </div>
             <div class="error-message">{{ err.error }}</div>
           </div>
         {% endfor %}
@@ -535,15 +597,7 @@
                 data.errors.forEach(err => {
                   const errorDiv = document.createElement('div');
                   errorDiv.className = 'error-entry';
-                  errorDiv.innerHTML = `
-                    <div class="error-time">
-                      ${err.display_time}
-                      ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
-                    </div>
-                    <div class="error-title">${err.series_title}</div>
-                    <div class="error-url">${err.source_url}</div>
-                    <div class="error-message">${err.error}</div>
-                  `;
+                  errorDiv.innerHTML = renderErrorEntryHTML(err);
                   mainContent.appendChild(errorDiv);
                 });
               } else {
@@ -644,15 +698,7 @@
                   data.errors.forEach(err => {
                     const errorDiv = document.createElement('div');
                     errorDiv.className = 'error-entry';
-                    errorDiv.innerHTML = `
-                      <div class="error-time">
-                        ${err.display_time}
-                        ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
-                      </div>
-                      <div class="error-title">${err.series_title}</div>
-                      <div class="error-url">${err.source_url}</div>
-                      <div class="error-message">${err.error}</div>
-                    `;
+                    errorDiv.innerHTML = renderErrorEntryHTML(err);
                     mainContent.appendChild(errorDiv);
                   });
                 } else {
@@ -709,15 +755,7 @@
                 data.errors.forEach(err => {
                   const errorDiv = document.createElement('div');
                   errorDiv.className = 'error-entry';
-                  errorDiv.innerHTML = `
-                    <div class="error-time">
-                      ${err.display_time}
-                      ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
-                    </div>
-                    <div class="error-title">${err.series_title}</div>
-                    <div class="error-url">${err.source_url}</div>
-                    <div class="error-message">${err.error}</div>
-                  `;
+                  errorDiv.innerHTML = renderErrorEntryHTML(err);
                   mainContent.appendChild(errorDiv);
                 });
               } else {
