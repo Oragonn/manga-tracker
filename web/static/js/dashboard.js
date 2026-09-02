@@ -6357,14 +6357,14 @@ function updateSheetProgress(series) {
 
 async function closeBottomSheet(keepScrollLocked = false) {
   // ADDED: Save pending chapter changes before closing
-  if (mobileState.currentSeries && mobileState.pendingChapter !== null && 
+  if (mobileState.currentSeries && mobileState.pendingChapter !== null &&
       mobileState.pendingChapter !== mobileState.currentSeries.current_chapter) {
     try {
-		await saveChapter(mobileState.currentSeries.id, mobileState.pendingChapter, mobileState.currentSeries.current_chapter);      
-		loadPage(); // Reload to reflect changes
+		await saveChapter(mobileState.currentSeries.id, mobileState.pendingChapter, mobileState.currentSeries.current_chapter);
+		refreshSeriesCardInPlace(mobileState.currentSeries.id); // Update just this card, same as desktop's btnAccept
     } catch (err) {
       console.error('Failed to save chapter:', err);
-      alert('Failed to save chapter');
+      showNotification('Failed to save chapter', 'error');
       return; // Don't close if save failed
     }
   }
