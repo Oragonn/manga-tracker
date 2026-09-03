@@ -157,7 +157,7 @@ class MangaScheduler:
 
     def get_check_interval(self, status):
         intervals = {
-            'reading': 600,
+            'reading': 1800,
             'plan_to_read': 10800,
             'on_hold': 86400,
             'dropped': 604800,
@@ -346,7 +346,8 @@ class MangaScheduler:
         if chapters:
             latest_ch = max(ch['chapter_number'] for ch in chapters)
             latest_release = max(
-                (ch['release_date'] for ch in chapters if ch['release_date']),
+                (ch['release_date'] for ch in chapters
+                 if ch['chapter_number'] == latest_ch and ch['release_date']),
                 default=''
             )
             cursor.execute("""

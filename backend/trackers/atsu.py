@@ -84,9 +84,15 @@ def get_series_info(manga_id):
         raw_chapters = chapters_resp.json().get('chapters', []) if chapters_resp.status_code == 200 else mp.get('chapters', [])
 
         # Multiple scanlator groups can post the same chapter number; keep
-        # whichever posting is most recent, same logic the scheduler already
-        # uses to merge duplicate chapter numbers across sources.
+        # whichever posting is most recent for the title/link (a newer group
+        # replacing an older one is presumably a better read), same logic the
+        # scheduler already uses to merge duplicate chapter numbers across
+        # sources. The release_date is tracked separately as the *earliest*
+        # posting instead, so a second group reposting an already-released
+        # chapter number doesn't make it look like a brand-new chapter just
+        # dropped.
         best_by_number = {}
+        earliest_created_at = {}
         for ch in raw_chapters:
             number = ch.get('number')
             if number is None:
@@ -95,10 +101,12 @@ def get_series_info(manga_id):
             existing = best_by_number.get(number)
             if existing is None or created_at > (existing.get('createdAt') or 0):
                 best_by_number[number] = ch
+            if created_at and (number not in earliest_created_at or created_at < earliest_created_at[number]):
+                earliest_created_at[number] = created_at
 
         chapters = []
         for number, ch in best_by_number.items():
-            created_at_ms = ch.get('createdAt')
+            created_at_ms = earliest_created_at.get(number) or ch.get('createdAt')
             release_date = None
             if created_at_ms:
                 release_date = datetime.fromtimestamp(created_at_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')

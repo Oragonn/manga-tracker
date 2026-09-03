@@ -236,7 +236,7 @@ def _add_worker():
                             if chapters_to_save:
                                 latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
                                 latest_release = max(
-                                    (ch['release_date'] for ch in chapters_to_save if ch['release_date']),
+                                    (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                     default=''
                                 )
                                 cursor.execute("""
@@ -393,7 +393,7 @@ def _add_worker():
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
                                     latest_release = max(
-                                        (ch['release_date'] for ch in chapters_to_save if ch['release_date']),
+                                        (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                         default=''
                                     )
                                     cursor.execute("""
@@ -543,7 +543,7 @@ def _add_worker():
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
                                     latest_release = max(
-                                        (ch['release_date'] for ch in chapters_to_save if ch['release_date']),
+                                        (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                         default=''
                                     )
                                     cursor.execute("""
@@ -689,7 +689,7 @@ def _add_worker():
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
                                     latest_release = max(
-                                        (ch['release_date'] for ch in chapters_to_save if ch['release_date']),
+                                        (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                         default=''
                                     )
                                     cursor.execute("""
