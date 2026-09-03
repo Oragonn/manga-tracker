@@ -299,6 +299,75 @@
       .mobile-menu {
         display: block;
       }
+
+      /* Search stays alone on its own row (forcing it to full width pushes
+         both selects onto the next line together), which otherwise size to
+         their own text ("Title" vs "All statuses") - split that second row
+         evenly between them instead of leaving two mismatched widths. */
+      .filter-bar input[type="text"] {
+        flex: 1 1 100%;
+      }
+
+      .filter-bar select {
+        flex: 1 1 0;
+        min-width: 0;
+      }
+
+      /* Current Chapters as a table is too cramped on a narrow screen (the
+         link column has nowhere to go). Turn each row into a 2-line card
+         instead: chapter/source/Ban/Save on the first line, the link full
+         width underneath. */
+      #current-chapters-table thead {
+        display: none;
+      }
+
+      #current-chapters-table,
+      #current-chapters-table tbody {
+        display: block;
+        width: 100%;
+      }
+
+      #current-chapters-tbody tr {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        column-gap: 8px;
+        row-gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 1px solid #1e293b;
+      }
+
+      #current-chapters-tbody tr:last-child {
+        border-bottom: none;
+      }
+
+      #current-chapters-tbody td {
+        padding: 0;
+        border-bottom: none;
+      }
+
+      #current-chapters-tbody .chapter-num-cell {
+        order: 1;
+      }
+
+      #current-chapters-tbody .source-cell {
+        order: 2;
+        flex: 1;
+      }
+
+      #current-chapters-tbody .row-actions {
+        order: 3;
+      }
+
+      #current-chapters-tbody td.link-cell {
+        order: 4;
+        flex: 1 1 100%;
+      }
+
+      #current-chapters-tbody .row-link-input {
+        width: 100%;
+        min-width: 0;
+      }
     }
   </style>
 </head>
@@ -310,10 +379,10 @@
       <a href="/dashboard" class="nav-link">Dashboard</a>
       <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
       <a href="/scheduler" class="nav-link">Scheduler</a>
-      <a href="/chapter-fixes" class="nav-link">Chapter Fixes</a>
       <a href="/errors" class="nav-link">Errors</a>
       <a href="/backups" class="nav-link">Backups</a>
       <a href="/logs" class="nav-link">Activity Log</a>
+      <a href="/chapter-fixes" class="nav-link">Chapter Fixes</a>
       <a href="/stats" class="nav-link">Stats</a>
     </div>
   </nav>
@@ -340,10 +409,10 @@
       </svg>
     </a>
     <a href="/scheduler">Scheduler</a>
-    <a href="/chapter-fixes">Chapter Fixes</a>
     <a href="/errors">Errors</a>
     <a href="/backups">Backups</a>
     <a href="/logs">Activity Log</a>
+    <a href="/chapter-fixes">Chapter Fixes</a>
     <a href="/stats">Stats</a>
   </div>
 </div>
@@ -384,7 +453,7 @@
       <h3>Current Chapters</h3>
       <p class="fixes-section-hint">Ban removes that source's copy of the chapter (another source can still supply it). Editing the link and saving fixes it instead.</p>
       <div class="fixes-table-wrap">
-        <table class="fixes-table">
+        <table class="fixes-table" id="current-chapters-table">
           <thead>
             <tr>
               <th style="width:80px;">Chapter</th>
@@ -585,7 +654,7 @@
       tr.innerHTML = `
         <td class="chapter-num-cell">Ch.${escapeHtml(formatChapterNumber(ch.chapter_number))}</td>
         <td class="source-cell ${known ? '' : 'unknown'}">${escapeHtml(sourceLabel)}</td>
-        <td><input type="text" class="control-input row-link-input" value="${ch.chapter_url ? escapeHtml(ch.chapter_url) : ''}" ${known ? '' : 'disabled'} /></td>
+        <td class="link-cell"><input type="text" class="control-input row-link-input" value="${ch.chapter_url ? escapeHtml(ch.chapter_url) : ''}" ${known ? '' : 'disabled'} /></td>
         <td class="row-actions">
           <button type="button" class="control-button danger row-ban-btn" ${canBan ? '' : 'disabled'} title="${canBan ? 'Ban this exact link' : (known ? 'No link to ban' : 'Source unknown - wait for the next scan')}">Ban</button>
           <button type="button" class="control-button primary row-save-btn" ${known ? '' : 'disabled'}>Save</button>
