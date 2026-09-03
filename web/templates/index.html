@@ -8,6 +8,27 @@
   <title>Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel33" />
+  <style>
+    /* style.css only defines .mobile-menu/.mobile-menu-overlay inside its
+       @media(max-width:768px) block - on a desktop-width viewport they have
+       no display rule at all and would render inline as an unstyled block
+       right under the header. Force them hidden by default and let the
+       existing mobile media query show them again as before. */
+    .mobile-menu-overlay,
+    .mobile-menu {
+      display: none;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-menu-overlay {
+        display: block;
+      }
+
+      .mobile-menu {
+        display: block;
+      }
+    }
+  </style>
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
   <script src="/static/js/notifications.js"></script>
@@ -41,6 +62,38 @@
     </div>
   </nav>
 </header>
+
+<!-- Mobile Menu Overlay -->
+<div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
+<div class="mobile-menu" id="mobile-menu">
+  <div class="mobile-menu-header">
+    <h2>Menu</h2>
+    <button class="hamburger-btn" id="mobile-menu-close">
+      <svg class="icon-close" viewBox="0 0 24 24">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+  <div class="mobile-menu-links">
+    <a href="/dashboard">Dashboard</a>
+    <a href="https://kenmei.co/discovery" target="_blank">
+      Discovery
+      <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+      </svg>
+    </a>
+    <a href="/scheduler">Scheduler</a>
+    <a href="/chapter-fixes">Chapter Fixes</a>
+    <a href="/errors">
+      Errors
+      <span id="mobile-error-badge" style="display:none;background:#e53e3e;color:white;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:10px;"></span>
+    </a>
+    <a href="/backups">Backups</a>
+    <a href="/logs">Activity Log</a>
+    <a href="/stats">Stats</a>
+  </div>
+</div>
 
 <!-- Control Panel -->
 <div class="control-panel">
@@ -784,7 +837,51 @@
   if (isMobile()) {
     console.log('[Mobile] Initializing mobile UI...');
     document.body.classList.add('mobile-device');
-    
+
+    // Hamburger menu (nav drawer) - the dashboard previously had no way to
+    // reach Scheduler/Chapter Fixes/Errors/Backups/Logs/Stats on mobile,
+    // since .nav-links is hidden by CSS there with nothing to replace it.
+    const header = document.querySelector('.header-full');
+    const navContainer = header?.querySelector('.nav-container');
+    if (navContainer) {
+      navContainer.innerHTML = `
+        <div class="mobile-header">
+          <button class="hamburger-btn" id="mobile-menu-btn">
+            <svg class="icon-menu" viewBox="0 0 24 24">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <h1 style="font-size: 18px; font-weight: 600; margin: 0;">Manga Tracker</h1>
+          <div style="width: 44px;"></div>
+        </div>
+      `;
+    }
+
+    let mobileMenuScrollY = 0;
+    function openMobileMenu() {
+      mobileMenuScrollY = window.scrollY;
+      document.getElementById('mobile-menu-overlay')?.classList.add('active');
+      document.getElementById('mobile-menu')?.classList.add('active');
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+      document.body.style.top = `-${mobileMenuScrollY}px`;
+    }
+    function closeMobileMenu() {
+      document.getElementById('mobile-menu-overlay')?.classList.remove('active');
+      document.getElementById('mobile-menu')?.classList.remove('active');
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      window.scrollTo(0, mobileMenuScrollY);
+    }
+    document.getElementById('mobile-menu-btn')?.addEventListener('click', openMobileMenu);
+    document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
+    document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
+
     // Prevent iOS pull-to-refresh ONLY in bottom sheet
     let lastTouchY = 0;
 
