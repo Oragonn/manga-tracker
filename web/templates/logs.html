@@ -224,6 +224,9 @@
     .log-icon.bulk { background: rgba(249, 115, 22, 0.15); color: #f97316; }
     .log-icon.source_added { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
     .log-icon.source_removed { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .log-icon.chapter_override { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    .log-icon.chapter_ban { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .log-icon.chapter_override_removed { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
     .log-icon.bookmark_added { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
     .log-icon.bookmark_updated { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
     .log-icon.bookmark_deleted { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
@@ -336,6 +339,7 @@
       <a href="/dashboard" class="nav-link">Dashboard</a>
       <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
       <a href="/scheduler" class="nav-link">Scheduler</a>
+      <a href="/chapter-fixes" class="nav-link">Chapter Fixes</a>
       <a href="/errors" class="nav-link">
         Errors
         <span id="unread-error-count" style="
@@ -374,6 +378,7 @@
       </svg>
     </a>
     <a href="/scheduler">Scheduler</a>
+    <a href="/chapter-fixes">Chapter Fixes</a>
     <a href="/errors">
       Errors
       <span id="mobile-error-badge" style="display:none;background:#e53e3e;color:white;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:10px;"></span>
@@ -521,6 +526,9 @@ function getLogIcon(type) {
     edited: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
     source_added: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
     source_removed: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+    chapter_ban: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></svg>',
+    chapter_override: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    chapter_override_removed: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>',
     bookmark_added: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
     bookmark_updated: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
     bookmark_deleted: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>'
@@ -585,6 +593,20 @@ function getLogDetails(log) {
         const label = sourceTypeLabel(oldVal?.source_type);
         return `Removed ${label} as a source`;
       }
+      case 'chapter_ban': {
+        const label = sourceTypeLabel(newVal?.source_type);
+        return `Banned ${label}'s copy of Ch.${newVal?.chapter_number}`;
+      }
+      case 'chapter_override': {
+        const label = sourceTypeLabel(newVal?.source_type);
+        return `Set Ch.${newVal?.chapter_number} link for ${label}`;
+      }
+      case 'chapter_override_removed': {
+        const label = sourceTypeLabel(oldVal?.source_type);
+        return oldVal?.is_banned
+          ? `Un-banned ${label}'s copy of Ch.${oldVal?.chapter_number}`
+          : `Removed Ch.${oldVal?.chapter_number} correction (${label})`;
+      }
       case 'bookmark_added':
         return 'Saved view created';
       case 'bookmark_updated':
@@ -600,7 +622,7 @@ function getLogDetails(log) {
 }
 
 function sourceTypeLabel(type) {
-  const labels = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans' };
+  const labels = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', manual: 'Manual' };
   return labels[type] || 'Unknown source';
 }
 
@@ -615,6 +637,9 @@ function getUndoMessage(actionType, name) {
     edited: n => `Reverted changes to ${n}`,
     source_added: n => `Removed source from ${n}`,
     source_removed: n => `Restored source to ${n}`,
+    chapter_ban: n => `Reverted chapter ban for ${n}`,
+    chapter_override: n => `Reverted chapter correction for ${n}`,
+    chapter_override_removed: n => `Restored chapter correction for ${n}`,
     bookmark_added: n => `Removed view "${n}"`,
     bookmark_updated: n => `Reverted view "${n}"`,
     bookmark_deleted: n => `Restored view "${n}"`

@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chapter Fixes - Manga Tracker</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <meta name="csrf-token" content="{{ csrf_token() }}" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="/static/js/notifications.js"></script>
+  <style>
+    .fixes-container {
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+
+    .fixes-container h1 {
+      color: white;
+      font-size: 28px;
+      margin-bottom: 4px;
+    }
+
+    .fixes-subtitle {
+      color: #94a3b8;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filter-bar input[type="text"] {
+      flex: 1;
+      min-width: 220px;
+    }
+
+    .picker-results {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 28px;
+    }
+
+    .picker-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    .picker-row:last-child {
+      border-bottom: none;
+    }
+
+    .picker-row:hover {
+      background: #1a2436;
+    }
+
+    .picker-row img {
+      width: 32px;
+      height: 45px;
+      object-fit: cover;
+      border-radius: 3px;
+      background: #0f172a;
+      flex-shrink: 0;
+    }
+
+    .picker-row-title {
+      color: white;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .picker-row-sub {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .picker-empty {
+      padding: 16px;
+      color: #64748b;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .workspace {
+      display: none;
+    }
+
+    .workspace-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .workspace-header img {
+      width: 48px;
+      height: 68px;
+      object-fit: cover;
+      border-radius: 6px;
+      background: #141b2f;
+      flex-shrink: 0;
+    }
+
+    .workspace-header h2 {
+      color: white;
+      font-size: 20px;
+      margin: 0 0 4px 0;
+    }
+
+    .workspace-header .change-series-btn {
+      margin-left: auto;
+      font-size: 13px;
+      color: #678ec9;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      white-space: nowrap;
+    }
+
+    .fixes-section {
+      margin-bottom: 28px;
+    }
+
+    .fixes-section h3 {
+      color: #94a3b8;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin: 0 0 10px 0;
+    }
+
+    .fixes-section-hint {
+      color: #64748b;
+      font-size: 12px;
+      margin: -6px 0 12px 0;
+    }
+
+    .fixes-table-wrap {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    table.fixes-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    .fixes-table thead th {
+      text-align: left;
+      padding: 10px 12px;
+      color: #94a3b8;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      border-bottom: 1px solid #334155;
+      background: #0f172a;
+      white-space: nowrap;
+    }
+
+    .fixes-table tbody td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #1e293b;
+      vertical-align: middle;
+      color: #e2e8f0;
+    }
+
+    .fixes-table tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .chapter-num-cell {
+      white-space: nowrap;
+      font-weight: 600;
+      color: white;
+    }
+
+    .source-cell {
+      white-space: nowrap;
+      color: #94a3b8;
+    }
+
+    .source-cell.unknown {
+      font-style: italic;
+      color: #64748b;
+    }
+
+    .row-link-input {
+      width: 100%;
+      min-width: 200px;
+      font-size: 13px;
+    }
+
+    .fixes-table .control-input,
+    .fixes-table .control-button {
+      height: 32px;
+      padding: 0 10px;
+      font-size: 13px;
+      min-width: 0;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    /* .control-button only ships a .primary variant globally - add a
+       matching .danger one here so Ban reads as destructive next to Save. */
+    .control-button.danger {
+      background: #7f1d1d;
+      border-color: #991b1b;
+      color: #fecaca;
+    }
+
+    .control-button.danger:hover {
+      background: #991b1b;
+    }
+
+    .control-button:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .row-confirm-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #e2e8f0;
+      font-size: 13px;
+    }
+
+    .row-confirm-cell .bookmark-form-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    .fixes-empty-state {
+      text-align: center;
+      color: #64748b;
+      padding: 24px 20px;
+    }
+
+    .add-form-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 14px;
+    }
+
+    .add-form-row select {
+      width: 140px;
+    }
+
+    .add-form-row .add-chapter-input {
+      width: 90px;
+    }
+
+    .add-form-row .add-link-input {
+      flex: 1;
+      min-width: 220px;
+    }
+
+    /* This page's mobile-menu markup is identical to every other page's,
+       but style.css only defines .mobile-menu/.mobile-menu-overlay inside
+       its @media(max-width:768px) block - on a desktop-width viewport they
+       have no display rule at all and render inline as an unstyled block
+       right under the header. Force them hidden by default and let the
+       existing mobile media query show them again as before. */
+    .mobile-menu-overlay,
+    .mobile-menu {
+      display: none;
+    }
+
+    @media (max-width: 768px) {
+      .mobile-menu-overlay {
+        display: block;
+      }
+
+      .mobile-menu {
+        display: block;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header class="header-full">
+  <nav class="nav-container">
+    <div class="nav-links">
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
+      <a href="/scheduler" class="nav-link">Scheduler</a>
+      <a href="/chapter-fixes" class="nav-link">Chapter Fixes</a>
+      <a href="/errors" class="nav-link">Errors</a>
+      <a href="/backups" class="nav-link">Backups</a>
+      <a href="/logs" class="nav-link">Activity Log</a>
+      <a href="/stats" class="nav-link">Stats</a>
+    </div>
+  </nav>
+</header>
+
+<!-- Mobile Menu Overlay -->
+<div class="mobile-menu-overlay" id="mobile-menu-overlay"></div>
+<div class="mobile-menu" id="mobile-menu">
+  <div class="mobile-menu-header">
+    <h2>Menu</h2>
+    <button class="hamburger-btn" id="mobile-menu-close">
+      <svg class="icon-close" viewBox="0 0 24 24">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+  <div class="mobile-menu-links">
+    <a href="/dashboard">Dashboard</a>
+    <a href="https://kenmei.co/discovery" target="_blank">
+      Discovery
+      <svg style="width:16px;height:16px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+      </svg>
+    </a>
+    <a href="/scheduler">Scheduler</a>
+    <a href="/chapter-fixes">Chapter Fixes</a>
+    <a href="/errors">Errors</a>
+    <a href="/backups">Backups</a>
+    <a href="/logs">Activity Log</a>
+    <a href="/stats">Stats</a>
+  </div>
+</div>
+
+<div class="fixes-container">
+  <h1>Chapter Fixes</h1>
+  <p class="fixes-subtitle">Search for a series, then ban a source's mislabeled chapter, fix a wrong link, or add a chapter by hand. Corrections apply immediately and survive future scans.</p>
+
+  <div class="filter-bar">
+    <input type="text" id="filter-title" class="control-input" placeholder="Search by title..." />
+    <select id="filter-sort" class="control-input">
+      <option value="title">Title</option>
+      <option value="latest_release">Latest Release</option>
+      <option value="last_added">Recently Added</option>
+    </select>
+    <select id="filter-status" class="control-input">
+      <option value="all">All statuses</option>
+      <option value="reading">Reading</option>
+      <option value="plan_to_read">Plan to Read</option>
+      <option value="on_hold">On Hold</option>
+      <option value="dropped">Dropped</option>
+      <option value="completed">Completed</option>
+    </select>
+  </div>
+
+  <div class="picker-results" id="picker-results">
+    <div class="picker-empty">Type a title to search.</div>
+  </div>
+
+  <div class="workspace" id="workspace">
+    <div class="workspace-header">
+      <img id="ws-cover" src="" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/static/placeholder.png'" />
+      <h2 id="ws-title"></h2>
+      <button type="button" class="change-series-btn" id="btn-change-series">Change series</button>
+    </div>
+
+    <div class="fixes-section">
+      <h3>Current Chapters</h3>
+      <p class="fixes-section-hint">Ban removes that source's copy of the chapter (another source can still supply it). Editing the link and saving fixes it instead.</p>
+      <div class="fixes-table-wrap">
+        <table class="fixes-table">
+          <thead>
+            <tr>
+              <th style="width:80px;">Chapter</th>
+              <th style="width:110px;">Source</th>
+              <th>Link</th>
+              <th style="width:150px;"></th>
+            </tr>
+          </thead>
+          <tbody id="current-chapters-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="fixes-section">
+      <h3>Add a Chapter Manually</h3>
+      <p class="fixes-section-hint">For a chapter no source reports at all.</p>
+      <div class="add-form-row">
+        <select id="add-source" class="control-input"></select>
+        <input type="number" step="0.1" id="add-chapter" class="control-input add-chapter-input" placeholder="Ch. #" />
+        <input type="text" id="add-link" class="control-input add-link-input" placeholder="https://..." />
+        <button type="button" class="control-button primary" id="btn-add-save">Save</button>
+      </div>
+    </div>
+
+    <div class="fixes-section" id="corrections-section" style="display:none;">
+      <h3>Your Corrections</h3>
+      <div class="fixes-table-wrap">
+        <table class="fixes-table">
+          <thead>
+            <tr>
+              <th style="width:80px;">Chapter</th>
+              <th style="width:110px;">Source</th>
+              <th>Status</th>
+              <th style="width:60px;"></th>
+            </tr>
+          </thead>
+          <tbody id="corrections-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const SOURCE_LABELS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', manual: 'Manual' };
+
+  let selectedSeriesId = null;
+  let seriesSources = [];    // real sources for the selected series
+  let currentChapters = [];  // /api/series/<id>/chapters
+  let overrides = [];        // /api/series/<id>/chapter-overrides
+
+  const filterTitle = document.getElementById('filter-title');
+  const filterSort = document.getElementById('filter-sort');
+  const filterStatus = document.getElementById('filter-status');
+  const pickerResults = document.getElementById('picker-results');
+  const workspace = document.getElementById('workspace');
+  const wsCover = document.getElementById('ws-cover');
+  const wsTitle = document.getElementById('ws-title');
+  const currentChaptersTbody = document.getElementById('current-chapters-tbody');
+  const correctionsSection = document.getElementById('corrections-section');
+  const correctionsTbody = document.getElementById('corrections-tbody');
+  const addSourceSelect = document.getElementById('add-source');
+  const addChapterInput = document.getElementById('add-chapter');
+  const addLinkInput = document.getElementById('add-link');
+
+  // ---------- Series picker ----------
+
+  let searchDebounce = null;
+  filterTitle.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(runSearch, 300);
+  });
+  filterSort.addEventListener('change', runSearch);
+  filterStatus.addEventListener('change', runSearch);
+
+  async function runSearch() {
+    const q = filterTitle.value.trim();
+    if (!q) {
+      pickerResults.innerHTML = '<div class="picker-empty">Type a title to search.</div>';
+      return;
+    }
+    pickerResults.innerHTML = '<div class="picker-empty">Searching...</div>';
+    try {
+      const params = new URLSearchParams({
+        search: q,
+        status: filterStatus.value,
+        sort: filterSort.value,
+        dir: filterSort.value === 'title' ? 'asc' : 'desc',
+        per_page: 30
+      });
+      const res = await fetch(`/api/series?${params}`);
+      const data = await res.json();
+      renderPickerResults(data.items || []);
+    } catch (e) {
+      pickerResults.innerHTML = '<div class="picker-empty">Search failed.</div>';
+    }
+  }
+
+  function renderPickerResults(items) {
+    if (!items.length) {
+      pickerResults.innerHTML = '<div class="picker-empty">No series match.</div>';
+      return;
+    }
+    pickerResults.innerHTML = items.map(s => `
+      <div class="picker-row" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-cover="${s.cover_url ? escapeHtml(s.cover_url) : ''}">
+        ${s.cover_url ? `<img src="${escapeHtml(s.cover_url)}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/static/placeholder.png'" />` : ''}
+        <div>
+          <div class="picker-row-title">${escapeHtml(s.title)}</div>
+          <div class="picker-row-sub">${s.total_chapters ?? 0} chapters</div>
+        </div>
+      </div>
+    `).join('');
+    pickerResults.querySelectorAll('.picker-row').forEach(el => {
+      el.addEventListener('click', () => {
+        selectSeries(parseInt(el.dataset.id, 10), el.dataset.title, el.dataset.cover);
+      });
+    });
+  }
+
+  document.getElementById('btn-change-series').addEventListener('click', () => {
+    selectedSeriesId = null;
+    workspace.style.display = 'none';
+    filterTitle.focus();
+  });
+
+  // ---------- Workspace ----------
+
+  async function selectSeries(id, title, coverUrl) {
+    selectedSeriesId = id;
+    wsTitle.textContent = title;
+    wsCover.src = coverUrl || '/static/placeholder.png';
+    workspace.style.display = 'block';
+    const url = new URL(window.location);
+    url.searchParams.set('series_id', id);
+    window.history.replaceState({}, '', url);
+
+    await Promise.all([loadSources(), loadChapters(), loadOverrides()]);
+    renderAddSourceOptions();
+    renderCurrentChapters();
+    renderCorrections();
+    workspace.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function loadSources() {
+    try {
+      const res = await fetch(`/api/series/${selectedSeriesId}/sources`);
+      const data = await res.json();
+      seriesSources = data.sources || [];
+    } catch (e) {
+      seriesSources = [];
+    }
+  }
+
+  async function loadChapters() {
+    try {
+      const res = await fetch(`/api/series/${selectedSeriesId}/chapters`);
+      currentChapters = await res.json();
+    } catch (e) {
+      currentChapters = [];
+    }
+  }
+
+  async function loadOverrides() {
+    try {
+      const res = await fetch(`/api/series/${selectedSeriesId}/chapter-overrides`);
+      const data = await res.json();
+      overrides = data.overrides || [];
+    } catch (e) {
+      overrides = [];
+    }
+  }
+
+  async function refreshAfterChange() {
+    await Promise.all([loadChapters(), loadOverrides()]);
+    renderCurrentChapters();
+    renderCorrections();
+  }
+
+  function formatChapterNumber(num) {
+    return String(num);
+  }
+
+  // ---------- Current chapters table ----------
+
+  function renderCurrentChapters() {
+    if (!currentChapters.length) {
+      currentChaptersTbody.innerHTML = '<tr><td colspan="4" class="fixes-empty-state">No chapters yet.</td></tr>';
+      return;
+    }
+    currentChaptersTbody.innerHTML = '';
+    const sorted = [...currentChapters].sort((a, b) => b.chapter_number - a.chapter_number);
+    for (const ch of sorted) {
+      const tr = document.createElement('tr');
+      const known = !!ch.source_type;
+      const canBan = known && !!ch.chapter_url;
+      const sourceLabel = known ? (SOURCE_LABELS[ch.source_type] || ch.source_type) : 'Unknown yet';
+      tr.innerHTML = `
+        <td class="chapter-num-cell">Ch.${escapeHtml(formatChapterNumber(ch.chapter_number))}</td>
+        <td class="source-cell ${known ? '' : 'unknown'}">${escapeHtml(sourceLabel)}</td>
+        <td><input type="text" class="control-input row-link-input" value="${ch.chapter_url ? escapeHtml(ch.chapter_url) : ''}" ${known ? '' : 'disabled'} /></td>
+        <td class="row-actions">
+          <button type="button" class="control-button danger row-ban-btn" ${canBan ? '' : 'disabled'} title="${canBan ? 'Ban this exact link' : (known ? 'No link to ban' : 'Source unknown - wait for the next scan')}">Ban</button>
+          <button type="button" class="control-button primary row-save-btn" ${known ? '' : 'disabled'}>Save</button>
+        </td>
+      `;
+      if (canBan) {
+        tr.querySelector('.row-ban-btn').addEventListener('click', () => saveCorrection(ch.source_type, ch.chapter_number, ch.chapter_url, true));
+      }
+      if (known) {
+        tr.querySelector('.row-save-btn').addEventListener('click', () => {
+          const link = tr.querySelector('.row-link-input').value.trim();
+          if (!link) {
+            showNotification('Enter a link to save (use Ban to remove this instead)', 'error');
+            return;
+          }
+          saveCorrection(ch.source_type, ch.chapter_number, link, false);
+        });
+      }
+      currentChaptersTbody.appendChild(tr);
+    }
+  }
+
+  // ---------- Add-chapter form ----------
+
+  function renderAddSourceOptions() {
+    const types = seriesSources.map(s => s.source_type);
+    if (!types.includes('manual')) types.push('manual');
+    addSourceSelect.innerHTML = types.map(t => `<option value="${t}">${SOURCE_LABELS[t] || t}</option>`).join('');
+  }
+
+  document.getElementById('btn-add-save').addEventListener('click', async () => {
+    const sourceType = addSourceSelect.value;
+    const chapterRaw = addChapterInput.value.trim();
+    const link = addLinkInput.value.trim();
+    if (chapterRaw === '' || isNaN(parseFloat(chapterRaw))) {
+      showNotification('Enter a chapter number', 'error');
+      return;
+    }
+    if (!link) {
+      showNotification('A manually-added chapter needs a link', 'error');
+      return;
+    }
+    const ok = await saveCorrection(sourceType, parseFloat(chapterRaw), link, false);
+    if (ok) {
+      addChapterInput.value = '';
+      addLinkInput.value = '';
+    }
+  });
+
+  // ---------- Corrections list ----------
+
+  function renderCorrections() {
+    if (!overrides.length) {
+      correctionsSection.style.display = 'none';
+      return;
+    }
+    correctionsSection.style.display = 'block';
+    correctionsTbody.innerHTML = overrides.map(o => `
+      <tr data-id="${o.id}">
+        <td class="chapter-num-cell">Ch.${escapeHtml(formatChapterNumber(o.chapter_number))}</td>
+        <td class="source-cell">${escapeHtml(SOURCE_LABELS[o.source_type] || o.source_type)}</td>
+        <td>${o.is_banned ? `Banned: <a href="${escapeHtml(o.chapter_url || '')}" target="_blank" rel="noopener">${escapeHtml(o.chapter_url || '')}</a>` : `<a href="${escapeHtml(o.chapter_url || '')}" target="_blank" rel="noopener">${escapeHtml(o.chapter_url || '')}</a>`}</td>
+        <td><button type="button" class="btn-icon danger correction-delete-btn" title="Remove this correction"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></button></td>
+      </tr>
+    `).join('');
+    correctionsTbody.querySelectorAll('tr').forEach(tr => {
+      const id = parseInt(tr.dataset.id, 10);
+      tr.querySelector('.correction-delete-btn').addEventListener('click', () => showDeleteConfirm(tr, id));
+    });
+  }
+
+  function showDeleteConfirm(tr, overrideId) {
+    const originalHtml = tr.innerHTML;
+    tr.innerHTML = `
+      <td colspan="4">
+        <div class="row-confirm-cell">
+          <span>Remove this correction?</span>
+          <button type="button" class="bookmark-form-btn bookmark-form-cancel">Cancel</button>
+          <button type="button" class="bookmark-form-btn bookmark-form-delete-confirm">Remove</button>
+        </div>
+      </td>
+    `;
+    tr.querySelector('.bookmark-form-cancel').addEventListener('click', () => { tr.innerHTML = originalHtml; renderCorrections(); });
+    tr.querySelector('.bookmark-form-delete-confirm').addEventListener('click', () => deleteCorrection(overrideId));
+  }
+
+  async function deleteCorrection(overrideId) {
+    try {
+      const res = await fetch(`/api/series/${selectedSeriesId}/chapter-overrides/${overrideId}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        showNotification(data.error || 'Failed to remove correction', 'error');
+        return;
+      }
+      showNotification('Correction removed', 'delete');
+      await refreshAfterChange();
+    } catch (e) {
+      showNotification('Network error', 'error');
+    }
+  }
+
+  // ---------- Shared save ----------
+
+  async function saveCorrection(sourceType, chapterNumber, chapterUrl, isBanned) {
+    try {
+      const res = await fetch(`/api/series/${selectedSeriesId}/chapter-overrides`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_type: sourceType, chapter_number: chapterNumber,
+          chapter_url: chapterUrl, is_banned: isBanned
+        })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.error) {
+        showNotification(data.error || 'Failed to save correction', 'error');
+        return false;
+      }
+      showNotification(isBanned ? 'Chapter banned' : 'Correction saved', 'added');
+      await refreshAfterChange();
+      return true;
+    } catch (e) {
+      showNotification('Network error', 'error');
+      return false;
+    }
+  }
+
+  // ---------- Deep-link support: /chapter-fixes?series_id=123 ----------
+  (async function initFromQuery() {
+    const params = new URLSearchParams(window.location.search);
+    const seriesId = params.get('series_id');
+    if (!seriesId) return;
+    try {
+      const res = await fetch(`/api/series/${seriesId}`);
+      if (!res.ok) return;
+      const series = await res.json();
+      selectSeries(series.id, series.title, series.cover_url);
+    } catch (e) { /* ignore */ }
+  })();
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initNotifications();
+  });
+})();
+</script>
+
+<!-- Mobile menu functionality -->
+<script>
+(function () {
+  function isMobile() {
+    return window.innerWidth <= 768;
+  }
+
+  if (isMobile()) {
+    const header = document.querySelector('.header-full');
+    const navContainer = header?.querySelector('.nav-container');
+
+    if (navContainer) {
+      navContainer.innerHTML = `
+        <div class="mobile-header">
+          <button class="hamburger-btn" id="mobile-menu-btn">
+            <svg class="icon-menu" viewBox="0 0 24 24">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <h1 style="font-size: 18px; font-weight: 600; margin: 0;">Chapter Fixes</h1>
+          <div style="width: 44px;"></div>
+        </div>
+      `;
+    }
+
+    let scrollY = 0;
+
+    function openMobileMenu() {
+      scrollY = window.scrollY;
+      document.getElementById('mobile-menu-overlay')?.classList.add('active');
+      document.getElementById('mobile-menu')?.classList.add('active');
+      document.body.style.overflow = 'hidden';
+      document.body.style.position = 'fixed';
+      document.body.style.width = '100%';
+      document.body.style.top = `-${scrollY}px`;
+    }
+
+    function closeMobileMenu() {
+      document.getElementById('mobile-menu-overlay')?.classList.remove('active');
+      document.getElementById('mobile-menu')?.classList.remove('active');
+      document.body.style.overflow = '';
+      document.body.style.position = '';
+      document.body.style.width = '';
+      document.body.style.top = '';
+      window.scrollTo(0, scrollY);
+    }
+
+    document.getElementById('mobile-menu-btn')?.addEventListener('click', openMobileMenu);
+    document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
+    document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
+  }
+})();
+</script>
+
+</body>
+</html>

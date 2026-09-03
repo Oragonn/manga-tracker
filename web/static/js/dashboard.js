@@ -817,6 +817,9 @@ function closeEditSeriesModal() {
 function openEditModal(series) {
 	currentSeriesIdForEdit = series.id;
 	pendingCoverUrl = null;
+
+	const fixChaptersLink = document.getElementById('settings-fix-chapters-link');
+	if (fixChaptersLink) fixChaptersLink.href = `/chapter-fixes?series_id=${series.id}`;
 	// closeCoverMenu() lives inside the DOMContentLoaded closure below and
 	// isn't reachable from this top-level function, so reset directly.
 	document.getElementById('settings-cover-menu')?.classList.add('hidden');

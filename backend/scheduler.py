@@ -332,8 +332,8 @@ class MangaScheduler:
             cursor.execute("""
                 INSERT INTO chapters (
                     series_id, volume, raw_chapter, chapter_number,
-                    release_date, chapter_url, is_oneshot
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    release_date, chapter_url, is_oneshot, source_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 series_id,
                 ch.get('volume'),
@@ -341,7 +341,8 @@ class MangaScheduler:
                 ch['chapter_number'],
                 ch['release_date'],
                 ch['chapter_url'],
-                int(ch.get('is_oneshot', False))
+                int(ch.get('is_oneshot', False)),
+                ch.get('source_type')
             ))
         if chapters:
             latest_ch = max(ch['chapter_number'] for ch in chapters)
@@ -495,7 +496,61 @@ class MangaScheduler:
                         print(f"[Scheduler] No chapters from {source_type}")
 
             print(f"[Scheduler] Total raw chapters: {len(all_chapters)} from {successful_sources} sources")
-            
+
+            # Apply user corrections (ban a specific bad link, or
+            # replace/inject a chapter) before merging. Runs regardless of
+            # fetch success so a manual-only chapter still shows up even
+            # during a total source outage. Bans target one exact
+            # chapter_url rather than "this source's copy of this chapter
+            # number" - a source like Atsumaru can have more than one
+            # scanlator group's link for the same chapter number, and
+            # banning one must not take the other down with it.
+            from .database import get_chapter_overrides
+            overrides = get_chapter_overrides(series_id)
+            if overrides:
+                banned_urls = {o['chapter_url'] for o in overrides if o['is_banned'] and o['chapter_url']}
+                if banned_urls:
+                    all_chapters = [
+                        ch for ch in all_chapters
+                        if ch['chapter_url'] not in banned_urls
+                    ]
+                for o in overrides:
+                    if o['is_banned']:
+                        continue
+                    key = (o['source_type'], o['chapter_number'])
+                    live_entries = [
+                        ch for ch in all_chapters
+                        if (ch['source_type'], ch['chapter_number']) == key
+                    ]
+                    all_chapters = [
+                        ch for ch in all_chapters
+                        if (ch['source_type'], ch['chapter_number']) != key
+                    ]
+                    # An override fixes the *link*; it shouldn't permanently
+                    # freeze whatever release_date happened to be known at
+                    # the moment it was saved. A source can report a
+                    # chapter before it's finished timestamping it (e.g.
+                    # AsuraScans briefly returning no date for a just-posted
+                    # chapter) - prefer whatever this scan's live fetch says
+                    # now, falling back to the override's stored date only
+                    # if the source doesn't currently report this chapter
+                    # at all, so the date self-heals on a later scan instead
+                    # of staying blank forever.
+                    live_release_date = next(
+                        (e['release_date'] for e in live_entries if e.get('release_date')), None
+                    )
+                    all_chapters.append({
+                        'chapter_number': o['chapter_number'],
+                        'volume': o['volume'],
+                        'raw_chapter': o['raw_chapter'] or str(o['chapter_number']),
+                        'release_date': live_release_date or o['release_date'],
+                        'chapter_url': o['chapter_url'],
+                        'is_oneshot': o['is_oneshot'],
+                        'source_id': None,
+                        'source_type': o['source_type'],
+                        'source_url': None,
+                    })
+
             # *** FIX: Improved chapter merging logic ***
             if not all_chapters:
                 conn = get_db()
@@ -517,19 +572,35 @@ class MangaScheduler:
                     release_db(conn)
                 return
             
-            # Merge chapters (deduplicate by chapter_number, keep most recent)
+            # Merge chapters (deduplicate by chapter_number). Across
+            # *different* sources, the most recent candidate wins outright -
+            # both its link and its own release_date - so a different
+            # source picking up the latest chapter correctly updates
+            # last-release to that source's date. The "use the earliest
+            # date" smoothing only applies *within* a single source's own
+            # repost duplicates (e.g. a second Atsumaru scanlator group
+            # reposting a chapter that's been out for a while under the
+            # same chapter number) so that repost can't make an
+            # already-released chapter look freshly dropped - it must not
+            # reach across sources, or a source with an earlier (or just
+            # differently-timestamped) copy can hijack last-release even
+            # when a different source's copy is the one actually chosen.
             merged_chapters = {}
+            earliest_dates = {}
             for ch in all_chapters:
                 ch_num = ch['chapter_number']
-                
+                ch_date = ch.get('release_date') or ''
+                dkey = (ch['source_type'], ch_num)
+                if ch_date and (dkey not in earliest_dates or ch_date < earliest_dates[dkey]):
+                    earliest_dates[dkey] = ch_date
+
                 if ch_num not in merged_chapters:
                     merged_chapters[ch_num] = ch
                 else:
                     # Keep the one with the most recent release date
                     existing = merged_chapters[ch_num]
-                    ch_date = ch.get('release_date') or ''
                     existing_date = existing.get('release_date') or ''
-                    
+
                     # Safe comparison: treat None/empty as oldest
                     if ch_date and existing_date:
                         if ch_date > existing_date:
@@ -539,7 +610,12 @@ class MangaScheduler:
                         # New chapter has date, existing doesn't -> prefer new
                         merged_chapters[ch_num] = ch
                     # else: keep existing (either both have no date, or existing has date and new doesn't)
-            
+
+            for ch_num, ch in merged_chapters.items():
+                dkey = (ch['source_type'], ch_num)
+                if dkey in earliest_dates:
+                    ch['release_date'] = earliest_dates[dkey]
+
             # Convert back to list and sort
             final_chapters = list(merged_chapters.values())
             final_chapters.sort(key=lambda x: x['chapter_number'])

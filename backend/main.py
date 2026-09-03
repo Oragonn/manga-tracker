@@ -166,7 +166,8 @@ def api_undo_log(log_id):
         from .database import (
             get_db, release_db, update_series, add_source_to_series, remove_source,
             get_filter_bookmarks, create_filter_bookmark, update_filter_bookmark, delete_filter_bookmark,
-            create_custom_tag, add_custom_tag_to_series, delete_series
+            create_custom_tag, add_custom_tag_to_series, delete_series,
+            upsert_chapter_override, delete_chapter_override
         )
         
         conn = get_db()
@@ -383,6 +384,56 @@ def api_undo_log(log_id):
                 except Exception as e:
                     print(f"[Undo] Failed to remove source: {e}")
                     return jsonify({'error': f'Failed to remove source: {str(e)}'}), 500
+
+        elif action_type in ('chapter_ban', 'chapter_override') and series_id:
+            # Revert a ban/edit/manual-add: restore the prior correction
+            # state if there was one, or remove the row this action created.
+            if new_value and new_value.get('id'):
+                try:
+                    if old_value:
+                        upsert_chapter_override(
+                            series_id,
+                            old_value['source_type'],
+                            old_value['chapter_number'],
+                            old_value['is_banned'],
+                            volume=old_value.get('volume'),
+                            raw_chapter=old_value.get('raw_chapter'),
+                            title=old_value.get('title'),
+                            release_date=old_value.get('release_date'),
+                            chapter_url=old_value.get('chapter_url'),
+                            is_oneshot=old_value.get('is_oneshot', False)
+                        )
+                    else:
+                        delete_chapter_override(new_value['id'])
+                    need_check_now = True
+                    restored_series_id = series_id
+                except Exception as e:
+                    print(f"[Undo] Failed to revert chapter override: {e}")
+                    return jsonify({'error': f'Failed to revert chapter override: {str(e)}'}), 500
+
+        elif action_type == 'chapter_override_removed' and series_id:
+            # Re-create the correction that was deleted.
+            if old_value and old_value.get('source_type') is not None and old_value.get('chapter_number') is not None:
+                try:
+                    new_id = upsert_chapter_override(
+                        series_id,
+                        old_value['source_type'],
+                        old_value['chapter_number'],
+                        old_value['is_banned'],
+                        volume=old_value.get('volume'),
+                        raw_chapter=old_value.get('raw_chapter'),
+                        title=old_value.get('title'),
+                        release_date=old_value.get('release_date'),
+                        chapter_url=old_value.get('chapter_url'),
+                        is_oneshot=old_value.get('is_oneshot', False)
+                    )
+                    if new_id is None:
+                        return jsonify({'error': 'Failed to restore chapter override'}), 500
+                    need_check_now = True
+                    restored_series_id = series_id
+                except Exception as e:
+                    print(f"[Undo] Failed to restore chapter override: {e}")
+                    return jsonify({'error': f'Failed to restore chapter override: {str(e)}'}), 500
 
         elif action_type == 'bookmark_added':
             # Delete the bookmark that was created, if it's still there.
@@ -1149,7 +1200,224 @@ def api_remove_source(series_id, source_id):
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-  
+
+
+@app.route('/api/series/<int:series_id>/chapter-overrides', methods=['GET'])
+def api_get_chapter_overrides(series_id):
+    """List all chapter corrections (bans/edits/manual adds) for a series."""
+    from .database import get_chapter_overrides
+    return jsonify({'overrides': get_chapter_overrides(series_id)})
+
+
+@app.route('/api/chapter-overrides')
+def api_get_chapter_overrides_bulk():
+    """Bulk overrides lookup for the Chapter Fixes table's current page of
+    series: ?series_ids=1,2,3 -> {series_id: [overrides]}."""
+    from .database import get_chapter_overrides_bulk
+    ids_param = request.args.get('series_ids', '')
+    try:
+        series_ids = [int(x) for x in ids_param.split(',') if x.strip()]
+    except ValueError:
+        return jsonify({'error': 'series_ids must be a comma-separated list of integers'}), 400
+    return jsonify(get_chapter_overrides_bulk(series_ids))
+
+
+@app.route('/api/series-sources')
+def api_get_series_sources_bulk():
+    """Bulk sources lookup for the Chapter Fixes table's current page of
+    series: ?series_ids=1,2,3 -> {series_id: [sources]}."""
+    from .database import get_series_sources_bulk
+    ids_param = request.args.get('series_ids', '')
+    try:
+        series_ids = [int(x) for x in ids_param.split(',') if x.strip()]
+    except ValueError:
+        return jsonify({'error': 'series_ids must be a comma-separated list of integers'}), 400
+    return jsonify(get_series_sources_bulk(series_ids))
+
+
+@app.route('/api/series/<int:series_id>/chapter-overrides', methods=['POST'])
+def api_save_chapter_override(series_id):
+    """Create or update a chapter correction. `is_banned` says whether this
+    bans a source's specific bad link (chapter_url must be the exact link
+    being banned - a source like Atsumaru can have more than one candidate
+    link per chapter number, so this never bans "the whole chapter number",
+    only that one link) or replaces it with a corrected link / adds a
+    manual chapter (source_type='manual'). chapter_url is required either
+    way - a ban with no link to target would be meaningless."""
+    try:
+        from .database import get_db, release_db, get_series_sources, upsert_chapter_override
+
+        data = request.get_json() or {}
+        source_type = (data.get('source_type') or '').strip()
+        chapter_number = data.get('chapter_number')
+        chapter_url = (data.get('chapter_url') or '').strip() or None
+        is_banned = bool(data.get('is_banned'))
+
+        if chapter_number is None:
+            return jsonify({'error': 'chapter_number required'}), 400
+        try:
+            chapter_number = float(chapter_number)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'chapter_number must be a number'}), 400
+
+        valid_source_types = {s['source_type'] for s in get_series_sources(series_id)}
+        valid_source_types.add('manual')
+        if source_type not in valid_source_types:
+            return jsonify({'error': f"source_type must be one of: {', '.join(sorted(valid_source_types))}"}), 400
+
+        if not chapter_url or not (chapter_url.startswith('http://') or chapter_url.startswith('https://')):
+            return jsonify({'error': 'chapter_url must be an http(s) link'}), 400
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+        title_row = cursor.fetchone()
+        if not title_row:
+            release_db(conn)
+            return jsonify({'error': 'Series not found'}), 404
+
+        # Snapshot the prior state of this exact row, if any, so undo can
+        # revert an edit instead of just deleting it. A ban is addressed by
+        # its exact link (multiple bans can coexist per chapter number); an
+        # edit/manual-add is addressed by the (source, chapter number) slot.
+        if is_banned:
+            cursor.execute("""
+                SELECT id, is_banned, volume, raw_chapter, title, release_date, chapter_url, is_oneshot
+                FROM chapter_overrides
+                WHERE series_id = ? AND source_type = ? AND chapter_number = ?
+                  AND chapter_url = ? AND is_banned = 1
+            """, (series_id, source_type, chapter_number, chapter_url))
+        else:
+            cursor.execute("""
+                SELECT id, is_banned, volume, raw_chapter, title, release_date, chapter_url, is_oneshot
+                FROM chapter_overrides
+                WHERE series_id = ? AND source_type = ? AND chapter_number = ? AND is_banned = 0
+            """, (series_id, source_type, chapter_number))
+        existing_row = cursor.fetchone()
+        release_db(conn)
+
+        old_value = None
+        if existing_row:
+            old_value = {
+                'id': existing_row[0], 'source_type': source_type, 'chapter_number': chapter_number,
+                'is_banned': bool(existing_row[1]), 'volume': existing_row[2], 'raw_chapter': existing_row[3],
+                'title': existing_row[4], 'release_date': existing_row[5], 'chapter_url': existing_row[6],
+                'is_oneshot': bool(existing_row[7]),
+            }
+
+        # Fixing just the link shouldn't blank out the chapter's actual
+        # release date - the Chapter Fixes page only ever sends chapter_url,
+        # so without this, latest_release (which only looks at the current
+        # latest chapter's own date) would go empty the moment someone edits
+        # whichever chapter happens to be the latest one. Inherit the
+        # existing stored release_date/volume for this chapter number unless
+        # the caller explicitly provided their own (a pure ban has nothing
+        # to inherit into, and a brand-new manual chapter has nothing to
+        # inherit from).
+        release_date = data.get('release_date')
+        volume = data.get('volume')
+        if not is_banned and release_date is None:
+            conn2 = get_db()
+            cursor2 = conn2.cursor()
+            cursor2.execute("""
+                SELECT volume, release_date FROM chapters
+                WHERE series_id = ? AND chapter_number = ?
+            """, (series_id, chapter_number))
+            existing_chapter = cursor2.fetchone()
+            release_db(conn2)
+            if existing_chapter:
+                if volume is None:
+                    volume = existing_chapter[0]
+                release_date = existing_chapter[1]
+
+        override_id = upsert_chapter_override(
+            series_id, source_type, chapter_number, is_banned,
+            volume=volume, raw_chapter=data.get('raw_chapter'), release_date=release_date,
+            chapter_url=chapter_url
+        )
+        if override_id is None:
+            return jsonify({'error': 'Failed to save correction'}), 500
+
+        try:
+            from . import api
+            if hasattr(api, 'manga_scheduler'):
+                api.manga_scheduler.scan_series(series_id)
+        except Exception as e:
+            print(f"[Chapter Override] Failed to trigger rescan: {e}")
+
+        try:
+            from .activity_logger import log_activity
+            log_activity(
+                action_type='chapter_ban' if is_banned else 'chapter_override',
+                series_id=series_id,
+                series_title=title_row[0],
+                old_value=old_value,
+                new_value={
+                    'id': override_id, 'source_type': source_type, 'chapter_number': chapter_number,
+                    'is_banned': is_banned, 'chapter_url': chapter_url,
+                }
+            )
+        except Exception as log_err:
+            print(f"[Chapter Override] Logging failed: {log_err}")
+
+        return jsonify({'success': True, 'id': override_id})
+    except Exception as e:
+        print(f"[Chapter Override] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/series/<int:series_id>/chapter-overrides/<int:override_id>', methods=['DELETE'])
+def api_delete_chapter_override(series_id, override_id):
+    """Remove a correction entirely (un-ban / un-override), reverting that
+    (source, chapter) combination back to raw source behavior."""
+    try:
+        from .database import get_chapter_override_by_id, delete_chapter_override, get_db, release_db
+
+        existing = get_chapter_override_by_id(override_id)
+        if not existing or existing['series_id'] != series_id:
+            return jsonify({'error': 'Correction not found'}), 404
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+        title_row = cursor.fetchone()
+        release_db(conn)
+
+        success = delete_chapter_override(override_id)
+        if not success:
+            return jsonify({'error': 'Failed to remove correction'}), 500
+
+        try:
+            from . import api
+            if hasattr(api, 'manga_scheduler'):
+                api.manga_scheduler.scan_series(series_id)
+        except Exception as e:
+            print(f"[Chapter Override] Failed to trigger rescan: {e}")
+
+        try:
+            from .activity_logger import log_activity
+            if title_row:
+                log_activity(
+                    action_type='chapter_override_removed',
+                    series_id=series_id,
+                    series_title=title_row[0],
+                    old_value=existing
+                )
+        except Exception as log_err:
+            print(f"[Chapter Override] Logging failed: {log_err}")
+
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"[Chapter Override] Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/chapter-fixes')
+def chapter_fixes_page():
+    """Ban/edit/manually-add a source's chapter link for a series."""
+    return render_template('chapter_fixes.html')
+
+
 @app.route('/import-kenmei')
 def import_kenmei_page():
     """Personal Kenmei CSV import helper. Not linked in the nav on purpose."""

@@ -83,30 +83,23 @@ def get_series_info(manga_id):
         chapters_resp = _delayed_get("https://atsu.moe/api/manga/allChapters", params={'mangaId': manga_id})
         raw_chapters = chapters_resp.json().get('chapters', []) if chapters_resp.status_code == 200 else mp.get('chapters', [])
 
-        # Multiple scanlator groups can post the same chapter number; keep
-        # whichever posting is most recent for the title/link (a newer group
-        # replacing an older one is presumably a better read), same logic the
-        # scheduler already uses to merge duplicate chapter numbers across
-        # sources. The release_date is tracked separately as the *earliest*
-        # posting instead, so a second group reposting an already-released
-        # chapter number doesn't make it look like a brand-new chapter just
-        # dropped.
-        best_by_number = {}
-        earliest_created_at = {}
+        # Multiple scanlator groups can post the same chapter number -
+        # return every posting as its own entry rather than picking a
+        # winner here. The scheduler's own chapter-number merge (which
+        # already handles cross-source duplicates the same way) picks the
+        # most recent posting's link but the *earliest* posting's date for
+        # the chapter that survives, so a second group reposting an
+        # already-released chapter can't make it look freshly dropped, and
+        # banning one group's link doesn't take a still-valid other group's
+        # link down with it.
+        chapters = []
+        seen_numbers = set()
         for ch in raw_chapters:
             number = ch.get('number')
             if number is None:
                 continue
-            created_at = ch.get('createdAt') or 0
-            existing = best_by_number.get(number)
-            if existing is None or created_at > (existing.get('createdAt') or 0):
-                best_by_number[number] = ch
-            if created_at and (number not in earliest_created_at or created_at < earliest_created_at[number]):
-                earliest_created_at[number] = created_at
-
-        chapters = []
-        for number, ch in best_by_number.items():
-            created_at_ms = earliest_created_at.get(number) or ch.get('createdAt')
+            seen_numbers.add(number)
+            created_at_ms = ch.get('createdAt')
             release_date = None
             if created_at_ms:
                 release_date = datetime.fromtimestamp(created_at_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -120,10 +113,11 @@ def get_series_info(manga_id):
         chapters.sort(key=lambda c: c['chapter_number'])
 
         # Atsumaru has no oneshot flag of its own -- a oneshot just shows up
-        # as a lone "Chapter 0". Same heuristic as mangadex.py: a single
-        # chapter numbered 0 with nothing else published is a oneshot.
-        if len(chapters) == 1 and chapters[0]['chapter_number'] == 0:
-            chapters[0]['is_oneshot'] = True
+        # as a lone "Chapter 0" (possibly posted by more than one group).
+        # Same heuristic as mangadex.py: nothing published except chapter 0.
+        if seen_numbers == {0}:
+            for c in chapters:
+                c['is_oneshot'] = True
 
         status_map = {
             'Ongoing': 'reading',

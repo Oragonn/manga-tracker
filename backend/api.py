@@ -222,8 +222,8 @@ def _add_worker():
                                 cursor.execute("""
                                     INSERT INTO chapters (
                                         series_id, volume, raw_chapter, chapter_number,
-                                        release_date, chapter_url, is_oneshot
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                        release_date, chapter_url, is_oneshot, source_type
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                 """, (
                                     series_id,
                                     ch.get('volume'),
@@ -231,7 +231,8 @@ def _add_worker():
                                     ch['chapter_number'],
                                     ch['release_date'],
                                     ch['chapter_url'],
-                                    int(ch.get('is_oneshot', False))
+                                    int(ch.get('is_oneshot', False)),
+                                    'mangadex'
                                 ))
                             if chapters_to_save:
                                 latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
@@ -353,6 +354,7 @@ def _add_worker():
                             cover_url = kagane_info['cover_url']
                             alt_titles = kagane_info.get('alt_titles') or []
                             chapters_to_save = kagane_info['chapters']
+                            _chapters_source_type = 'kagane'
 
                             try:
                                 series_id = add_series(
@@ -379,8 +381,8 @@ def _add_worker():
                                     cursor.execute("""
                                         INSERT INTO chapters (
                                             series_id, volume, raw_chapter, chapter_number,
-                                            release_date, chapter_url, is_oneshot
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                            release_date, chapter_url, is_oneshot, source_type
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                     """, (
                                         series_id,
                                         None,
@@ -388,7 +390,8 @@ def _add_worker():
                                         ch['chapter_number'],
                                         ch['release_date'],
                                         ch['chapter_url'],
-                                        int(ch.get('is_oneshot', False))
+                                        int(ch.get('is_oneshot', False)),
+                                        _chapters_source_type
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
@@ -503,6 +506,7 @@ def _add_worker():
                             cover_url = atsu_info['cover_url']
                             alt_titles = atsu_info.get('alt_titles') or []
                             chapters_to_save = atsu_info['chapters']
+                            _chapters_source_type = 'atsu'
 
                             try:
                                 series_id = add_series(
@@ -529,8 +533,8 @@ def _add_worker():
                                     cursor.execute("""
                                         INSERT INTO chapters (
                                             series_id, volume, raw_chapter, chapter_number,
-                                            release_date, chapter_url, is_oneshot
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                            release_date, chapter_url, is_oneshot, source_type
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                     """, (
                                         series_id,
                                         None,
@@ -538,7 +542,8 @@ def _add_worker():
                                         ch['chapter_number'],
                                         ch['release_date'],
                                         ch['chapter_url'],
-                                        int(ch.get('is_oneshot', False))
+                                        int(ch.get('is_oneshot', False)),
+                                        _chapters_source_type
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
@@ -649,6 +654,7 @@ def _add_worker():
                             cover_url = asura_info['cover_url']
                             alt_titles = asura_info.get('alt_titles') or []
                             chapters_to_save = asura_info['chapters']
+                            _chapters_source_type = 'asura'
 
                             try:
                                 series_id = add_series(
@@ -675,8 +681,8 @@ def _add_worker():
                                     cursor.execute("""
                                         INSERT INTO chapters (
                                             series_id, volume, raw_chapter, chapter_number,
-                                            release_date, chapter_url, is_oneshot
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                            release_date, chapter_url, is_oneshot, source_type
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                                     """, (
                                         series_id,
                                         None,
@@ -684,7 +690,8 @@ def _add_worker():
                                         ch['chapter_number'],
                                         ch['release_date'],
                                         ch['chapter_url'],
-                                        int(ch.get('is_oneshot', False))
+                                        int(ch.get('is_oneshot', False)),
+                                        _chapters_source_type
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
@@ -1050,17 +1057,21 @@ def api_series():
             select_fields.append("is_oneshot")
         else:
             select_fields.append("CASE WHEN chapter_number = 0.0 THEN 1 ELSE 0 END as is_oneshot")
-        
+        if "source_type" in cols:
+            select_fields.append("source_type")
+        else:
+            select_fields.append("NULL as source_type")
+
         # Fetch all chapters for these series
         chapters_query = f"""
             SELECT {', '.join(select_fields)}
-            FROM chapters 
+            FROM chapters
             WHERE series_id IN ({placeholders})
             ORDER BY series_id, chapter_number ASC
         """
         cursor.execute(chapters_query, series_ids)
         chapter_rows = cursor.fetchall()
-        
+
         # Group chapters by series_id
         chapters_by_series = {}
         for row in chapter_rows:
@@ -1070,7 +1081,8 @@ def api_series():
                 'chapter_url': row[2],
                 'volume': row[3],
                 'raw_chapter': row[4],
-                'is_oneshot': bool(row[5])
+                'is_oneshot': bool(row[5]),
+                'source_type': row[6]
             }
             if series_id not in chapters_by_series:
                 chapters_by_series[series_id] = []
@@ -1524,12 +1536,16 @@ def api_series_chapters(series_id):
         select_fields.append("is_oneshot")
     else:
         select_fields.append("CASE WHEN chapter_number = 0.0 THEN 1 ELSE 0 END as is_oneshot")
-    
+    if "source_type" in cols:
+        select_fields.append("source_type")
+    else:
+        select_fields.append("NULL as source_type")
+
     query = f"SELECT {', '.join(select_fields)} FROM chapters WHERE series_id = ? ORDER BY chapter_number ASC"
     cursor.execute(query, (series_id,))
     rows = cursor.fetchall()
     release_db(conn)
-    
+
     result = []
     for row in rows:
         r = {
@@ -1537,7 +1553,8 @@ def api_series_chapters(series_id):
             'chapter_url': row[1],
             'volume': row[2],
             'raw_chapter': row[3],
-            'is_oneshot': bool(row[4])
+            'is_oneshot': bool(row[4]),
+            'source_type': row[5]
         }
         result.append(r)
     return jsonify(result)

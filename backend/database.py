@@ -204,8 +204,45 @@ def get_series_sources(series_id):
             'last_check': row[4],
             'cover_url': row[5]
         })
-    
+
     return sources
+
+
+def get_series_sources_bulk(series_ids):
+    """Sources for many series at once, as {series_id: [dicts]} - used by
+    the Chapter Fixes page's table to avoid one request per row."""
+    if not series_ids:
+        return {}
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        placeholders = ','.join(['?'] * len(series_ids))
+        cursor.execute(f"""
+            SELECT series_id, id, source_url, source_type, is_primary, last_check, cover_url
+            FROM series_sources
+            WHERE series_id IN ({placeholders})
+            ORDER BY series_id, is_primary DESC, added_at ASC
+        """, series_ids)
+        rows = cursor.fetchall()
+        release_db(conn)
+        result = {}
+        for row in rows:
+            result.setdefault(row[0], []).append({
+                'id': row[1],
+                'source_url': row[2],
+                'source_type': row[3],
+                'is_primary': bool(row[4]),
+                'last_check': row[5],
+                'cover_url': row[6]
+            })
+        return result
+    except Exception as e:
+        print(f"[Database] Failed to get bulk series sources: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return {}
 
 
 def record_source_failure(source_id, error_msg):
@@ -388,6 +425,269 @@ def remove_source(source_id):
         except:
             pass
         return False
+
+
+def _chapter_override_row_to_dict(row):
+    return {
+        'id': row[0], 'source_type': row[1], 'chapter_number': row[2],
+        'is_banned': bool(row[3]), 'volume': row[4], 'raw_chapter': row[5],
+        'title': row[6], 'release_date': row[7], 'chapter_url': row[8],
+        'is_oneshot': bool(row[9]), 'created_at': row[10], 'updated_at': row[11],
+    }
+
+
+_CHAPTER_OVERRIDE_COLUMNS = """
+    id, source_type, chapter_number, is_banned, volume, raw_chapter,
+    title, release_date, chapter_url, is_oneshot, created_at, updated_at
+"""
+
+
+def get_chapter_overrides(series_id):
+    """All chapter_overrides rows for a series, as a list of dicts, ordered by chapter_number."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            SELECT {_CHAPTER_OVERRIDE_COLUMNS} FROM chapter_overrides
+            WHERE series_id = ? ORDER BY chapter_number ASC
+        """, (series_id,))
+        rows = cursor.fetchall()
+        release_db(conn)
+        return [_chapter_override_row_to_dict(r) for r in rows]
+    except Exception as e:
+        print(f"[Database] Failed to get chapter overrides: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return []
+
+
+def get_chapter_overrides_bulk(series_ids):
+    """Overrides for many series at once, as {series_id: [dicts]} - used by
+    the Chapter Fixes page's paginated table to avoid one request per row."""
+    if not series_ids:
+        return {}
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        placeholders = ','.join(['?'] * len(series_ids))
+        cursor.execute(f"""
+            SELECT series_id, {_CHAPTER_OVERRIDE_COLUMNS} FROM chapter_overrides
+            WHERE series_id IN ({placeholders})
+            ORDER BY series_id, chapter_number ASC
+        """, series_ids)
+        rows = cursor.fetchall()
+        release_db(conn)
+        result = {}
+        for row in rows:
+            result.setdefault(row[0], []).append(_chapter_override_row_to_dict(row[1:]))
+        return result
+    except Exception as e:
+        print(f"[Database] Failed to get bulk chapter overrides: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return {}
+
+
+def get_chapter_override_by_id(override_id):
+    """A single chapter_overrides row (with series_id included), or None."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(f"""
+            SELECT series_id, {_CHAPTER_OVERRIDE_COLUMNS} FROM chapter_overrides
+            WHERE id = ?
+        """, (override_id,))
+        row = cursor.fetchone()
+        release_db(conn)
+        if not row:
+            return None
+        result = _chapter_override_row_to_dict(row[1:])
+        result['series_id'] = row[0]
+        return result
+    except Exception as e:
+        print(f"[Database] Failed to get chapter override: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return None
+
+
+def upsert_chapter_override(series_id, source_type, chapter_number, is_banned,
+                             volume=None, raw_chapter=None, title=None,
+                             release_date=None, chapter_url=None, is_oneshot=False):
+    """Create or update a correction. A ban (is_banned=True) targets one
+    exact chapter_url - multiple bans can coexist for the same (series,
+    source, chapter number) as long as their links differ, since a source
+    like Atsumaru can have more than one candidate link per chapter number.
+    An edit/manual-add (is_banned=False) targets the (series, source,
+    chapter number) slot itself - only one such row exists at a time.
+    Returns the row's id, or None on failure."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        if is_banned:
+            cursor.execute("""
+                INSERT INTO chapter_overrides
+                    (series_id, source_type, chapter_number, is_banned, volume, raw_chapter,
+                     title, release_date, chapter_url, is_oneshot, updated_at)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(series_id, source_type, chapter_number, chapter_url)
+                WHERE is_banned = 1 DO UPDATE SET
+                    volume = excluded.volume,
+                    raw_chapter = excluded.raw_chapter,
+                    title = excluded.title,
+                    release_date = excluded.release_date,
+                    is_oneshot = excluded.is_oneshot,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                series_id, source_type, chapter_number,
+                volume, raw_chapter, title, release_date, chapter_url, int(bool(is_oneshot))
+            ))
+            cursor.execute("""
+                SELECT id FROM chapter_overrides
+                WHERE series_id = ? AND source_type = ? AND chapter_number = ?
+                  AND chapter_url IS ? AND is_banned = 1
+            """, (series_id, source_type, chapter_number, chapter_url))
+        else:
+            cursor.execute("""
+                INSERT INTO chapter_overrides
+                    (series_id, source_type, chapter_number, is_banned, volume, raw_chapter,
+                     title, release_date, chapter_url, is_oneshot, updated_at)
+                VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(series_id, source_type, chapter_number)
+                WHERE is_banned = 0 DO UPDATE SET
+                    volume = excluded.volume,
+                    raw_chapter = excluded.raw_chapter,
+                    title = excluded.title,
+                    release_date = excluded.release_date,
+                    chapter_url = excluded.chapter_url,
+                    is_oneshot = excluded.is_oneshot,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (
+                series_id, source_type, chapter_number,
+                volume, raw_chapter, title, release_date, chapter_url, int(bool(is_oneshot))
+            ))
+            cursor.execute("""
+                SELECT id FROM chapter_overrides
+                WHERE series_id = ? AND source_type = ? AND chapter_number = ? AND is_banned = 0
+            """, (series_id, source_type, chapter_number))
+        row = cursor.fetchone()
+        release_db(conn)
+        return row[0] if row else None
+    except Exception as e:
+        print(f"[Database] Failed to upsert chapter override: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return None
+
+
+def delete_chapter_override(override_id):
+    """Remove a correction entirely, reverting that (source, chapter) to raw source behavior."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id FROM chapter_overrides WHERE id = ?", (override_id,))
+        if not cursor.fetchone():
+            release_db(conn)
+            return False
+        cursor.execute("DELETE FROM chapter_overrides WHERE id = ?", (override_id,))
+        release_db(conn)
+        return True
+    except Exception as e:
+        print(f"[Database] Failed to delete chapter override: {e}")
+        try:
+            release_db(conn)
+        except:
+            pass
+        return False
+
+
+def migrate_chapter_overrides_ban_by_url():
+    """One-time rebuild of chapter_overrides for installs created before
+    per-link bans: the original schema had an unconditional
+    UNIQUE(series_id, source_type, chapter_number), which only ever allowed
+    one row - ban or edit - per (series, source, chapter number). That's too
+    coarse for a source like Atsumaru, where two scanlator groups can each
+    post their own link for the same chapter number: banning one shouldn't
+    take the other down with it. SQLite can't drop an inline UNIQUE via
+    ALTER TABLE, so this rebuilds the table with two partial unique indexes
+    instead (see the CREATE TABLE comment in init_db()). Safe to call every
+    startup - no-ops once already migrated or on a fresh install (which
+    already gets the new schema directly from init_db())."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='chapter_overrides'")
+        if not cursor.fetchone():
+            release_db(conn)
+            return
+
+        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='chapter_overrides'")
+        table_sql = cursor.fetchone()
+        if not table_sql or 'UNIQUE(series_id, source_type, chapter_number)' not in (table_sql[0] or ''):
+            release_db(conn)
+            return  # already on the new schema
+
+        print("[Database] Migrating chapter_overrides to allow per-link bans...")
+        cursor.execute("ALTER TABLE chapter_overrides RENAME TO chapter_overrides_old")
+        cursor.execute("""
+            CREATE TABLE chapter_overrides (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_id INTEGER NOT NULL,
+                source_type TEXT NOT NULL,
+                chapter_number REAL NOT NULL,
+                is_banned BOOLEAN NOT NULL DEFAULT 0,
+                volume TEXT,
+                raw_chapter TEXT,
+                title TEXT,
+                release_date DATETIME,
+                chapter_url TEXT,
+                is_oneshot BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+            )
+        """)
+        cursor.execute("""
+            INSERT INTO chapter_overrides
+                (id, series_id, source_type, chapter_number, is_banned, volume, raw_chapter,
+                 title, release_date, chapter_url, is_oneshot, created_at, updated_at)
+            SELECT id, series_id, source_type, chapter_number, is_banned, volume, raw_chapter,
+                   title, release_date, chapter_url, is_oneshot, created_at, updated_at
+            FROM chapter_overrides_old
+        """)
+        cursor.execute("DROP TABLE chapter_overrides_old")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chapter_overrides_series ON chapter_overrides(series_id)")
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_chapter_overrides_override_unique
+                ON chapter_overrides(series_id, source_type, chapter_number)
+                WHERE is_banned = 0
+        """)
+        cursor.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_chapter_overrides_ban_unique
+                ON chapter_overrides(series_id, source_type, chapter_number, chapter_url)
+                WHERE is_banned = 1
+        """)
+        conn.commit()
+        print("[Database] chapter_overrides migration complete")
+        release_db(conn)
+    except Exception as e:
+        print(f"[Database] chapter_overrides migration failed: {e}")
+        try:
+            conn.rollback()
+        except:
+            pass
+        try:
+            release_db(conn)
+        except:
+            pass
 
 
 def add_series_cover(series_id, cover_url):
@@ -864,6 +1164,41 @@ def init_db():
         """, (default_filter_state,))
         print("[Database] Seeded built-in 'Default' filter bookmark")
 
+    # Per-series corrections a user makes when a source's chapter data is
+    # wrong (e.g. Atsumaru mislabeling another series' content under a
+    # chapter number, or two Atsumaru scanlator groups both posting the
+    # same chapter number under different links). is_banned=1 rows target
+    # one exact chapter_url (a source like Atsumaru can have more than one
+    # candidate link per chapter number, so banning one must not take a
+    # different, still-valid one down with it) - multiple ban rows can
+    # coexist for the same (series, source, chapter number) as long as
+    # their chapter_url differs (idx_chapter_overrides_ban_unique below).
+    # is_banned=0 rows replace a source's chapter with a corrected link (an
+    # edit) or inject a chapter that source never reported
+    # (source_type='manual') - only one such row per (series, source,
+    # chapter number) (idx_chapter_overrides_override_unique below), since
+    # only one "corrected" version makes sense at a time. Applied by the
+    # scheduler's scan_series() on every scan so it survives the normal
+    # chapters-table wipe-and-reinsert.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chapter_overrides (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            chapter_number REAL NOT NULL,
+            is_banned BOOLEAN NOT NULL DEFAULT 0,
+            volume TEXT,
+            raw_chapter TEXT,
+            title TEXT,
+            release_date DATETIME,
+            chapter_url TEXT,
+            is_oneshot BOOLEAN DEFAULT 0,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+        )
+    """)
+
     # --- 2. Add missing columns to existing tables ---
     cursor.execute("PRAGMA table_info(series)")
     columns = {row[1] for row in cursor.fetchall()}
@@ -889,7 +1224,15 @@ def init_db():
             WHERE created_at IS NULL
         """)
         print("[Database] Added and backfilled created_at column")
-        
+
+    cursor.execute("PRAGMA table_info(chapters)")
+    chapters_columns = {row[1] for row in cursor.fetchall()}
+    if "source_type" not in chapters_columns:
+        # Lets the Chapter Fixes page know which source actually supplied
+        # the currently-stored copy of a chapter, so it can only offer to
+        # auto-fill a link when it's confident it's that source's own link.
+        cursor.execute("ALTER TABLE chapters ADD COLUMN source_type TEXT")
+
     # --- 3. Set default meta values ---
     cursor.execute("""
         INSERT OR IGNORE INTO meta (key, value)
@@ -902,11 +1245,23 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_status ON series(status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_title ON series(title)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_chapters_series ON chapters(series_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_chapter_overrides_series ON chapter_overrides(series_id)")
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chapter_overrides_override_unique
+            ON chapter_overrides(series_id, source_type, chapter_number)
+            WHERE is_banned = 0
+    """)
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chapter_overrides_ban_unique
+            ON chapter_overrides(series_id, source_type, chapter_number, chapter_url)
+            WHERE is_banned = 1
+    """)
 
     release_db(conn)
 
 # ✅ RUN MULTI-SOURCE MIGRATION
     migrate_to_multi_source()
+    migrate_chapter_overrides_ban_by_url()
 
     # Run backfill AFTER releasing DB lock
     backfill_searchable_text()
