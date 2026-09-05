@@ -3246,9 +3246,114 @@ document.addEventListener('DOMContentLoaded', () => {
 		btnAddSeries.addEventListener('click', () => {
 			const input = document.getElementById('new-series-url');
 			if (input) input.value = '';
+			resetAddSeriesModalView();
 			addModal.classList.remove('hidden');
 			if (input) input.focus();
 		});
+	}
+
+	// ─── Add Series modal: cross-source title search view ────────
+	// Same "open each source's own search page in a new tab" pattern as the
+	// Kenmei import page's per-row search buttons - this isn't a real
+	// aggregated search API, just a shortcut to the 4 sites' own search UIs
+	// so you can find the right link to paste back into the URL field.
+	const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'kagane'];
+
+	function addSeriesSearchUrl(site, title) {
+		const q = encodeURIComponent(title).replace(/%20/g, '+');
+		switch (site) {
+			case 'mangadex': return `https://mangadex.org/search?q=${q}`;
+			case 'atsu': return `https://atsu.moe/search?query=${q}`;
+			case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
+			case 'asura': return `https://asurascans.com/browse?q=${q}`;
+		}
+		return '#';
+	}
+
+	// Multiple window.open() calls from one handler get blocked by most
+	// browsers except the first; simulating real <a> clicks (one per tab)
+	// is treated much more leniently as long as it's still inside the
+	// original user gesture.
+	function openInNewTab(url) {
+		const a = document.createElement('a');
+		a.href = url;
+		a.target = '_blank';
+		a.rel = 'noopener';
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+	}
+
+	const addSeriesUrlView = document.getElementById('add-series-url-view');
+	const addSeriesSearchView = document.getElementById('add-series-search-view');
+	const addSeriesSearchToggleBtn = document.getElementById('btn-add-series-search-toggle');
+	const addSeriesModalTitle = document.getElementById('add-series-modal-title');
+	const addSeriesSearchTitleInput = document.getElementById('add-series-search-title');
+	const addSeriesSearchSubmitBtn = document.getElementById('btn-add-series-search-submit');
+	const addSeriesSearchCancelBtn = document.getElementById('btn-add-search-cancel');
+
+	const ADD_SERIES_SEARCH_ICON = addSeriesSearchToggleBtn ? addSeriesSearchToggleBtn.innerHTML : '';
+	const ADD_SERIES_BACK_ICON = `
+		<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<path d="M15 18l-6-6 6-6"/>
+		</svg>
+	`;
+
+	function openAllAddSeriesSearches() {
+		const title = addSeriesSearchTitleInput.value.trim();
+		if (!title) return;
+		SEARCH_SITES.forEach(site => openInNewTab(addSeriesSearchUrl(site, title)));
+	}
+
+	function resetAddSeriesModalView() {
+		if (!addSeriesUrlView || !addSeriesSearchView) return;
+		addSeriesSearchView.classList.add('hidden');
+		addSeriesUrlView.classList.remove('hidden');
+		addSeriesSearchToggleBtn.innerHTML = ADD_SERIES_SEARCH_ICON;
+		addSeriesSearchToggleBtn.title = 'Search across sources';
+		if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Add New Series';
+		if (addSeriesSearchTitleInput) addSeriesSearchTitleInput.value = '';
+	}
+
+	if (addSeriesUrlView && addSeriesSearchView && addSeriesSearchToggleBtn) {
+		addSeriesSearchToggleBtn.addEventListener('click', () => {
+			if (addSeriesSearchView.classList.contains('hidden')) {
+				addSeriesUrlView.classList.add('hidden');
+				addSeriesSearchView.classList.remove('hidden');
+				addSeriesSearchToggleBtn.innerHTML = ADD_SERIES_BACK_ICON;
+				addSeriesSearchToggleBtn.title = 'Back to paste a URL';
+				if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Search Series';
+				addSeriesSearchTitleInput.focus();
+			} else {
+				resetAddSeriesModalView();
+			}
+		});
+
+		addSeriesSearchTitleInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				openAllAddSeriesSearches();
+			}
+		});
+
+		if (addSeriesSearchSubmitBtn) {
+			addSeriesSearchSubmitBtn.addEventListener('click', openAllAddSeriesSearches);
+			addSeriesSearchSubmitBtn.addEventListener('auxclick', (e) => {
+				if (e.button === 1) { // middle click
+					e.preventDefault();
+					openAllAddSeriesSearches();
+				}
+			});
+			addSeriesSearchSubmitBtn.addEventListener('mousedown', (e) => {
+				if (e.button === 1) e.preventDefault(); // avoid the autoscroll cursor on middle-click
+			});
+		}
+
+		if (addSeriesSearchCancelBtn) {
+			addSeriesSearchCancelBtn.addEventListener('click', () => {
+				addModal.classList.add('hidden');
+			});
+		}
 	}
 
 // ─── Series Settings modal: click-to-edit title ──────────────

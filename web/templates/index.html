@@ -356,24 +356,46 @@
 <!-- Add Series Modal - FIXED: Added onclick handler for click-outside-to-close -->
 <div id="add-series-modal" class="modal hidden">
   <div class="modal-content">
-    <h3>Add New Series</h3>
-    <label>
-      Series URL:
-      <input type="text" id="new-series-url" placeholder="https://mangadex.org/title/..., https://kagane.to/series/..." required />
-    </label>
-    <label>
-      Status:
-      <select id="new-series-status">
-        <option value="reading">Reading</option>
-        <option value="plan_to_read">Plan to Read</option>
-        <option value="on_hold">On Hold</option>
-        <option value="dropped">Dropped</option>
-        <option value="completed">Completed</option>
-      </select>
-    </label>
-    <div class="modal-buttons">
-      <button id="btn-add-cancel">Cancel</button>
-      <button id="btn-add-submit">Add</button>
+    <div class="add-series-modal-header">
+      <h3 id="add-series-modal-title">Add New Series</h3>
+      <button type="button" id="btn-add-series-search-toggle" class="icon-btn" title="Search across sources">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="m21 21-4.3-4.3"/>
+        </svg>
+      </button>
+    </div>
+
+    <div id="add-series-url-view">
+      <label>
+        Series URL:
+        <input type="text" id="new-series-url" placeholder="https://mangadex.org/title/..., https://kagane.to/series/..." required />
+      </label>
+      <label>
+        Status:
+        <select id="new-series-status">
+          <option value="reading">Reading</option>
+          <option value="plan_to_read">Plan to Read</option>
+          <option value="on_hold">On Hold</option>
+          <option value="dropped">Dropped</option>
+          <option value="completed">Completed</option>
+        </select>
+      </label>
+      <div class="modal-buttons">
+        <button id="btn-add-cancel">Cancel</button>
+        <button id="btn-add-submit">Add</button>
+      </div>
+    </div>
+
+    <div id="add-series-search-view" class="hidden">
+      <label>
+        Search title:
+        <input type="text" id="add-series-search-title" placeholder="Type a title..." />
+      </label>
+      <div class="modal-buttons">
+        <button id="btn-add-search-cancel">Cancel</button>
+        <button id="btn-add-series-search-submit" title="Opens all 4 sources in new tabs (works on middle-click too)">Search</button>
+      </div>
     </div>
   </div>
 </div>
