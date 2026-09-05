@@ -250,7 +250,7 @@
 <div class="import-container">
   <h1>Kenmei Import</h1>
   <p class="import-subtitle">Upload a Kenmei export CSV, find each series on a supported source, paste its link, and add it with the status/progress from the export.</p>
-  <p class="import-hint">Tip: the "All" search button opens 4 tabs at once, but your browser will only let the first one through until you allow it. The first time you click it, look for a blocked-popups icon in the address bar and choose "Always allow" for this site — after that it opens all 4 every time.</p>
+  <p class="import-hint">Tip: the "All" search button opens 5 tabs at once, but your browser will only let the first one through until you allow it. The first time you click it, look for a blocked-popups icon in the address bar and choose "Always allow" for this site — after that it opens all 5 every time.</p>
 
   <div class="upload-card">
     <input type="file" id="csv-file-input" accept=".csv,text/csv" />
@@ -374,11 +374,12 @@
       case 'atsu': return `https://atsu.moe/search?query=${q}`;
       case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
       case 'asura': return `https://asurascans.com/browse?q=${q}`;
+      case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
     }
     return '#';
   }
 
-  const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'kagane'];
+  const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'hive', 'kagane'];
 
   // Multiple window.open() calls from one synthetic handler get blocked by
   // most browsers except the first; simulating real <a> clicks (one per
@@ -403,6 +404,7 @@
     if (/^https:\/\/kagane\.(to|org)\/series\//.test(url)) return true;
     if (/^https:\/\/atsu\.moe\/(manga|read)\//.test(url)) return true;
     if (/asurascans\.com\/comics\//.test(url)) return true;
+    if (/hivetoons\.org\/series\//.test(url)) return true;
     return false;
   }
 
@@ -474,7 +476,8 @@
             <a href="${searchUrl('atsu', row.title)}" target="_blank" rel="noopener" title="Search Atsumaru">AT</a>
             <a href="${searchUrl('asura', row.title)}" target="_blank" rel="noopener" title="Search AsuraScans">AS</a>
             <a href="${searchUrl('kagane', row.title)}" target="_blank" rel="noopener" title="Search Kagane">KG</a>
-            <button type="button" class="btn-open-all" title="Open all 4 searches in new tabs (works on middle-click too)">All</button>
+            <a href="${searchUrl('hive', row.title)}" target="_blank" rel="noopener" title="Search HiveToons">HT</a>
+            <button type="button" class="btn-open-all" title="Open all 5 searches in new tabs (works on middle-click too)">All</button>
           </div>
         </td>
         <td>

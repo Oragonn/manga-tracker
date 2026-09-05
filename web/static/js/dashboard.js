@@ -128,7 +128,7 @@ const TYPE_LABELS_FOR_BOOKMARKS = { manga: 'Manga', manhwa: 'Manhwa', manhua: 'M
 const PUB_STATUS_LABELS_FOR_BOOKMARKS = {
 	reading: 'Reading', completed: 'Completed', on_hold: 'On Hold', dropped: 'Dropped', plan_to_read: 'Plan to Read'
 };
-const READABLE_ON_LABELS_FOR_BOOKMARKS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans' };
+const READABLE_ON_LABELS_FOR_BOOKMARKS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons' };
 
 function captureCurrentFilterState() {
 	return {
@@ -1175,6 +1175,7 @@ function renderSources(sources) {
 			'kagane': 'Kagane',
 			'atsu': 'Atsumaru',
 			'asura': 'AsuraScans',
+			'hive': 'HiveToons',
 			'unknown': 'Unknown'
 		}[source.source_type.toLowerCase()] || source.source_type;
 
@@ -1365,8 +1366,8 @@ async function addNewSource() {
 	}
 
 	// Validate URL — NOTE: fixed extra spaces in comparison
-	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/')) {
-		alert('Only MangaDex, Kagane, Atsumaru, and AsuraScans sources are supported');
+	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/')) {
+		alert('Only MangaDex, Kagane, Atsumaru, AsuraScans, and HiveToons sources are supported');
 		return;
 	}
 
@@ -1415,7 +1416,7 @@ async function addNewSource() {
 // ─── Series Settings modal: Source selector (Kenmei-style dropdown,
 // plus add/remove/set-primary which Kenmei doesn't need to support) ──
 const SOURCE_TYPE_LABELS = {
-	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', unknown: 'Unknown'
+	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', unknown: 'Unknown'
 };
 
 function renderSourceSelector(sources) {
@@ -2495,7 +2496,7 @@ function renderPagination(current, total, status, sort) {
 let sourceHealthList = [];
 let sourceHealthCount = 0;
 const SOURCE_HEALTH_TYPE_LABELS = {
-	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', unknown: 'Unknown'
+	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', unknown: 'Unknown'
 };
 
 async function updateSourceHealth() {
@@ -2948,7 +2949,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		'mangadex': 'MangaDex',
 		'kagane': 'Kagane',
 		'atsu': 'Atsumaru',
-		'asura': 'AsuraScans'
+		'asura': 'AsuraScans',
+		'hive': 'HiveToons'
 	}, 'Readable On');
 
 	// Genre (Tags) - NOW WITH CONTENT RATING INSIDE THE SAME DROPDOWN
@@ -3255,9 +3257,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	// ─── Add Series modal: cross-source title search view ────────
 	// Same "open each source's own search page in a new tab" pattern as the
 	// Kenmei import page's per-row search buttons - this isn't a real
-	// aggregated search API, just a shortcut to the 4 sites' own search UIs
+	// aggregated search API, just a shortcut to the 5 sites' own search UIs
 	// so you can find the right link to paste back into the URL field.
-	const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'kagane'];
+	const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'hive', 'kagane'];
 
 	function addSeriesSearchUrl(site, title) {
 		const q = encodeURIComponent(title).replace(/%20/g, '+');
@@ -3266,6 +3268,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			case 'atsu': return `https://atsu.moe/search?query=${q}`;
 			case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
 			case 'asura': return `https://asurascans.com/browse?q=${q}`;
+			case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
 		}
 		return '#';
 	}
@@ -3491,7 +3494,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		const sourceTypeLabel = {
 			mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru',
-			asura: 'AsuraScans', unknown: 'Unknown'
+			asura: 'AsuraScans', hive: 'HiveToons', unknown: 'Unknown'
 		};
 
 		list.innerHTML = withCovers.map(s => `
@@ -3797,6 +3800,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	document.getElementById('settings-source-url-input')?.addEventListener('keydown', (e) => {
 		if (e.key === 'Enter') { e.preventDefault(); document.getElementById('settings-source-add-submit')?.click(); }
+	});
+
+	// Same "open every source's search page in a new tab" shortcut as the
+	// Add Series modal, but this one already knows the series' title (we're
+	// inside its own Settings modal) so it searches immediately - no typing,
+	// no separate search view. Reuses the Add Series modal's own
+	// SEARCH_SITES/addSeriesSearchUrl/openInNewTab helpers.
+	document.getElementById('settings-source-search-btn')?.addEventListener('click', () => {
+		const title = document.getElementById('edit-series-title-heading')?.textContent.trim();
+		if (!title) return;
+		SEARCH_SITES.forEach(site => openInNewTab(addSeriesSearchUrl(site, title)));
 	});
 
 // ─── Series Settings modal: Tags picker open/close + create form ──
@@ -4962,6 +4976,7 @@ function createFilterDrawer() {
               <label><input type="checkbox" value="kagane"> Kagane</label>
               <label><input type="checkbox" value="atsu"> Atsumaru</label>
               <label><input type="checkbox" value="asura"> AsuraScans</label>
+              <label><input type="checkbox" value="hive"> HiveToons</label>
               <button class="btn-select-all">Select All</button>
               <button class="btn-select-none">Clear</button>
             </div>
@@ -5303,7 +5318,8 @@ function createFilterDrawer() {
     'mangadex': 'MangaDex',
     'kagane': 'Kagane',
     'atsu': 'Atsumaru',
-    'asura': 'AsuraScans'
+    'asura': 'AsuraScans',
+    'hive': 'HiveToons'
   }, 'Readable On');
 }
 
@@ -6616,6 +6632,7 @@ function renderMobileSources(sources) {
       'kagane': 'Kagane',
       'atsu': 'Atsumaru',
       'asura': 'AsuraScans',
+      'hive': 'HiveToons',
       'unknown': 'Unknown'
     }[source.source_type.toLowerCase()] || source.source_type;
     
@@ -6854,7 +6871,7 @@ async function addMobileNewSource() {
     return;
   }
   
-  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/')) {
+  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/')) {
     alert('This source is not supported');
     return;
   }

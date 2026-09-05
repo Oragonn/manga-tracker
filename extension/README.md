@@ -1,7 +1,7 @@
 # Kenmei Import Helper
 
 Companion Chrome/Brave extension for `/import-kenmei`. Speeds up matching
-rows from a Kenmei CSV export to MangaDex/Atsumaru/AsuraScans/Kagane.
+rows from a Kenmei CSV export to MangaDex/Atsumaru/AsuraScans/Kagane/HiveToons.
 
 ## Install (unpacked, not published)
 
@@ -21,16 +21,16 @@ pressing **I**. The extension takes over from there:
 | `U` | on a source tab    | no match here - just close the tab |
 | `I` | anywhere           | start the next pending row (same as clicking its **All** button) |
 
-There's no separate "confirm" key - once all 4 of a row's tabs are closed
+There's no separate "confirm" key - once all 5 of a row's tabs are closed
 (by Y, U, or even a manual Ctrl+W), whatever got captured is submitted
 automatically: no clicking Add per source, no 1-by-1 adds. Keys are
 ignored while focus is in a text field, so they don't interfere with
 actually using the sites' own search boxes. A small status badge
 (bottom-right of the import page) shows the current row and how many of
-the 4 tabs are still open/captured.
+the 5 tabs are still open/captured.
 
 Moving to the next row is always manual (**I**) - nothing auto-advances,
-so the loop is "I to start, look/Y/U ×4, [auto-submits], I for the next
+so the loop is "I to start, look/Y/U ×5, [auto-submits], I for the next
 row" whenever you're ready.
 
 ## Known limitations (scaffold, not polished)

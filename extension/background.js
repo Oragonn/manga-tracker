@@ -1,6 +1,6 @@
 // Kenmei Import Helper - background service worker.
 //
-// Owns the one-row-at-a-time state machine: which of the row's 4
+// Owns the one-row-at-a-time state machine: which of the row's 5
 // source-search tabs are still open, and which URLs have been captured
 // (Y) so far. Content scripts never talk to each other directly -
 // everything routes through here.
@@ -16,7 +16,8 @@ const SITE_PATTERNS = [
   { re: /^https:\/\/mangadex\.org\//, site: 'mangadex' },
   { re: /^https:\/\/atsu\.moe\//, site: 'atsu' },
   { re: /^https:\/\/asurascans\.com\//, site: 'asura' },
-  { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' }
+  { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' },
+  { re: /^https:\/\/hivetoons\.org\//, site: 'hive' }
 ];
 
 function siteFor(url) {
@@ -62,7 +63,7 @@ async function startRow(title, urls, importTab) {
 
 // Handles both Y (capturedUrl set) and U (capturedUrl null), plus a tab
 // closed by hand (Ctrl+W) via the onRemoved safety net below. Once the
-// 4th tab resolves, tells the import tab to submit with whatever was
+// last tab resolves, tells the import tab to submit with whatever was
 // accumulated - no separate confirm step.
 function resolveTab(tabId, capturedUrl) {
   if (!state) return;

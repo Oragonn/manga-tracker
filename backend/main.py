@@ -870,6 +870,8 @@ def api_add_source(series_id):
             source_type = 'atsu'
         elif 'asurascans.com' in source_url:
             source_type = 'asura'
+        elif 'hivetoons.org' in source_url:
+            source_type = 'hive'
         else:
             source_type = 'unknown'
 
@@ -904,6 +906,11 @@ def api_add_source(series_id):
             asura_id = extract_series_id(source_url)
             if asura_id:
                 new_metadata = get_series_info(asura_id)
+        elif source_type == 'hive':
+            from .trackers.hivetoons import extract_series_id, get_series_info
+            hive_id = extract_series_id(source_url)
+            if hive_id:
+                new_metadata = get_series_info(hive_id)
 
         # Add source to database
         from .database import add_source_to_series, get_db, release_db
@@ -983,12 +990,13 @@ def api_add_source(series_id):
                 # series Mature but MangaDex calls it Safe). Trust whichever
                 # attached source ranks highest in SOURCE_RATING_PRIORITY —
                 # MangaDex's rating wins over Kagane's, which wins over
-                # Atsumaru's, which wins over AsuraScans' (AsuraScans has no
-                # content-rating system at all, so it always reports 'safe'
-                # and must never be able to override a stricter source).
-                # Only replace the stored rating if the source just added
-                # outranks every source already on the series.
-                SOURCE_RATING_PRIORITY = {'mangadex': 3, 'kagane': 2, 'atsu': 1, 'asura': 0}
+                # Atsumaru's, which wins over AsuraScans'/HiveToons' (neither
+                # has a real content-rating system - AsuraScans always
+                # reports 'safe', HiveToons only has a best-effort "Adult"
+                # genre tag - so neither must be able to override a stricter
+                # source). Only replace the stored rating if the source just
+                # added outranks every source already on the series.
+                SOURCE_RATING_PRIORITY = {'mangadex': 3, 'kagane': 2, 'atsu': 1, 'asura': 0, 'hive': 0}
                 cursor.execute(
                     "SELECT source_type FROM series_sources WHERE series_id = ? AND id != ?",
                     (series_id, source_id)

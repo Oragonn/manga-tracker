@@ -2,7 +2,7 @@
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane, Atsumaru, AsuraScans) with manual chapter control, automated background checking (now concurrent, up to 8 series in parallel), bulk operations, activity logging with undo (now covering source/bookmark changes, not just series), automated hourly backups, multi-source support per series (including pasting several source URLs at once when first adding a series), saved filter/sort views ("Filter Bookmarks"), a dedicated fetch-scheduler status page, a statistics dashboard with historical trends, toast notifications (with swipe-to-dismiss on mobile), full mobile UI across all pages, and (added Aug 30, 2026) a single-user login gate with CSRF/rate-limiting/XSS hardening so it can be safely reached from outside the home network via a free Cloudflare Tunnel.
+A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across multiple sources (MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons) with manual chapter control, automated background checking (now concurrent, up to 8 series in parallel), bulk operations, activity logging with undo (now covering source/bookmark changes, not just series), automated hourly backups, multi-source support per series (including pasting several source URLs at once when first adding a series), saved filter/sort views ("Filter Bookmarks"), a dedicated fetch-scheduler status page, a statistics dashboard with historical trends, toast notifications (with swipe-to-dismiss on mobile), full mobile UI across all pages, and (added Aug 30, 2026) a single-user login gate with CSRF/rate-limiting/XSS hardening so it can be safely reached from outside the home network via a free Cloudflare Tunnel.
 
 This file is meant to be handed to a fresh chat/assistant to resume work without re-exploring the whole codebase. It describes **current state**, not a changelog — check `git log` for history.
 
@@ -14,7 +14,7 @@ This file is meant to be handed to a fresh chat/assistant to resume work without
 - **Backend**: Python 3.9+, Flask, SQLite (WAL mode), APScheduler (background jobs)
 - **Frontend**: Vanilla JavaScript, custom CSS (no frameworks/build step)
 - **Special**: camoufox (stealth Firefox) for Kagane (Cloudflare Turnstile bypass)
-- **Integrations**: MangaDex API, Kagane scraper, Atsumaru (atsu.moe) API, AsuraScans (asurascans.com) API, AniList enrichment
+- **Integrations**: MangaDex API, Kagane scraper, Atsumaru (atsu.moe) API, AsuraScans (asurascans.com) API, HiveToons (hivetoons.org) embedded-data scraper, AniList enrichment
 - **Browser extension**: `extension/` (background.js) — lightweight companion, not actively documented here
 
 ### **File Structure**
@@ -38,6 +38,7 @@ manga-tracker/
 │       ├── kagane.py             # Kagane scraper (camoufox-based, season-aware)
 │       ├── atsu.py               # Atsumaru (atsu.moe) API integration — plain requests, no auth/browser needed
 │       ├── asura.py              # AsuraScans (asurascans.com) API integration — plain requests, premium chapters excluded
+│       ├── hivetoons.py          # HiveToons (hivetoons.org) integration — no public API, parses the series page's embedded Astro island JSON instead; no Cloudflare, plain requests work; locked/coin chapters excluded
 │       └── anilist.py            # AniList enrichment (covers, titles, genres)
 ├── data/
 │   ├── tracker.db                # Main SQLite database
@@ -206,7 +207,7 @@ CREATE TABLE meta (
 
 ## ⚙️ **Core Features (current state)**
 
-1. **Multi-source tracking** — multiple sources per series (MangaDex + Kagane + Atsumaru + AsuraScans), user-controlled linking (never auto-linked), drag-and-drop primary source selection, automated chapter/metadata merging, AniList enrichment.
+1. **Multi-source tracking** — multiple sources per series (MangaDex + Kagane + Atsumaru + AsuraScans + HiveToons), user-controlled linking (never auto-linked), drag-and-drop primary source selection, automated chapter/metadata merging, AniList enrichment.
 
 2. **Manual chapter control** — +/− with hold-to-repeat (300ms delay, 50ms repeat), volume-aware sorting, season-aware parsing for Kagane, confirm button disabled until an actual change is made.
 
@@ -230,7 +231,7 @@ CREATE TABLE meta (
 
 7. **Statistics dashboard (`/stats`)** — hero stats, reading progress, content/status/rating distribution, time-based activity (today/week/month/year, backed by `stats_history`), source/genre preferences. Chapters-read and series-added deltas are now accurate (fixed a bug where undo/unread/delete didn't properly decrement the counters).
 
-8. **Advanced filtering** — multi-select content type, combined Tags dropdown (genres + content rating, with an **exclude** mode per tag — Mature/Explicit are excluded by default), Publication Status, Readable On (MangaDex/Kagane/Atsumaru/AsuraScans), text search (title/alt titles/romaji/native, clearable via an inline × button), sort with direction toggle.
+8. **Advanced filtering** — multi-select content type, combined Tags dropdown (genres + content rating, with an **exclude** mode per tag — Mature/Explicit are excluded by default), Publication Status, Readable On (MangaDex/Kagane/Atsumaru/AsuraScans/HiveToons), text search (title/alt titles/romaji/native, clearable via an inline × button), sort with direction toggle.
 
 9. **Toast notification system** (`notifications.js`, added Jan 2026) — replaced essentially all `alert()`/`confirm()` popups across every page with top-right toast notifications (auto-dismiss 4s, manual close, contextual icons, only fires when a value actually changed). Used for series edits, bulk ops, source management, activity log undo, backup operations, and error states. Desktop and mobile both covered.
 
@@ -254,11 +255,17 @@ CREATE TABLE meta (
 
 19. **Swipe-to-dismiss notifications** (added Aug 31, 2026) — on touch devices, dragging a toast notification upward past a threshold dismisses it, with live drag-following/fade; downward drags rubber-band back. Desktop mouse interaction (close button, auto-timeout) is unchanged.
 
+20. **Cross-source search shortcut** (added Sept 5, 2026, PC only) — a search-icon button top-right of the "Add New Series" modal swaps the URL/status form for a title input and a single Search button that opens MangaDex, Atsumaru, AsuraScans, Kagane, and HiveToons' own search pages in new tabs (same "open every source's search page" pattern the Kenmei import page's per-row buttons already used, including its browser-popup-blocker caveat — the first click only opens one tab until you allow pop-ups for the site, then all 5 open every time). Not a real aggregated search API; you still paste the matching link back into the URL field. Hidden on mobile since the modal is shared with the mobile add-series flow.
+
+21. **Chapter Fixes refinements** (added Sept 5, 2026) — the series picker's "N chapters" count now only counts whole-number chapters (skips `.X` side/bonus chapters), computed client-side from the search response's per-series chapter list rather than the raw `total_chapters` DB column (which still counts everything, used as-is elsewhere). The picker itself now shows 5 results by default with a "Show more" (reveals up to 20) then "Show all" progressive-reveal button, and the underlying search fetch limit was raised from 30 to 100 so "Show all" is actually meaningful. The Current Chapters table gained a full-width search box (filters by substring match on the chapter number) and an ascending/descending sort toggle button (reusing the dashboard's own sort-arrow icon), plus the shared back-to-top FAB the page was previously missing.
+
+22. **Unread error count badge, now everywhere** (fixed Sept 5, 2026) — `updateUnreadErrorCount()` used to live in `dashboard.js`, so only the main dashboard's nav badge and hamburger drawer row ever actually updated, even though every other page's template already had the same (dead) badge markup. Moved it into `notifications.js` (loaded on every page) so it now polls and updates all three badge spots — the desktop nav link, the mobile hamburger drawer's Errors row, and a new small red dot on the hamburger icon itself (so it's visible without opening the drawer) — on every page: Dashboard, Scheduler, Errors, Backups, Activity Log, Chapter Fixes, Stats.
+
 ---
 
 ## 🔧 **Multi-Source Architecture**
 
-A single series can track chapters from multiple sources simultaneously (e.g. MangaDex + Kagane + Atsumaru + AsuraScans). This is **user-controlled** — the system never auto-links sources, since same-name series aren't always the same work.
+A single series can track chapters from multiple sources simultaneously (e.g. MangaDex + Kagane + Atsumaru + AsuraScans + HiveToons). This is **user-controlled** — the system never auto-links sources, since same-name series aren't always the same work.
 
 - Table: `series_sources`, one row per source, one marked `is_primary`.
 - **Add a source**: series settings → "Add Another Source" → paste URL → validated by type → chapters fetched and merged.
@@ -274,7 +281,8 @@ A single series can track chapters from multiple sources simultaneously (e.g. Ma
 
 - **Season-aware parsing (Kagane)** — detects season markers (`(S2)`, `[Season 2]`, `{S3}`, etc.) in chapter titles and applies a numeric offset so multi-season series get continuous chapter numbering instead of resetting.
 - **Atsumaru (`backend/trackers/atsu.py`)** — plain JSON API, no auth, no browser automation, no Cloudflare challenge on the API routes (unlike Kagane). Series URL: `https://atsu.moe/manga/{id}` (chapter/read links redirecting to `/read/{id}/...` are also accepted and normalized back to the canonical `/manga/{id}` form). Metadata from `GET /api/manga/page?id={id}`, full chapter list from `GET /api/manga/allChapters?mangaId={id}` (chapter numbers are already numeric, no title parsing needed). Multiple scanlator groups can post the same chapter number — deduped by keeping the most recently posted one per number. Atsumaru's own API has a typo (`"Manwha"` instead of `"Manhwa"`) that's normalized on our side. Content rating is derived from the `isAdult` flag plus the `tags` field's `Sexual Content > ...` namePaths (Ecchi-only → mild, anything heavier like Nudity/Sexual Acts → mature, isAdult/Hentai genre → explicit) since `isAdult` alone only separates Pornographic from everything else.
-- **AsuraScans (`backend/trackers/asura.py`)** — plain JSON API (`api.asurascans.com`), no auth, no browser automation, Cloudflare present but not challenging plain requests. Series URL: `https://asurascans.com/comics/{slug}`. Metadata from `GET /api/series/{slug}`, chapter list from `GET /api/series/{slug}/chapters`. Chapters flagged `is_premium` (early-access paywalled) are dropped entirely — never stored, never linked. AsuraScans has no content-rating system, so every series is tagged `safe`, and it's given the lowest priority in the multi-source rating merge (`SOURCE_RATING_PRIORITY` in `main.py`: MangaDex > Kagane > Atsumaru > AsuraScans) so it can never override a stricter rating from another source on the same series.
+- **AsuraScans (`backend/trackers/asura.py`)** — plain JSON API (`api.asurascans.com`), no auth, no browser automation, Cloudflare present but not challenging plain requests. Series URL: `https://asurascans.com/comics/{slug}`. Metadata from `GET /api/series/{slug}`, chapter list from `GET /api/series/{slug}/chapters`. Chapters flagged `is_premium` (early-access paywalled) are dropped entirely — never stored, never linked. AsuraScans has no content-rating system, so every series is tagged `safe`, and it's given the lowest priority in the multi-source rating merge (`SOURCE_RATING_PRIORITY` in `main.py`: MangaDex > Kagane > Atsumaru > AsuraScans/HiveToons) so it can never override a stricter rating from another source on the same series.
+- **HiveToons (`backend/trackers/hivetoons.py`, added Sept 5, 2026)** — no public JSON API at all (`api.hivetoons.org` only exposes minor logged-in-user routes like likes/ratings, not series data), and no Cloudflare challenge either, so a plain `requests.get()` of the series page works. The site (Astro, server-rendered) embeds its full series metadata and chapter list as one `<astro-island>`'s serialized `props` (HTML-entity-encoded JSON) — `_find_series_payload()` scans every island on the page and picks the one shaped like `{post, initialChap, ...}` rather than hardcoding a component filename, since Astro's build hashes change on every deploy. Series URL: `https://hivetoons.org/series/{slug}`, chapters at `/series/{slug}/{chapter-slug}`. Coin-locked/premium chapters (`isAccessible: false`) are dropped entirely, same policy as AsuraScans' `is_premium`. No dedicated content-rating field — best-effort inferred from an "Adult" genre tag if present, otherwise `safe`; also given the lowest rating-merge priority alongside AsuraScans for the same reason. Search (used by the Add Series modal's cross-source search and the Kenmei import page) is `https://hivetoons.org/series/?searchTerm={query}`, also plain server-rendered HTML.
 - **Smart search** — matches across title, English, romaji, native, and alt titles; normalized (strips punctuation/diacritics); multi-word AND matching.
 - **Volume-aware sorting** — chapters sort by volume then number; chapter picker shows "Vol.3 Ch.25".
 - **Hold-to-repeat** — +/− chapter buttons repeat after 300ms hold, every 50ms after that.

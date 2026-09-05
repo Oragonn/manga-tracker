@@ -1,6 +1,6 @@
 // Kenmei Import Helper - runs on /import-kenmei. Intercepts the page's own
 // "All" button (capturing-phase click on the tbody, ahead of the page's own
-// bubble-phase handler) so it opens the 4 search tabs through the
+// bubble-phase handler) so it opens the 5 search tabs through the
 // background service worker instead of window.open()/synthetic anchors -
 // no popup-permission dance needed. Reads everything it needs straight off
 // the already-rendered row: title text, the 4 search anchors' hrefs, the
@@ -20,14 +20,16 @@
 
   chrome.runtime.sendMessage({ type: 'registerImportTab' });
 
-  // Tab-opening order, independent of the page's own MD/AT/AS/KG button
-  // layout (left untouched).
-  const SITE_OPEN_ORDER = ['atsu', 'asura', 'mangadex', 'kagane'];
+  // Tab-opening order, independent of the page's own MD/AT/AS/KG/HT button
+  // layout (left untouched). Kagane goes last since its Cloudflare Turnstile
+  // challenge makes it the slowest tab to load.
+  const SITE_OPEN_ORDER = ['atsu', 'asura', 'mangadex', 'hive', 'kagane'];
   const HREF_SITE_PATTERNS = [
     { re: /^https:\/\/mangadex\.org\//, site: 'mangadex' },
     { re: /^https:\/\/atsu\.moe\//, site: 'atsu' },
     { re: /^https:\/\/asurascans\.com\//, site: 'asura' },
-    { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' }
+    { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' },
+    { re: /^https:\/\/hivetoons\.org\//, site: 'hive' }
   ];
 
   function siteForHref(href) {
@@ -95,7 +97,7 @@
       const addBtn = tr.querySelector('.row-add-btn');
       if (!addBtn || addBtn.disabled) continue;
       const anchors = tr.querySelectorAll('.search-btn-group a');
-      if (anchors.length < 4) continue;
+      if (anchors.length < 5) continue;
       return tr;
     }
     return null; // none left on this page of results - next page needs a manual click
@@ -107,7 +109,7 @@
     const urlInput = tr.querySelector('.row-url-input');
     const addBtn = tr.querySelector('.row-add-btn');
     const anchors = Array.from(tr.querySelectorAll('.search-btn-group a')).map((a) => a.href);
-    if (!titleEl || !urlInput || !addBtn || anchors.length < 4) return;
+    if (!titleEl || !urlInput || !addBtn || anchors.length < 5) return;
 
     currentRow = { title: titleEl.textContent.trim(), urlInputEl: urlInput, addBtnEl: addBtn };
     chrome.runtime.sendMessage({

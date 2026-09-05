@@ -154,6 +154,8 @@ def migrate_to_multi_source():
                 source_type = 'atsu'
             elif 'asurascans.com' in source_url:
                 source_type = 'asura'
+            elif 'hivetoons.org' in source_url:
+                source_type = 'hive'
             else:
                 source_type = 'unknown'
 
@@ -1388,6 +1390,8 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
             detected_source_type = 'atsu'
         elif 'asurascans.com' in source_url:
             detected_source_type = 'asura'
+        elif 'hivetoons.org' in source_url:
+            detected_source_type = 'hive'
         else:
             detected_source_type = 'unknown'
         

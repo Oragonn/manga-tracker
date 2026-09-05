@@ -1,5 +1,5 @@
-// Kenmei Import Helper - runs on the 4 source sites (MangaDex/Atsumaru/
-// AsuraScans/Kagane). Plain, unmodified single-key shortcuts:
+// Kenmei Import Helper - runs on the 5 source sites (MangaDex/Atsumaru/
+// AsuraScans/Kagane/HiveToons). Plain, unmodified single-key shortcuts:
 //   K - jump into the first result on a search-results page
 //   Y - capture this tab's URL for the row being matched, close the tab
 //   U - no match here, just close the tab
@@ -16,7 +16,7 @@
 
   // Matched by URL shape (the same one the add-series pipeline itself
   // trusts - see detectSourceType() in import_kenmei.html and the
-  // is_mangadex/is_kagane/is_atsu/is_asura checks in backend/api.py)
+  // is_mangadex/is_kagane/is_atsu/is_asura/is_hive checks in backend/api.py)
   // rather than a site's CSS classes, which redesigns break constantly.
   const FIRST_RESULT_PATTERNS = [
     // Requires a real UUID after /title/ - MangaDex's own sidebar has a
@@ -26,7 +26,12 @@
     { hostRe: /(^|\.)mangadex\.org$/, hrefRe: /\/title\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i },
     { hostRe: /(^|\.)atsu\.moe$/, hrefRe: /\/(manga|read)\// },
     { hostRe: /(^|\.)asurascans\.com$/, hrefRe: /\/comics\// },
-    { hostRe: /(^|\.)kagane\.(to|org)$/, hrefRe: /\/series\// }
+    { hostRe: /(^|\.)kagane\.(to|org)$/, hrefRe: /\/series\// },
+    // Requires an actual slug after /series/ - HiveToons' own nav has a bare
+    // "/series/" link (its all-series browse page) that a plain substring
+    // check would wrongly match if it sits earlier in the DOM than the
+    // actual results grid, same trap MangaDex's UUID check above avoids.
+    { hostRe: /(^|\.)hivetoons\.org$/, hrefRe: /\/series\/[a-z0-9-]+\/?$/i }
   ];
 
   function isVisible(el) {
