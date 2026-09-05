@@ -92,6 +92,23 @@
       text-align: center;
     }
 
+    .picker-show-more {
+      display: block;
+      width: 100%;
+      padding: 12px 14px;
+      background: none;
+      border: none;
+      color: #678ec9;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .picker-show-more:hover {
+      background: #1a2436;
+    }
+
     .workspace {
       display: none;
     }
@@ -139,6 +156,16 @@
       text-transform: uppercase;
       letter-spacing: 0.03em;
       margin: 0 0 10px 0;
+    }
+
+    .chapter-search-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    #chapter-search {
+      flex: 1;
     }
 
     .fixes-section-hint {
@@ -368,6 +395,14 @@
         width: 100%;
         min-width: 0;
       }
+
+      /* The shared #back-to-top rule (see style.css's "BACK TO TOP IN BULK
+         MODE" block) hides it on mobile everywhere except the dashboard's
+         bulk-select mode (.show-bulk) - this page uses the plain .show
+         toggle instead, so it needs its own higher-specificity override. */
+      #back-to-top.show {
+        display: flex !important;
+      }
     }
   </style>
 </head>
@@ -449,9 +484,15 @@
       <button type="button" class="change-series-btn" id="btn-change-series">Change series</button>
     </div>
 
-    <div class="fixes-section">
+    <div class="fixes-section" id="current-chapters-section">
       <h3>Current Chapters</h3>
       <p class="fixes-section-hint">Ban removes that source's copy of the chapter (another source can still supply it). Editing the link and saving fixes it instead.</p>
+      <div class="chapter-search-row">
+        <input type="text" id="chapter-search" class="control-input" placeholder="Search chapter #..." />
+        <button type="button" id="btn-chapter-sort-dir" class="control-button square-button" title="Toggle chapter sort direction">
+          <svg id="chapter-sort-dir-icon" width="18" height="18" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.5"></svg>
+        </button>
+      </div>
       <div class="fixes-table-wrap">
         <table class="fixes-table" id="current-chapters-table">
           <thead>
@@ -500,8 +541,30 @@
 <script>
 (function () {
   const SOURCE_LABELS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', manual: 'Manual' };
+  const SORT_ICONS = {
+    asc: `
+      <path d="M11 16H17"/>
+      <path d="M11 20H19"/>
+      <path d="M11 12H15"/>
+      <path d="M4 8L7 5L10 8"/>
+      <path d="M7 20L7 6"/>
+    `,
+    desc: `
+      <path d="M11 9H17"/>
+      <path d="M11 5H19"/>
+      <path d="M11 13H15"/>
+      <path d="M10 17L7 20L4 17"/>
+      <path d="M7 5V19"/>
+    `
+  };
+
+  const PICKER_PAGE_SIZE = 5;
+  const PICKER_EXPANDED_SIZE = 20;
 
   let selectedSeriesId = null;
+  let chapterSortDir = 'desc';
+  let pickerAllItems = [];
+  let pickerVisibleCount = PICKER_PAGE_SIZE;
   let seriesSources = [];    // real sources for the selected series
   let currentChapters = [];  // /api/series/<id>/chapters
   let overrides = [];        // /api/series/<id>/chapter-overrides
@@ -514,6 +577,16 @@
   const wsCover = document.getElementById('ws-cover');
   const wsTitle = document.getElementById('ws-title');
   const currentChaptersTbody = document.getElementById('current-chapters-tbody');
+  const chapterSearchInput = document.getElementById('chapter-search');
+  chapterSearchInput.addEventListener('input', renderCurrentChapters);
+  const chapterSortDirBtn = document.getElementById('btn-chapter-sort-dir');
+  const chapterSortDirIcon = document.getElementById('chapter-sort-dir-icon');
+  chapterSortDirIcon.innerHTML = SORT_ICONS[chapterSortDir];
+  chapterSortDirBtn.addEventListener('click', () => {
+    chapterSortDir = chapterSortDir === 'desc' ? 'asc' : 'desc';
+    chapterSortDirIcon.innerHTML = SORT_ICONS[chapterSortDir];
+    renderCurrentChapters();
+  });
   const correctionsSection = document.getElementById('corrections-section');
   const correctionsTbody = document.getElementById('corrections-tbody');
   const addSourceSelect = document.getElementById('add-source');
@@ -543,30 +616,52 @@
         status: filterStatus.value,
         sort: filterSort.value,
         dir: filterSort.value === 'title' ? 'asc' : 'desc',
-        per_page: 30
+        per_page: 100
       });
       const res = await fetch(`/api/series?${params}`);
       const data = await res.json();
-      renderPickerResults(data.items || []);
+      pickerAllItems = data.items || [];
+      pickerVisibleCount = PICKER_PAGE_SIZE;
+      renderPickerResults();
     } catch (e) {
       pickerResults.innerHTML = '<div class="picker-empty">Search failed.</div>';
     }
   }
 
-  function renderPickerResults(items) {
-    if (!items.length) {
+  function renderPickerResults() {
+    if (!pickerAllItems.length) {
       pickerResults.innerHTML = '<div class="picker-empty">No series match.</div>';
       return;
     }
-    pickerResults.innerHTML = items.map(s => `
+    const items = pickerAllItems.slice(0, pickerVisibleCount);
+    pickerResults.innerHTML = items.map(s => {
+      const fullChapterCount = (s.chapters || []).filter(c => Number.isInteger(c.chapter_number)).length;
+      return `
       <div class="picker-row" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-cover="${s.cover_url ? escapeHtml(s.cover_url) : ''}">
         ${s.cover_url ? `<img src="${escapeHtml(s.cover_url)}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/static/placeholder.png'" />` : ''}
         <div>
           <div class="picker-row-title">${escapeHtml(s.title)}</div>
-          <div class="picker-row-sub">${s.total_chapters ?? 0} chapters</div>
+          <div class="picker-row-sub">${fullChapterCount} chapters</div>
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
+    if (pickerAllItems.length > pickerVisibleCount) {
+      const remaining = pickerAllItems.length - pickerVisibleCount;
+      const nextSize = Math.min(PICKER_EXPANDED_SIZE, pickerAllItems.length);
+      const label = pickerVisibleCount < PICKER_EXPANDED_SIZE
+        ? `Show more (${Math.min(remaining, PICKER_EXPANDED_SIZE - pickerVisibleCount)} more)`
+        : `Show all (${remaining} more)`;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'picker-show-more';
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        pickerVisibleCount = pickerVisibleCount < PICKER_EXPANDED_SIZE ? nextSize : pickerAllItems.length;
+        renderPickerResults();
+      });
+      pickerResults.appendChild(btn);
+    }
     pickerResults.querySelectorAll('.picker-row').forEach(el => {
       el.addEventListener('click', () => {
         selectSeries(parseInt(el.dataset.id, 10), el.dataset.title, el.dataset.cover);
@@ -587,6 +682,7 @@
     wsTitle.textContent = title;
     wsCover.src = coverUrl || '/static/placeholder.png';
     workspace.style.display = 'block';
+    chapterSearchInput.value = '';
     const url = new URL(window.location);
     url.searchParams.set('series_id', id);
     window.history.replaceState({}, '', url);
@@ -644,8 +740,19 @@
       currentChaptersTbody.innerHTML = '<tr><td colspan="4" class="fixes-empty-state">No chapters yet.</td></tr>';
       return;
     }
+    const query = chapterSearchInput.value.trim();
+    let filtered = currentChapters;
+    if (query) {
+      filtered = currentChapters.filter(ch => formatChapterNumber(ch.chapter_number).includes(query));
+    }
+    if (!filtered.length) {
+      currentChaptersTbody.innerHTML = '<tr><td colspan="4" class="fixes-empty-state">No chapters match your search.</td></tr>';
+      return;
+    }
     currentChaptersTbody.innerHTML = '';
-    const sorted = [...currentChapters].sort((a, b) => b.chapter_number - a.chapter_number);
+    const sorted = [...filtered].sort((a, b) => chapterSortDir === 'asc'
+      ? a.chapter_number - b.chapter_number
+      : b.chapter_number - a.chapter_number);
     for (const ch of sorted) {
       const tr = document.createElement('tr');
       const known = !!ch.source_type;
@@ -854,6 +961,27 @@
     document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
     document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
   }
+})();
+</script>
+
+<button id="back-to-top" title="Back to top">
+    <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+    <polyline points="18 15 12 9 6 15"></polyline>
+  </svg>
+</button>
+<script>
+(() => {
+  const backToTopBtn = document.getElementById('back-to-top');
+  window.addEventListener('scroll', () => {
+    if (window.scrollY > 300) {
+      backToTopBtn.classList.add('show');
+    } else {
+      backToTopBtn.classList.remove('show');
+    }
+  });
+  backToTopBtn.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
 })();
 </script>
 
