@@ -161,10 +161,11 @@ def get_series_info(slug):
         alt_titles = [t.strip() for t in alt_titles_raw.split(',') if t.strip() and t.strip() != title]
 
         # HiveToons has no dedicated content-rating field, just an "Adult"
-        # genre tag - best-effort only, so (like AsuraScans) this source is
-        # also given the lowest priority in the multi-source rating merge
-        # (see SOURCE_RATING_PRIORITY in main.py) so a "safe" from here can
-        # never override a stricter rating from another source.
+        # genre tag - best-effort only, so it ranks below MangaDex/Kagane/
+        # Atsumaru in the multi-source rating merge (see
+        # SOURCE_RATING_PRIORITY in main.py), though still above AsuraScans
+        # (which has no rating signal at all) since this genre-tag check is
+        # still more informative than Asura's unconditional 'safe'.
         content_rating = 'explicit' if any(
             g.lower() in ('adult', 'hentai', 'smut') for g in genres
         ) else 'safe'

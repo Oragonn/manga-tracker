@@ -3309,7 +3309,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	function resetAddSeriesModalView() {
-		if (!addSeriesUrlView || !addSeriesSearchView) return;
+		if (!addSeriesUrlView || !addSeriesSearchView || !addSeriesSearchToggleBtn) return;
 		addSeriesSearchView.classList.add('hidden');
 		addSeriesUrlView.classList.remove('hidden');
 		addSeriesSearchToggleBtn.innerHTML = ADD_SERIES_SEARCH_ICON;

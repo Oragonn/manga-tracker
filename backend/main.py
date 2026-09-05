@@ -990,13 +990,19 @@ def api_add_source(series_id):
                 # series Mature but MangaDex calls it Safe). Trust whichever
                 # attached source ranks highest in SOURCE_RATING_PRIORITY —
                 # MangaDex's rating wins over Kagane's, which wins over
-                # Atsumaru's, which wins over AsuraScans'/HiveToons' (neither
-                # has a real content-rating system - AsuraScans always
-                # reports 'safe', HiveToons only has a best-effort "Adult"
-                # genre tag - so neither must be able to override a stricter
-                # source). Only replace the stored rating if the source just
-                # added outranks every source already on the series.
-                SOURCE_RATING_PRIORITY = {'mangadex': 3, 'kagane': 2, 'atsu': 1, 'asura': 0, 'hive': 0}
+                # Atsumaru's, which wins over HiveToons', which wins over
+                # AsuraScans' (AsuraScans has no content-rating system at
+                # all and always reports 'safe', so it must never be able to
+                # override anything; HiveToons only has a best-effort
+                # "Adult" genre tag, which is weaker than a real rating
+                # system but still strictly more informative than Asura's
+                # blanket 'safe' — giving the two of them the SAME priority
+                # would make the merge order-dependent: whichever gets
+                # attached second could never override the first even when
+                # its rating is the more meaningful one). Only replace the
+                # stored rating if the source just added outranks every
+                # source already on the series.
+                SOURCE_RATING_PRIORITY = {'mangadex': 4, 'kagane': 3, 'atsu': 2, 'hive': 1, 'asura': 0}
                 cursor.execute(
                     "SELECT source_type FROM series_sources WHERE series_id = ? AND id != ?",
                     (series_id, source_id)
