@@ -801,6 +801,14 @@ function closeEditSeriesModal() {
 	// longer a descendant that hiding the modal auto-hides.
 	document.getElementById('settings-tags-menu')?.classList.add('hidden');
 
+	// html itself (not body) is the page's actual scrolling element --
+	// style.css sets `html { overflow-y: scroll }` with no height/overflow
+	// constraint on body, so body.style.overflow alone never blocked
+	// desktop scrolling. Always reset it here regardless of which branch
+	// below runs (harmless no-op if it was never set, e.g. mobile's
+	// position:fixed path already blocks scrolling by itself).
+	document.documentElement.style.overflow = '';
+
 	if (document.body.style.position === 'fixed') {
 		const savedScrollY = mobileState.scrollY || 0;
 		document.body.style.overflow = '';
@@ -863,8 +871,13 @@ function openEditModal(series) {
 	document.getElementById('settings-status-menu')?.classList.add('hidden');
 	document.getElementById('settings-status-selector')?.classList.remove('open');
 
+	// Same reset for the Title picker.
+	document.getElementById('settings-title-menu')?.classList.add('hidden');
+	document.getElementById('settings-title-selector')?.classList.remove('open');
+
 	document.getElementById('edit-series-id').value = series.id;
 	document.getElementById('edit-series-title-heading').textContent = series.title || 'Series Settings';
+	renderTitleVariants(series);
 
 	const coverImg = document.getElementById('edit-series-cover-img');
 	coverImg.src = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
@@ -981,6 +994,9 @@ function openEditModal(series) {
 
 	document.getElementById('edit-series-modal').classList.remove('hidden');
 	document.body.style.overflow = 'hidden';
+	// html, not body, is the page's actual scrolling element on desktop
+	// (see the matching comment in closeEditSeriesModal) -- lock it too.
+	document.documentElement.style.overflow = 'hidden';
 	// Reset scroll to the top -- .settings-modal keeps whatever scroll
 	// position it was left at (most noticeable on mobile's full-screen
 	// layout, where it's easy to scroll down to Actions/Delete/Save),
@@ -988,6 +1004,58 @@ function openEditModal(series) {
 	// dropped in wherever the last series' modal happened to be scrolled.
 	const editModalContent = document.querySelector('#edit-series-modal .modal-content');
 	if (editModalContent) editModalContent.scrollTop = 0;
+}
+
+// Builds the Title picker's option list from every title field the series
+// actually has (title/title_en/title_romaji/title_native plus alt_titles,
+// which is stored as either a JSON object of {lang: title} or a plain
+// array depending on which source last wrote it -- same shape ambiguity
+// main.py's api_add_source already normalizes when merging sources).
+// Deduped case-insensitively, first occurrence keeps its original casing.
+function renderTitleVariants(series) {
+	const list = document.getElementById('settings-title-list');
+	if (!list) return;
+
+	const candidates = [
+		{ label: 'Title', value: series.title },
+		{ label: 'English', value: series.title_en },
+		{ label: 'Romaji', value: series.title_romaji },
+		{ label: 'Native', value: series.title_native }
+	];
+
+	let altTitles = series.alt_titles;
+	if (typeof altTitles === 'string') {
+		try { altTitles = JSON.parse(altTitles); } catch (e) { altTitles = null; }
+	}
+	if (altTitles && typeof altTitles === 'object' && !Array.isArray(altTitles)) {
+		altTitles = Object.values(altTitles);
+	}
+	if (Array.isArray(altTitles)) {
+		altTitles.forEach(t => candidates.push({ label: 'Alt', value: t }));
+	}
+
+	const seen = new Set();
+	const variants = [];
+	for (const { label, value } of candidates) {
+		const trimmed = (value || '').trim();
+		if (!trimmed) continue;
+		const key = trimmed.toLowerCase();
+		if (seen.has(key)) continue;
+		seen.add(key);
+		variants.push({ label, value: trimmed });
+	}
+
+	if (!variants.length) {
+		list.innerHTML = '<p class="settings-cover-menu-empty">No other titles known.</p>';
+		return;
+	}
+
+	list.innerHTML = variants.map(({ label, value }) => `
+		<div class="settings-dropdown-item settings-title-item" data-title="${escapeHtml(value)}">
+			<span class="settings-title-item-label">${escapeHtml(label)}</span>
+			<span class="settings-title-item-text">${escapeHtml(value)}</span>
+		</div>
+	`).join('');
 }
 
 // Effective chapter/volume the Save button would submit, depending on
@@ -3244,12 +3312,24 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 
 	// Modals
+	function closeAddSeriesModal() {
+		addModal.classList.add('hidden');
+		document.body.style.overflow = '';
+		// html, not body, is the page's actual scrolling element on desktop
+		// (style.css sets `html { overflow-y: scroll }` with no matching
+		// height/overflow constraint on body), so body.style.overflow alone
+		// never actually blocked scrolling while this modal was open.
+		document.documentElement.style.overflow = '';
+	}
+
 	if (btnAddSeries) {
 		btnAddSeries.addEventListener('click', () => {
 			const input = document.getElementById('new-series-url');
 			if (input) input.value = '';
 			resetAddSeriesModalView();
 			addModal.classList.remove('hidden');
+			document.body.style.overflow = 'hidden';
+			document.documentElement.style.overflow = 'hidden';
 			if (input) input.focus();
 		});
 	}
@@ -3353,51 +3433,66 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 
 		if (addSeriesSearchCancelBtn) {
-			addSeriesSearchCancelBtn.addEventListener('click', () => {
-				addModal.classList.add('hidden');
-			});
+			addSeriesSearchCancelBtn.addEventListener('click', closeAddSeriesModal);
 		}
 	}
 
-// ─── Series Settings modal: click-to-edit title ──────────────
-	function enterTitleEditMode() {
-		const heading = document.getElementById('edit-series-title-heading');
-		const input = document.getElementById('edit-series-title-input');
-		input.value = heading.textContent;
-		heading.classList.add('hidden');
-		input.classList.remove('hidden');
-		input.focus();
+// ─── Series Settings modal: Title picker (same dropdown pattern as the
+// Source selector) ──────────────
+// Picking a row or submitting a custom title only stages it locally (same
+// convention as the cover/chapter pickers) -- nothing is sent until Save.
+	function openTitleMenu() {
+		document.getElementById('settings-title-menu')?.classList.remove('hidden');
+		document.getElementById('settings-title-selector')?.classList.add('open');
 	}
 
-	function exitTitleEditMode() {
-		document.getElementById('edit-series-title-input').classList.add('hidden');
-		document.getElementById('edit-series-title-heading').classList.remove('hidden');
+	function closeTitleMenu() {
+		document.getElementById('settings-title-menu')?.classList.add('hidden');
+		document.getElementById('settings-title-selector')?.classList.remove('open');
 	}
 
-	// Enter/blur only stages the new title locally (like picking a chapter
-	// does) -- nothing is sent until the Save button is clicked.
-	function applyPendingTitle() {
-		const input = document.getElementById('edit-series-title-input');
-		if (input.classList.contains('hidden')) return; // already applied/cancelled
-		const newTitle = input.value.trim();
-		exitTitleEditMode();
-		if (newTitle) {
-			document.getElementById('edit-series-title-heading').textContent = newTitle;
-		}
+	function applyTitle(newTitle) {
+		newTitle = newTitle.trim();
+		if (!newTitle) return;
+		document.getElementById('edit-series-title-heading').textContent = newTitle;
+		closeTitleMenu();
 		updateSaveButtonState();
 	}
 
-	document.getElementById('edit-series-title-heading')?.addEventListener('click', enterTitleEditMode);
+	document.getElementById('settings-title-selector')?.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const menu = document.getElementById('settings-title-menu');
+		const wasHidden = menu?.classList.contains('hidden');
+		closeAllSettingsPopovers();
+		if (wasHidden) openTitleMenu();
+	});
 
-	document.getElementById('edit-series-title-input')?.addEventListener('click', (e) => e.stopPropagation());
-	document.getElementById('edit-series-title-input')?.addEventListener('blur', applyPendingTitle);
-	document.getElementById('edit-series-title-input')?.addEventListener('keydown', (e) => {
+	document.getElementById('settings-title-menu')?.addEventListener('click', (e) => e.stopPropagation());
+
+	document.getElementById('settings-title-list')?.addEventListener('click', (e) => {
+		const item = e.target.closest('.settings-title-item');
+		if (item) applyTitle(item.dataset.title);
+	});
+
+	document.getElementById('settings-title-custom-apply')?.addEventListener('click', () => {
+		const input = document.getElementById('settings-title-custom-input');
+		applyTitle(input.value);
+		input.value = '';
+	});
+
+	document.getElementById('settings-title-custom-input')?.addEventListener('keydown', (e) => {
 		if (e.key === 'Enter') {
 			e.preventDefault();
-			applyPendingTitle();
-		} else if (e.key === 'Escape') {
-			e.preventDefault();
-			exitTitleEditMode();
+			document.getElementById('settings-title-custom-apply')?.click();
+		}
+	});
+
+	document.addEventListener('click', (e) => {
+		const menu = document.getElementById('settings-title-menu');
+		if (!menu || menu.classList.contains('hidden')) return;
+		const selector = document.getElementById('settings-title-selector');
+		if (!menu.contains(e.target) && !selector?.contains(e.target)) {
+			closeTitleMenu();
 		}
 	});
 
@@ -3892,6 +3987,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		closeTagsMenu();
 		closeChapterSelectMenu();
 		closeStatusMenu();
+		closeTitleMenu();
 	}
 
 	document.getElementById('settings-tags-selector')?.addEventListener('click', (e) => {
@@ -4330,7 +4426,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				return; // Don't throw, just return
 			}
 			const { task_id } = await res.json();
-			document.getElementById('add-series-modal').classList.add('hidden');
+			closeAddSeriesModal();
 			let attempt = 0;
 			const maxAttempts = 60;
 			const poll = async () => {
@@ -4411,13 +4507,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Cancel button handler
 	document.getElementById('btn-add-cancel')?.addEventListener('click', () => {
-	document.getElementById('add-series-modal').classList.add('hidden');
+	closeAddSeriesModal();
 	});
 
 	// Click-outside-to-close handler for Add Series modal
 	document.getElementById('add-series-modal')?.addEventListener('click', (e) => {
 	if (e.target.id === 'add-series-modal') {
-		document.getElementById('add-series-modal').classList.add('hidden');
+		closeAddSeriesModal();
 	}
 	});
 

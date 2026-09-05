@@ -417,9 +417,21 @@
 <div id="edit-series-modal" class="modal hidden">
   <div class="modal-content settings-modal">
     <div class="settings-header">
-      <div class="settings-title-wrap" id="settings-title-wrap" title="Click to rename">
-        <h3 id="edit-series-title-heading">Series Settings</h3>
-        <input type="text" id="edit-series-title-input" class="settings-title-input hidden" />
+      <div class="settings-title-wrap" id="settings-title-group">
+        <button type="button" class="settings-source-selector settings-title-selector" id="settings-title-selector">
+          <span class="settings-source-name" id="edit-series-title-heading">Series Settings</span>
+          <svg class="settings-source-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
+        </button>
+        <div class="settings-source-menu hidden" id="settings-title-menu">
+          <div class="settings-dropdown-list" id="settings-title-list"></div>
+          <div class="settings-cover-menu-divider"></div>
+          <div class="settings-cover-url-row">
+            <input type="text" id="settings-title-custom-input" class="settings-cover-url-input" placeholder="Custom title" />
+            <button type="button" class="settings-cover-url-apply" id="settings-title-custom-apply">Use</button>
+          </div>
+        </div>
       </div>
       <button class="btn-close-modal" onclick="closeEditSeriesModal();">
         <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

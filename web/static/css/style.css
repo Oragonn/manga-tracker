@@ -1690,33 +1690,34 @@ html {
 }
 
 .settings-title-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  position: relative;
   flex: 1;
   min-width: 0;
-  cursor: pointer;
 }
 
-.settings-title-wrap:hover h3 {
-  color: #cbd5e1;
+/* #settings-title-selector also carries the shared .settings-source-selector
+   class, declared later in this file - an ID selector is used here instead
+   of a second class so these overrides win regardless of declaration order. */
+#settings-title-selector {
+  height: auto;
+  padding: 4px 10px;
+  background: transparent;
+  border-color: transparent;
 }
 
-.settings-title-input {
+#settings-title-selector:hover {
+  background: #1a2436;
+  border-color: #334155;
+}
+
+#settings-title-selector .settings-source-name {
   font-size: 20px;
   font-weight: 600;
   color: white;
-  background: #1a2436;
-  border: 1px solid #678ec9;
-  border-radius: 6px;
-  padding: 2px 8px;
-  width: 100%;
-  min-width: 0;
-  font-family: inherit;
 }
 
-.settings-title-input:focus {
-  outline: none;
+#settings-title-menu {
+  min-width: 320px;
 }
 
 .btn-close-modal {
@@ -2371,6 +2372,29 @@ html {
 
 .settings-dropdown-item.selected {
   background: rgb(2, 60, 191);
+}
+
+.settings-title-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.settings-title-item-label {
+  flex-shrink: 0;
+  width: 56px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.settings-title-item-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-source-list {
