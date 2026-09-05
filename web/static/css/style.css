@@ -3208,6 +3208,20 @@ html {
     height: 24px;
   }
 
+  #mobile-menu-btn {
+    position: relative;
+  }
+
+  .hamburger-btn-dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 9px;
+    height: 9px;
+    background: #e53e3e;
+    border-radius: 50%;
+  }
+
   .mobile-header h1 {
     font-size: 16px !important;
     font-weight: 600;

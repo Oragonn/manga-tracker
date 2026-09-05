@@ -252,4 +252,43 @@ function closeNotification(notification, direction = 'right') {
 
 // Export for use in other files
 window.showNotification = showNotification;
+
+// ─── Unread error count badge ─────────────────────────────────
+// Every page's nav ships the same three badge elements (desktop nav link,
+// mobile hamburger drawer's Errors row, and a small dot on the hamburger
+// icon itself) but only the dashboard's own script used to keep them in
+// sync. Doing it here instead - since notifications.js loads on every
+// page - means every page's nav reflects the same count.
+async function updateUnreadErrorCount() {
+  try {
+    const res = await fetch('/api/unread-error-count');
+    if (!res.ok) return;
+    const { count } = await res.json();
+
+    const badge = document.getElementById('unread-error-count');
+    if (badge) {
+      badge.textContent = count;
+      badge.style.display = count > 0 ? 'inline' : 'none';
+    }
+
+    const mobileBadge = document.getElementById('mobile-error-badge');
+    if (mobileBadge) {
+      mobileBadge.textContent = count;
+      mobileBadge.style.display = count > 0 ? 'inline' : 'none';
+    }
+
+    const hamburgerDot = document.getElementById('mobile-menu-btn-badge');
+    if (hamburgerDot) {
+      hamburgerDot.style.display = count > 0 ? 'block' : 'none';
+    }
+  } catch (e) {
+    // silent fail
+  }
+}
+window.updateUnreadErrorCount = updateUnreadErrorCount;
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateUnreadErrorCount();
+  setInterval(updateUnreadErrorCount, 30000);
+});
 window.initNotifications = initNotifications;

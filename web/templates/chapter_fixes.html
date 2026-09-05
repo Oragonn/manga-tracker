@@ -414,7 +414,19 @@
       <a href="/dashboard" class="nav-link">Dashboard</a>
       <a href="https://kenmei.co/discovery" target="_blank" rel="noopener" class="nav-link">Discovery</a>
       <a href="/scheduler" class="nav-link">Scheduler</a>
-      <a href="/errors" class="nav-link">Errors</a>
+      <a href="/errors" class="nav-link">
+        Errors
+        <span id="unread-error-count" style="
+          display: none;
+          background: #e53e3e;
+          color: white;
+          font-size: 11px;
+          font-weight: bold;
+          padding: 2px 6px;
+          border-radius: 10px;
+          margin-left: 6px;
+        "></span>
+      </a>
       <a href="/backups" class="nav-link">Backups</a>
       <a href="/logs" class="nav-link">Activity Log</a>
       <a href="/chapter-fixes" class="nav-link">Chapter Fixes</a>
@@ -444,7 +456,10 @@
       </svg>
     </a>
     <a href="/scheduler">Scheduler</a>
-    <a href="/errors">Errors</a>
+    <a href="/errors">
+      Errors
+      <span id="mobile-error-badge" style="display:none;background:#e53e3e;color:white;font-size:11px;font-weight:bold;padding:2px 6px;border-radius:10px;"></span>
+    </a>
     <a href="/backups">Backups</a>
     <a href="/logs">Activity Log</a>
     <a href="/chapter-fixes">Chapter Fixes</a>
@@ -928,6 +943,7 @@
               <line x1="3" y1="6" x2="21" y2="6"></line>
               <line x1="3" y1="18" x2="21" y2="18"></line>
             </svg>
+            <span id="mobile-menu-btn-badge" class="hamburger-btn-dot" style="display:none;"></span>
           </button>
           <h1 style="font-size: 18px; font-weight: 600; margin: 0;">Chapter Fixes</h1>
           <div style="width: 44px;"></div>

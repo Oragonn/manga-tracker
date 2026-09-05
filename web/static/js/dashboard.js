@@ -2582,26 +2582,10 @@ function renderSourceHealthList(listId, panelId) {
 	});
 }
 
-// Fetch and auto-update unread error count
-async function updateUnreadErrorCount() {
-	try {
-		const res = await fetch('/api/unread-error-count');
-		if (res.ok) {
-			const { count } = await res.json();
-			const badge = document.getElementById('unread-error-count');
-			if (badge) {
-				if (count > 0) {
-					badge.textContent = count;
-					badge.style.display = 'inline';
-				} else {
-					badge.style.display = 'none';
-				}
-			}
-		}
-	} catch (e) {
-		// silent fail
-	}
-}
+// updateUnreadErrorCount() itself now lives in notifications.js (loaded on
+// every page, not just the dashboard) so every page's nav badge stays in
+// sync - it's still called from here (see createMobileHeader()) to reapply
+// the already-known count as soon as the mobile header's badge element exists.
 
 // ─── Load Page (Main Logic) ───────────────────────────────────
 // Refreshes one series' card without reloading the whole grid - used after
@@ -2895,9 +2879,6 @@ function setupSingleSelect(trigger, menu, stateKey, labelMap, defaultValue) {
 
 // ─── Initial Setup ────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-	updateUnreadErrorCount();
-	setInterval(updateUnreadErrorCount, 30000);
-
 	updateSourceHealth();
 	setInterval(updateSourceHealth, 30000);
 
@@ -4658,6 +4639,7 @@ function createMobileHeader() {
           <line x1="3" y1="6" x2="21" y2="6"></line>
           <line x1="3" y1="18" x2="21" y2="18"></line>
         </svg>
+        <span id="mobile-menu-btn-badge" class="hamburger-btn-dot" style="display:none;"></span>
       </button>
       <h1 style="font-size: 18px; font-weight: 600; margin: 0;">Manga Tracker</h1>
       <div class="mobile-source-health-wrap">
@@ -4696,6 +4678,7 @@ function createMobileHeader() {
   // first fetch may have already run - reapply whatever state is already
   // known instead of leaving the mobile panel blank until the next 30s poll.
   renderSourceHealthUI();
+  updateUnreadErrorCount();
 }
 
 // ================================
