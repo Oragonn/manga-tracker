@@ -237,7 +237,12 @@ def _add_worker():
                                 ))
                             if chapters_to_save:
                                 latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
-                                latest_release = max(
+                                # min(), not max(): a source can list the same chapter number
+                                # more than once (different translator groups on Atsumaru/
+                                # MangaDex), and the earliest posting is the true release date -
+                                # a later repost of an already-out chapter shouldn't make it
+                                # look freshly dropped.
+                                latest_release = min(
                                     (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                     default=''
                                 )
@@ -396,7 +401,12 @@ def _add_worker():
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
-                                    latest_release = max(
+                                    # min(), not max(): a source can list the same chapter number
+                                    # more than once (different translator groups on Atsumaru/
+                                    # MangaDex), and the earliest posting is the true release date -
+                                    # a later repost of an already-out chapter shouldn't make it
+                                    # look freshly dropped.
+                                    latest_release = min(
                                         (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                         default=''
                                     )
@@ -548,7 +558,12 @@ def _add_worker():
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
-                                    latest_release = max(
+                                    # min(), not max(): a source can list the same chapter number
+                                    # more than once (different translator groups on Atsumaru/
+                                    # MangaDex), and the earliest posting is the true release date -
+                                    # a later repost of an already-out chapter shouldn't make it
+                                    # look freshly dropped.
+                                    latest_release = min(
                                         (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                         default=''
                                     )
@@ -696,7 +711,12 @@ def _add_worker():
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
-                                    latest_release = max(
+                                    # min(), not max(): a source can list the same chapter number
+                                    # more than once (different translator groups on Atsumaru/
+                                    # MangaDex), and the earliest posting is the true release date -
+                                    # a later repost of an already-out chapter shouldn't make it
+                                    # look freshly dropped.
+                                    latest_release = min(
                                         (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                         default=''
                                     )
@@ -844,7 +864,12 @@ def _add_worker():
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
-                                    latest_release = max(
+                                    # min(), not max(): a source can list the same chapter number
+                                    # more than once (different translator groups on Atsumaru/
+                                    # MangaDex), and the earliest posting is the true release date -
+                                    # a later repost of an already-out chapter shouldn't make it
+                                    # look freshly dropped.
+                                    latest_release = min(
                                         (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
                                         default=''
                                     )

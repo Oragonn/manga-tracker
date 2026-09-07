@@ -3956,6 +3956,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	function openChapterSelectMenu() {
 		document.getElementById('chapter-select-menu')?.classList.remove('hidden');
 		document.getElementById('chapter-select-trigger')?.classList.add('open');
+		// The list keeps whatever scrollTop it was left at otherwise -- since
+		// it's the same DOM node reused for every series, that scroll position
+		// would carry over even into a different series' chapter list.
+		const list = document.getElementById('chapter-select-list');
+		if (list) list.scrollTop = 0;
 		const search = document.getElementById('chapter-select-search');
 		if (search) {
 			search.value = '';
