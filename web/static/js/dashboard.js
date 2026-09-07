@@ -961,6 +961,7 @@ function openEditModal(series) {
 				const opt = document.createElement('option');
 				opt.value = ch.chapter_number;
 				opt.textContent = formatLabel(ch);
+				if (ch.release_date) opt.dataset.releaseDate = ch.release_date;
 				if (ch.chapter_number === parseFloat(series.current_chapter)) {
 					opt.selected = true;
 					hasExactMatch = true;
@@ -971,6 +972,7 @@ function openEditModal(series) {
 				const opt = document.createElement('option');
 				opt.value = ch.chapter_number;
 				opt.textContent = formatLabel(ch);
+				if (ch.release_date) opt.dataset.releaseDate = ch.release_date;
 				if (ch.chapter_number === parseFloat(series.current_chapter)) {
 					opt.selected = true;
 					hasExactMatch = true;
@@ -1158,9 +1160,16 @@ function syncChapterCustomList() {
 	const rest = options.filter(opt => opt.value !== '-1');
 	const orderedOptions = [...rest, ...notStarted];
 
-	list.innerHTML = orderedOptions.map(opt => `
-		<div class="settings-dropdown-item ${opt.selected ? 'selected' : ''}" data-value="${opt.value}" data-search="${opt.textContent.toLowerCase()}">${opt.textContent}</div>
-	`).join('');
+	list.innerHTML = orderedOptions.map(opt => {
+		const releaseDate = opt.dataset.releaseDate;
+		const dateHtml = releaseDate ? `<span class="settings-dropdown-item-date">${formatTimeAgo(releaseDate)}</span>` : '';
+		return `
+		<div class="settings-dropdown-item settings-dropdown-item-chapter ${opt.selected ? 'selected' : ''}" data-value="${opt.value}" data-search="${opt.textContent.toLowerCase()}">
+			<span class="settings-dropdown-item-label">${opt.textContent}</span>
+			${dateHtml}
+		</div>
+	`;
+	}).join('');
 
 	const selectedOption = select.options[select.selectedIndex];
 	triggerText.textContent = selectedOption ? selectedOption.textContent : 'Not started';

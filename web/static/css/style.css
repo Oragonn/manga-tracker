@@ -2380,6 +2380,26 @@ html {
   gap: 8px;
 }
 
+.settings-dropdown-item-chapter {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.settings-dropdown-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-dropdown-item-date {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
 .settings-title-item-label {
   flex-shrink: 0;
   width: 56px;

@@ -1689,6 +1689,10 @@ def api_series_chapters(series_id):
         select_fields.append("source_type")
     else:
         select_fields.append("NULL as source_type")
+    if "release_date" in cols:
+        select_fields.append("release_date")
+    else:
+        select_fields.append("NULL as release_date")
 
     query = f"SELECT {', '.join(select_fields)} FROM chapters WHERE series_id = ? ORDER BY chapter_number ASC"
     cursor.execute(query, (series_id,))
@@ -1703,7 +1707,8 @@ def api_series_chapters(series_id):
             'volume': row[2],
             'raw_chapter': row[3],
             'is_oneshot': bool(row[4]),
-            'source_type': row[5]
+            'source_type': row[5],
+            'release_date': row[6]
         }
         result.append(r)
     return jsonify(result)
