@@ -77,22 +77,27 @@ def get_series_info(manga_id):
         if not mp:
             raise Exception(f"Atsumaru API returned no mangaPage for {manga_id}")
 
+        # Net community upvotes per scanlator, keyed by the same id each
+        # chapter posting carries as scanlationMangaId - lets us pick the
+        # community-preferred posting below instead of guessing from dates.
+        scanlator_scores = {
+            s['id']: (s.get('score') or 0) for s in (mp.get('scanlators') or []) if s.get('id')
+        }
+
         # The chapter list is a secondary call - if it fails, fall back to
         # whatever's embedded in the page response rather than treating the
         # whole source as broken (metadata itself already succeeded).
         chapters_resp = _delayed_get("https://atsu.moe/api/manga/allChapters", params={'mangaId': manga_id})
         raw_chapters = chapters_resp.json().get('chapters', []) if chapters_resp.status_code == 200 else mp.get('chapters', [])
 
-        # Multiple scanlator groups can post the same chapter number -
-        # return every posting as its own entry rather than picking a
-        # winner here. The scheduler's own chapter-number merge (which
-        # already handles cross-source duplicates the same way) picks the
-        # most recent posting's link but the *earliest* posting's date for
-        # the chapter that survives, so a second group reposting an
-        # already-released chapter can't make it look freshly dropped, and
-        # banning one group's link doesn't take a still-valid other group's
-        # link down with it.
-        chapters = []
+        # Multiple scanlator groups can post the same chapter number - keep
+        # only the highest-upvoted group's posting (its link *and* its own
+        # date) instead of picking by upload recency, so a downvoted or
+        # low-quality repost can't outrank the version readers actually
+        # prefer, and a late repost of an already-out chapter can't make it
+        # look freshly dropped. Ties (most postings have no votes at all,
+        # scoring 0-0) fall back to whichever posting is oldest.
+        by_number = {}
         seen_numbers = set()
         for ch in raw_chapters:
             number = ch.get('number')
@@ -103,13 +108,26 @@ def get_series_info(manga_id):
             release_date = None
             if created_at_ms:
                 release_date = datetime.fromtimestamp(created_at_ms / 1000, tz=timezone.utc).isoformat().replace('+00:00', 'Z')
-            chapters.append({
-                'chapter_number': float(number),
+            chapter_number = float(number)
+            candidate = {
+                'chapter_number': chapter_number,
                 'title': ch.get('title'),
                 'release_date': release_date,
                 'chapter_url': f"https://atsu.moe/read/{manga_id}/{ch['id']}",
-                'is_oneshot': False
-            })
+                'is_oneshot': False,
+                '_score': scanlator_scores.get(ch.get('scanlationMangaId'), 0)
+            }
+            existing = by_number.get(chapter_number)
+            if existing is None or candidate['_score'] > existing['_score']:
+                by_number[chapter_number] = candidate
+            elif candidate['_score'] == existing['_score']:
+                existing_date = existing['release_date'] or ''
+                if release_date and (not existing_date or release_date < existing_date):
+                    by_number[chapter_number] = candidate
+
+        chapters = list(by_number.values())
+        for c in chapters:
+            del c['_score']
         chapters.sort(key=lambda c: c['chapter_number'])
 
         # Atsumaru has no oneshot flag of its own -- a oneshot just shows up
