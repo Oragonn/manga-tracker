@@ -122,7 +122,7 @@ class KaganeBrowserClient:
             pass
         await self._init_browser()
 
-    async def _fetch_json_async(self, url, timeout=25):
+    async def _fetch_json_async(self, url, timeout=45):
         await self._page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
 
         deadline = asyncio.get_event_loop().time() + timeout
@@ -167,30 +167,41 @@ class KaganeBrowserClient:
             raise ValueError("series_id is required")
 
         with self.lock:
-            now = time.time()
-            elapsed = now - self.last_call
-            if elapsed < self.min_delay:
-                time.sleep(self.min_delay - elapsed + 0.05)
-            self.last_call = time.time()
+            last_error = None
+            # kagane.to's Turnstile occasionally just doesn't clear within the
+            # navigation window on the first try (not specific to any one
+            # series -- it happens across the whole Kagane pool, though
+            # larger/heavier series pages are more likely to brush up against
+            # the timeout since there's simply more to load). A fresh browser
+            # session often gets a clean challenge on the next attempt, so
+            # retry once with a reinit before logging a failure, instead of
+            # treating every transient stall as a missed scan.
+            for attempt in range(2):
+                now = time.time()
+                elapsed = now - self.last_call
+                if elapsed < self.min_delay:
+                    time.sleep(self.min_delay - elapsed + 0.05)
+                self.last_call = time.time()
+
+                try:
+                    return self._run_coro(self._fetch_all_async(series_id), timeout=90)
+                except Exception as e:
+                    last_error = e
+                    try:
+                        self._run_coro(self._reinit_browser())
+                    except Exception:
+                        pass
 
             try:
-                return self._run_coro(self._fetch_all_async(series_id))
-            except Exception as e:
-                try:
-                    from .error_logger import log_error
-                    log_error(
-                        source_url=f"https://kagane.to/series/{series_id}",
-                        error_message=str(e),
-                        series_title=_lookup_series_title(series_id) or "Kagane Browser Fetch"
-                    )
-                except Exception:
-                    pass
-
-                try:
-                    self._run_coro(self._reinit_browser())
-                except Exception:
-                    pass
-                raise RuntimeError(f"Kagane fetch failed after recovery: {e}")
+                from .error_logger import log_error
+                log_error(
+                    source_url=f"https://kagane.to/series/{series_id}",
+                    error_message=str(last_error),
+                    series_title=_lookup_series_title(series_id) or "Kagane Browser Fetch"
+                )
+            except Exception:
+                pass
+            raise RuntimeError(f"Kagane fetch failed after recovery: {last_error}")
 
     async def _fetch_all_async(self, series_id):
         meta_url = f"https://kagane.to/api/v2/series/{series_id}"
