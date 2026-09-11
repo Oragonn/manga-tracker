@@ -137,6 +137,30 @@ def api_errors_by_date(date_str):
 
     return jsonify({'errors': errors})
 
+@app.route('/api/errors/<date_str>/download')
+def api_download_error_log(date_str):
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        return jsonify({'error': 'Invalid date'}), 400
+    try:
+        from datetime import datetime
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        return jsonify({'error': 'Invalid date'}), 400
+
+    from . import error_logger
+    # send_file resolves a relative path against app.root_path (backend/),
+    # not the process CWD, so make it absolute first or "logs/..." ends up
+    # looked up as "backend/logs/...".
+    log_path = os.path.abspath(os.path.join(error_logger.LOG_DIR, f"error_{date_str}.log"))
+    if not os.path.exists(log_path):
+        return jsonify({'error': 'No log for this date'}), 404
+    return send_file(
+        log_path,
+        as_attachment=True,
+        download_name=f"errors_{date_str}.log",
+        mimetype='text/plain'
+    )
+
 @app.route('/logs')
 def logs_page():
     """Render activity logs page."""

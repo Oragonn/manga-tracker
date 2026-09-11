@@ -10,6 +10,25 @@
   <!-- ADDED: Notification system -->
   <script src="/static/js/notifications.js"></script>
     <script>
+    // Tracks whichever date's errors are currently shown, so the download
+    // button (which gets rebuilt/detached whenever the log content re-renders)
+    // always points at the right file. Read via event delegation below.
+    let currentLogDate = "{{ current_date }}";
+
+    function contentHeaderHTML(title) {
+      return `
+        <div class="content-header">
+          <h2>${title}</h2>
+          <button type="button" id="download-log-btn" class="btn-download-log" title="Download this day's error log">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+            </svg>
+            Download
+          </button>
+        </div>
+      `;
+    }
+
     // Only linkify real http(s) URLs - source_url is sometimes a synthetic
     // value like "series:123" (e.g. the scheduler's unhandled-scan-error
     // path), which isn't a clickable link and shouldn't be rendered as one.
@@ -56,6 +75,13 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       initNotifications();
+    // Delegated so it keeps working after the sidebar/mobile handlers
+    // below blow away and rebuild #download-log-btn via innerHTML.
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('#download-log-btn')) {
+        window.location.href = `/api/errors/${currentLogDate}/download`;
+      }
+    });
     // Server-rendered error messages (initial page load) aren't linkified by
     // Jinja - .innerHTML on an already-escaped text node gives back the same
     // safe-escaped string linkify() expects, so this is safe to run as-is.
@@ -84,7 +110,8 @@
             // Render errors
             const container = document.querySelector('.main-content');
             if (container) {
-                let html = `<h2>Errors — ${dateStr.split('-').reverse().join('/')}</h2>`;
+                currentLogDate = dateStr;
+                let html = contentHeaderHTML(`Errors — ${dateStr.split('-').reverse().join('/')}`);
                 if (data.errors.length > 0) {
                 html += data.errors.map(err => `
                     <div class="error-entry">${renderErrorEntryHTML(err)}</div>
@@ -191,6 +218,39 @@
       margin-bottom: 16px;
     }
 
+    .content-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .content-header h2 {
+      margin-bottom: 0;
+    }
+
+    .btn-download-log {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1a2436;
+      color: #cbd5e1;
+      cursor: pointer;
+      font-size: 13px;
+      white-space: nowrap;
+      transition: background 0.2s;
+      margin-bottom: 16px;
+    }
+    .btn-download-log:hover {
+      background: #2d3f5f;
+    }
+    .btn-download-log:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     /* Style for "no errors" message (desktop and mobile) */
     .main-content > p.no-errors-message,
     .main-content > p:not([class]) {
@@ -232,6 +292,11 @@
         font-size: 18px;
         margin-bottom: 12px;
         display: none; /* Hide since we'll use mobile header */
+      }
+
+      .content-header {
+        justify-content: flex-end;
+        margin-bottom: 4px;
       }
 
       /* Date selector for mobile */
@@ -491,7 +556,15 @@
         {% endfor %}
       </select>
       
-      <h2>Recent Errors</h2>
+      <div class="content-header">
+        <h2>Recent Errors</h2>
+        <button type="button" id="download-log-btn" class="btn-download-log" title="Download this day's error log">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+          </svg>
+          Download
+        </button>
+      </div>
       {% if errors %}
         {% for err in errors %}
           <div class="error-entry">
@@ -573,7 +646,8 @@
       // Handle date change with proper event delegation
       async function handleDateChange(e) {
         const dateStr = e.target.value;
-        
+        currentLogDate = dateStr;
+
         try {
           const res = await fetch(`/api/errors/${dateStr}`);
           const data = await res.json();
