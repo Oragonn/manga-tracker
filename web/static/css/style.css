@@ -667,6 +667,13 @@ html {
   gap: 8px;
 }
 
+/* Only when the "save as new view" form is showing -- the basic menu's
+   "Manage views" already sits right after "Save as new view" with no gap
+   needed there. */
+.bookmark-new-view-form:not(.hidden) + #bookmark-manage-btn {
+  margin-top: 8px;
+}
+
 .bookmark-form-btn {
   flex: 1;
   height: 32px;
