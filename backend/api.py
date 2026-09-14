@@ -996,6 +996,23 @@ app = Flask(__name__,
             static_folder='../web/static',
             template_folder='../web/templates')
 
+# Every file under web/static/uploads/ is content-addressed - atsu_covers and
+# kagane_covers are keyed by the source's own stable image id/filename, and
+# user cover uploads get a fresh uuid4 filename each time - so nothing at a
+# given path is ever overwritten with different content, and it's safe to
+# tell the browser to cache these forever instead of re-validating with this
+# (single-process) server on every page load. This previously showed up as a
+# ~0.5s-per-cover slowdown once Atsu covers moved from CDN-hotlinked (which
+# sent their own long max-age) to served from here with no cache headers.
+@app.route('/static/uploads/<path:filename>')
+def cached_upload(filename):
+    from flask import send_from_directory
+    return send_from_directory(
+        os.path.join(app.static_folder, 'uploads'),
+        filename,
+        max_age=31536000
+    )
+
 @app.route('/api/unread-error-count')
 def api_unread_error_count():
     from .error_logger import get_unread_error_count
