@@ -2217,4 +2217,8 @@ def dashboard():
 def run_server():
     init_db() 
     manga_scheduler.start_scanning()
-    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+    # threaded=True so the dev server can serve many concurrent static cover
+    # requests (kagane_covers, atsu_covers) at once instead of one-at-a-time -
+    # without it, a page with hundreds of locally-cached covers loads them
+    # serially through this single process instead of in parallel like a CDN.
+    app.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False, threaded=True)
