@@ -1,5 +1,6 @@
 # backend/trackers/atsu.py
 
+import os
 import re
 import time
 import threading
@@ -17,6 +18,14 @@ _MIN_DELAY = 0.4
 _MAX_RETRIES = 3
 
 CDN_BASE = "https://cdn.atsu.moe/static/"
+
+# Cloudflare now 403s cross-site <img> embeds of cdn.atsu.moe (blocks requests
+# carrying Sec-Fetch-Site: cross-site) while still allowing plain server-side
+# fetches like this module's own requests.Session - hotlinking the CDN URL
+# straight into the dashboard just shows a broken image. Same fix as
+# camoufox_kagane.py's cover caching: download the cover once here (where
+# it isn't a cross-site embed) and serve it from our own origin instead.
+_COVER_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'web', 'static', 'uploads', 'atsu_covers')
 
 def _delayed_get(url, **kwargs):
     global _last_call
@@ -50,11 +59,33 @@ def extract_series_id(url):
     match = re.search(r'https://atsu\.moe/(?:manga|read)/([A-Za-z0-9_-]+)', url)
     return match.group(1) if match else None
 
-def _cover_url(poster):
+def _download_cover(poster):
+    """Download poster's largest available image to _COVER_DIR, keyed by its
+    own filename (stable per cover asset, same as Kagane's image_id keying)
+    so repeat fetches of an unchanged cover skip the download entirely.
+    Returns a local /static/... URL, or None if there's no poster or the
+    download fails (a missing cover shouldn't fail the whole fetch)."""
     if not poster:
         return None
     path = poster.get('largeImage') or poster.get('mediumImage') or poster.get('image')
-    return f"{CDN_BASE}{path}" if path else None
+    if not path:
+        return None
+
+    filename = os.path.basename(path)
+    local_path = os.path.join(_COVER_DIR, filename)
+    if os.path.exists(local_path):
+        return f"/static/uploads/atsu_covers/{filename}"
+
+    try:
+        resp = _delayed_get(f"{CDN_BASE}{path}")
+        if resp.status_code != 200:
+            return None
+        os.makedirs(_COVER_DIR, exist_ok=True)
+        with open(local_path, 'wb') as f:
+            f.write(resp.content)
+        return f"/static/uploads/atsu_covers/{filename}"
+    except Exception:
+        return None
 
 def get_series_info(manga_id):
     """
@@ -185,7 +216,7 @@ def get_series_info(manga_id):
 
         return {
             'title': mp.get('title') or 'Unknown Title',
-            'cover_url': _cover_url(mp.get('poster')),
+            'cover_url': _download_cover(mp.get('poster')),
             'status': status,
             'chapters': chapters,
             'alt_titles': alt_titles,

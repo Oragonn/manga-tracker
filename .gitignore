@@ -57,6 +57,9 @@ Thumbs.db
 # Web P
 *.webp
 
+# AV1 Image File Format
+*.avif
+
 # Portable Network Graphics (excluded because web/static/uploads/ holds
 # runtime-generated covers, not source - but the app ships its own
 # placeholder.png as a real static asset, so it's carved back out below)
