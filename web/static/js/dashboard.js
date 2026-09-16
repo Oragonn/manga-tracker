@@ -2343,12 +2343,14 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 		if (card.pendingIndex === -1) {
 			saveChapter(series.id, -1, series.current_chapter).then(res => {
 				if (res.ok) applyAcceptedChapter(-1);
-			});
+				else showNotification('Failed to save chapter - check your connection and try again', 'error');
+			}).catch(() => showNotification('Failed to save chapter', 'error'));
 		} else {
 			const ch = card.sortedChapters[card.pendingIndex];
 			saveChapter(series.id, ch.chapter_number, series.current_chapter).then(res => {
 				if (res.ok) applyAcceptedChapter(ch.chapter_number);
-			});
+				else showNotification('Failed to save chapter - check your connection and try again', 'error');
+			}).catch(() => showNotification('Failed to save chapter', 'error'));
 		}
 	});
 	btnSet.addEventListener('click', () => openEditModal(series));
@@ -4481,7 +4483,10 @@ document.addEventListener('DOMContentLoaded', () => {
 										method: 'POST',
 										headers: { 'Content-Type': 'application/json' },
 										body: JSON.stringify({ source_url: u })
-									}).then(r => r.json().catch(() => ({}))).then(data => ({ ok: !data.error, error: data.error }))
+									}).then(async r => {
+										const data = await r.json().catch(() => ({}));
+										return { ok: r.ok && !data.error, error: data.error };
+									}).catch(() => ({ ok: false, error: 'network error' }))
 								));
 								const failedCount = results.filter(r => !r.ok).length;
 								const extraMsg = failedCount === 0
@@ -4620,13 +4625,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		const ids = Array.from(bulkState.selectedIds);
 		document.getElementById('bulk-read-modal').classList.add('hidden');
 		const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
+		let failCount = 0;
 		for (const id of ids) {
 			try {
 				const res = await fetch(`/api/series/${id}/chapters`);
+				if (!res.ok) { failCount++; continue; }
 				const chapters = await res.json();
 				if (chapters.length > 0) {
 					const latestChapter = Math.max(...chapters.map(ch => ch.chapter_number));
-					await fetch(`/api/series/${id}`, {
+					const patchRes = await fetch(`/api/series/${id}`, {
 						method: 'PATCH',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({
@@ -4635,14 +4642,20 @@ document.addEventListener('DOMContentLoaded', () => {
 							_is_bulk: true
 						})
 					});
+					if (!patchRes.ok) failCount++;
 				}
 			} catch (e) {
 				console.error(`Failed to update series ${id}:`, e);
+				failCount++;
 			}
 		}
 		// ADDED: Show notification for bulk read
 		const count = ids.length;
-		showNotification(`${count} series marked as read`, 'read');
+		if (failCount > 0) {
+			showNotification(`${count - failCount}/${count} series marked as read (${failCount} failed - try again)`, 'error');
+		} else {
+			showNotification(`${count} series marked as read`, 'read');
+		}
 		exitBulkMode();
 		loadPage();
 	});
@@ -4664,9 +4677,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			const ids = Array.from(bulkState.selectedIds);
 			document.getElementById('bulk-status-modal').classList.add('hidden');
 			const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
+			let failCount = 0;
 			for (const id of ids) {
 				try {
-					await fetch(`/api/series/${id}`, {
+					const res = await fetch(`/api/series/${id}`, {
 						method: 'PATCH',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({
@@ -4675,8 +4689,10 @@ document.addEventListener('DOMContentLoaded', () => {
 							_is_bulk: true
 						})
 					});
+					if (!res.ok) failCount++;
 				} catch (e) {
 					console.error(`Failed to update series ${id}:`, e);
+					failCount++;
 				}
 			}
 			// ADDED: Show notification for bulk status change
@@ -4689,7 +4705,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			'completed': 'Completed'
 			};
 			const statusText = statusMap[newStatus] || newStatus;
-			showNotification(`${count} series status changed to ${statusText}`, 'edit');
+			if (failCount > 0) {
+				showNotification(`${count - failCount}/${count} series status changed to ${statusText} (${failCount} failed - try again)`, 'error');
+			} else {
+				showNotification(`${count} series status changed to ${statusText}`, 'edit');
+			}
 			exitBulkMode();
 			loadPage();
 		});
@@ -4735,18 +4755,25 @@ document.addEventListener('DOMContentLoaded', () => {
 		const ids = Array.from(bulkState.selectedIds);
 		document.getElementById('bulk-delete-modal').classList.add('hidden');
 		const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
+		let failCount = 0;
 		for (const id of ids) {
 			try {
-				await fetch(`/api/series/${id}?bulk_id=${encodeURIComponent(bulkId)}`, {
+				const res = await fetch(`/api/series/${id}?bulk_id=${encodeURIComponent(bulkId)}`, {
 					method: 'DELETE'
 				});
+				if (!res.ok) failCount++;
 			} catch (e) {
 				console.error(`Failed to delete series ${id}:`, e);
+				failCount++;
 			}
 		}
 		// ADDED: Show notification for bulk delete
 		const count = ids.length;
-		showNotification(`${count} series deleted`, 'delete');
+		if (failCount > 0) {
+			showNotification(`${count - failCount}/${count} series deleted (${failCount} failed - try again)`, 'error');
+		} else {
+			showNotification(`${count} series deleted`, 'delete');
+		}
 		exitBulkMode();
 		loadPage();
 		loadGenres();
@@ -6577,7 +6604,11 @@ async function closeBottomSheet(keepScrollLocked = false) {
   if (mobileState.currentSeries && mobileState.pendingChapter !== null &&
       mobileState.pendingChapter !== mobileState.currentSeries.current_chapter) {
     try {
-		await saveChapter(mobileState.currentSeries.id, mobileState.pendingChapter, mobileState.currentSeries.current_chapter);
+		const res = await saveChapter(mobileState.currentSeries.id, mobileState.pendingChapter, mobileState.currentSeries.current_chapter);
+		if (!res.ok) {
+			showNotification('Failed to save chapter - check your connection and try again', 'error');
+			return; // Don't close if save failed
+		}
 		refreshSeriesCardInPlace(mobileState.currentSeries.id); // Update just this card, same as desktop's btnAccept
     } catch (err) {
       console.error('Failed to save chapter:', err);
@@ -7175,7 +7206,11 @@ document.getElementById('mobile-btn-edit-cancel')?.addEventListener('click', () 
 document.getElementById('mobile-btn-reset-not-started')?.addEventListener('click', () => {
   const seriesId = document.getElementById('mobile-edit-series-id').value;
   if (seriesId && mobileState.currentSeries) {
-    saveChapter(seriesId, -1, mobileState.currentSeries.current_chapter).then(() => {
+    saveChapter(seriesId, -1, mobileState.currentSeries.current_chapter).then((res) => {
+      if (!res.ok) {
+        showNotification('Failed to save chapter - check your connection and try again', 'error');
+        return;
+      }
       document.getElementById('mobile-edit-modal').classList.add('hidden');
       // FIXED: Unlock scrolling - SAME AS BOTTOM SHEET
       document.body.style.overflow = '';
@@ -7184,6 +7219,8 @@ document.getElementById('mobile-btn-reset-not-started')?.addEventListener('click
       document.body.style.top = '';
       window.scrollTo(0, mobileState.scrollY || 0);
       loadPage();
+    }).catch(() => {
+      showNotification('Failed to save chapter', 'error');
     });
   }
 });
