@@ -124,7 +124,7 @@ def _add_worker():
                                         import traceback
                                         traceback.print_exc()
                                     
-                                    result = {'id': series_id, 'success': True, 'duplicate': True}
+                                    result = {'id': series_id, 'title': existing_title, 'success': True, 'duplicate': True}
                                 else:
                                     error_msg = 'This series is already in your tracker (unable to retrieve details)'
                                     
@@ -314,7 +314,7 @@ def _add_worker():
                                         import traceback
                                         traceback.print_exc()
                                     
-                                    result = {'id': series_id, 'success': True, 'duplicate': True}
+                                    result = {'id': series_id, 'title': existing_title, 'success': True, 'duplicate': True}
                                 else:
                                     error_msg = 'This series is already in your tracker (unable to retrieve details)'
                                     
@@ -467,7 +467,7 @@ def _add_worker():
                                             import traceback
                                             traceback.print_exc()
                                         
-                                        result = {'id': series_id, 'success': True, 'duplicate': True}
+                                        result = {'id': series_id, 'title': existing_title, 'success': True, 'duplicate': True}
                                     else:
                                         error_msg = 'This series is already in your tracker (unable to retrieve details)'
                                         
@@ -624,7 +624,7 @@ def _add_worker():
                                             import traceback
                                             traceback.print_exc()
 
-                                        result = {'id': series_id, 'success': True, 'duplicate': True}
+                                        result = {'id': series_id, 'title': existing_title, 'success': True, 'duplicate': True}
                                     else:
                                         error_msg = 'This series is already in your tracker (unable to retrieve details)'
 
@@ -777,7 +777,7 @@ def _add_worker():
                                             import traceback
                                             traceback.print_exc()
 
-                                        result = {'id': series_id, 'success': True, 'duplicate': True}
+                                        result = {'id': series_id, 'title': existing_title, 'success': True, 'duplicate': True}
                                     else:
                                         error_msg = 'This series is already in your tracker (unable to retrieve details)'
 
@@ -930,7 +930,7 @@ def _add_worker():
                                             import traceback
                                             traceback.print_exc()
 
-                                        result = {'id': series_id, 'success': True, 'duplicate': True}
+                                        result = {'id': series_id, 'title': existing_title, 'success': True, 'duplicate': True}
                                     else:
                                         error_msg = 'This series is already in your tracker (unable to retrieve details)'
 

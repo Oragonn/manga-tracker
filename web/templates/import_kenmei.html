@@ -647,6 +647,21 @@
           return;
         }
 
+        // The "primary" URL for this row turned out to already be attached
+        // to a DIFFERENT, unrelated series (e.g. a pre-serialization listing
+        // whose only match on one site is actually the same page as an
+        // already-tracked release under a different title). Continuing on
+        // as if this were a normal successful add would silently graft this
+        // row's chapter progress and any other captured URLs onto that
+        // unrelated series - stop and let it be resolved by hand instead.
+        if (data.duplicate) {
+          row.importState = 'error';
+          row.errorMsg = `Matches already-tracked "${data.title || 'series'}" - resolve manually, not auto-merged`;
+          render();
+          persistRow(row);
+          return;
+        }
+
         // Apply the chapter progress from the CSV now that the series exists.
         if (row.chapter !== null && row.chapter !== undefined && !isNaN(row.chapter)) {
           try {
