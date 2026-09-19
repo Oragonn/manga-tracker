@@ -8,6 +8,8 @@ import glob
 import re
 import unicodedata
 
+from .tag_utils import load_tag_rules, resolve_tag
+
 def normalize_for_search(text):
     """Normalize text for robust searching: lowercase, remove punctuation, strip diacritics."""
     if not text:
@@ -901,6 +903,198 @@ def remove_custom_tag_from_series(series_id, tag_id):
         return False
 
 
+def _clean_tag_names(names):
+    """Strip and de-duplicate (case-insensitively) a list of tag names,
+    dropping blanks."""
+    cleaned = []
+    seen = set()
+    for name in names or []:
+        name = str(name or '').strip()
+        if name and name.casefold() not in seen:
+            seen.add(name.casefold())
+            cleaned.append(name)
+    return cleaned
+
+
+def create_tag_merge(sources, target):
+    """Fold every tag in `sources` into `target` (which needn't exist as a
+    tag yet). Merge targets are always kept flat -- if `target` is itself
+    merged into something, that final tag is used instead, and anything
+    already merged into one of `sources` is re-pointed at the final tag -- so
+    a tag is only ever one hop from its result.
+
+    Raises ValueError with a user-readable message if the request doesn't
+    make sense (nothing is written in that case). Returns what was done, in
+    the shape the Activity Log stores so it can be undone:
+    {'created': n, 'target': the tag merged into, 'sources': [tags merged],
+     'repointed': [{'tag', 'target'}, ...]} where `repointed` lists the
+    existing rules that had to be moved to the final tag, with the target
+    each one had before."""
+    target = str(target or '').strip()
+    sources = _clean_tag_names(sources)
+    if not sources:
+        raise ValueError('Pick at least one tag to merge')
+    if not target:
+        raise ValueError('Enter the tag to merge into')
+    source_keys = {name.casefold() for name in sources}
+    if target.casefold() in source_keys:
+        raise ValueError(f"'{target}' can't be merged into itself")
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        rules = load_tag_rules(cursor)
+        for name in sources:
+            if name.casefold() in rules:
+                raise ValueError(f"'{name}' already has a rule - remove it first")
+        final = resolve_tag(target, rules)
+        if final is None:
+            raise ValueError(f"'{target}' is banned - unban it first")
+        if final.casefold() in source_keys:
+            raise ValueError(f"Merging into '{target}' would loop back on itself")
+
+        repointed = [
+            {'tag': r['tag'], 'target': r['target']}
+            for r in rules.values()
+            if r['action'] == 'merge' and r['target_key'] in source_keys
+        ]
+        for name in sources:
+            cursor.execute(
+                "INSERT INTO tag_rules (tag, tag_key, action, target, target_key) VALUES (?, ?, 'merge', ?, ?)",
+                (name, name.casefold(), final, final.casefold())
+            )
+            cursor.execute(
+                "UPDATE tag_rules SET target = ?, target_key = ? WHERE action = 'merge' AND target_key = ?",
+                (final, final.casefold(), name.casefold())
+            )
+        return {'created': len(sources), 'target': final, 'sources': sources, 'repointed': repointed}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def create_tag_bans(tags):
+    """Ban every tag in `tags`. Raises ValueError with a user-readable message
+    (writing nothing) if one already has a rule, or is what other tags are
+    merged into -- banning that would silently take all of them with it.
+    Returns the list of tags banned."""
+    tags = _clean_tag_names(tags)
+    if not tags:
+        raise ValueError('Pick at least one tag to ban')
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        rules = load_tag_rules(cursor)
+        for name in tags:
+            if name.casefold() in rules:
+                raise ValueError(f"'{name}' already has a rule - remove it first")
+            aliases = [r['tag'] for r in rules.values()
+                       if r['action'] == 'merge' and r['target_key'] == name.casefold()]
+            if aliases:
+                shown = ', '.join(f"'{a}'" for a in aliases[:3]) + (' ...' if len(aliases) > 3 else '')
+                raise ValueError(f"'{name}' is what {shown} merge into - unmerge them first")
+
+        for name in tags:
+            cursor.execute(
+                "INSERT INTO tag_rules (tag, tag_key, action) VALUES (?, ?, 'ban')",
+                (name, name.casefold())
+            )
+        return tags
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def delete_tag_rule(rule_id):
+    """Remove one rule (un-ban, or take one tag back out of a merge). Returns
+    the rule that was removed ({'tag', 'action', 'target'}), or None if there
+    was no such rule."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT tag, action, target FROM tag_rules WHERE id = ?", (rule_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        cursor.execute("DELETE FROM tag_rules WHERE id = ?", (rule_id,))
+        return {'tag': row[0], 'action': row[1], 'target': row[2]}
+    finally:
+        release_db(conn)
+
+
+def delete_tag_merge_group(target):
+    """Take every tag back out of the merge into `target`. Returns the rules
+    that were removed, as [{'tag', 'target'}] (empty if there was no such
+    merge)."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        key = str(target or '').strip().casefold()
+        cursor.execute(
+            "SELECT tag, target FROM tag_rules WHERE action = 'merge' AND target_key = ? ORDER BY id",
+            (key,)
+        )
+        removed = [{'tag': row[0], 'target': row[1]} for row in cursor.fetchall()]
+        cursor.execute("DELETE FROM tag_rules WHERE action = 'merge' AND target_key = ?", (key,))
+        return removed
+    finally:
+        release_db(conn)
+
+
+def revert_tag_merge(sources, target, repointed):
+    """Undo a create_tag_merge: drop the merge rules it created for `sources`
+    and point the rules it had to re-point at `target` back to where they
+    were. Anything that has since been changed by hand is left alone, so this
+    is safe to run after later edits (a source that's already been unmerged
+    is simply skipped)."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        for name in _clean_tag_names(sources):
+            cursor.execute(
+                "DELETE FROM tag_rules WHERE action = 'merge' AND tag_key = ?",
+                (name.casefold(),)
+            )
+        target_key = str(target or '').strip().casefold()
+        for rule in repointed or []:
+            old_target = str(rule.get('target') or '').strip()
+            if not old_target:
+                continue
+            cursor.execute(
+                "UPDATE tag_rules SET target = ?, target_key = ? "
+                "WHERE action = 'merge' AND tag_key = ? AND target_key = ?",
+                (old_target, old_target.casefold(), str(rule.get('tag') or '').strip().casefold(), target_key)
+            )
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def revert_tag_bans(tags):
+    """Undo a create_tag_bans: lift the bans on `tags` (skipping any that are
+    already gone)."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        for name in _clean_tag_names(tags):
+            cursor.execute(
+                "DELETE FROM tag_rules WHERE action = 'ban' AND tag_key = ?",
+                (name.casefold(),)
+            )
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
 def get_filter_bookmarks():
     """All saved filter bookmarks, built-in ("Default") first, then by
     saved position."""
@@ -1130,6 +1324,24 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_custom_tags_series ON series_custom_tags(series_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_series_custom_tags_tag ON series_custom_tags(tag_id)")
 
+    # Rules from the Fixes page's Tag tab, applied to the scraped `genres`
+    # values whenever they're read (see tag_utils.py) -- never written back,
+    # so deleting a rule restores the original tags. 'merge' folds `tag`
+    # into `target`, 'ban' hides `tag`; *_key hold the casefolded names the
+    # rules are matched on.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tag_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tag TEXT NOT NULL,
+            tag_key TEXT NOT NULL UNIQUE,
+            action TEXT NOT NULL CHECK (action IN ('merge', 'ban')),
+            target TEXT,
+            target_key TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tag_rules_target ON tag_rules(target_key)")
+
     # Saved filter/sort combinations ("bookmarks") the dashboard's bookmark
     # dropdown lets you switch between in one click. "Default" is seeded
     # below and protected (is_builtin) - it always exists and always
@@ -1266,6 +1478,7 @@ def init_db():
     migrate_chapter_overrides_ban_by_url()
 
     # Run backfill AFTER releasing DB lock
+    repair_double_encoded_columns()
     backfill_searchable_text()
     
     # ✅ INITIALIZE STATS HISTORY TABLE
@@ -1328,6 +1541,13 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
         cursor.execute("PRAGMA table_info(series)")
         columns = {row[1] for row in cursor.fetchall()}
         
+        # An Activity Log undo passes a deleted series' genres/alt_titles back
+        # as the raw JSON text they were stored as -- decode it first, or it
+        # would be encoded a second time and the restored series would lose
+        # every tag.
+        alt_titles = _decode_snapshot_json(alt_titles)
+        genres = _decode_snapshot_json(genres)
+
         alt_titles_json = json.dumps(alt_titles, ensure_ascii=False) if alt_titles else None
         genres_json = json.dumps(genres, ensure_ascii=False) if genres else None
         
@@ -1459,6 +1679,67 @@ def delete_series(series_id):
         except:
             pass
         return False
+
+def _decode_snapshot_json(value):
+    """Decode the JSON text of a list/dict column (genres, alt_titles) back
+    into the list/dict it holds; anything else passes through unchanged.
+
+    The Activity Log snapshots a deleted series with those columns as their
+    raw JSON text, so restoring one hands add_series a *string*."""
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            return value
+        if isinstance(decoded, (list, dict)):
+            return decoded
+    return value
+
+
+def repair_double_encoded_columns():
+    """One-time repair for series restored by an Activity Log undo before
+    add_series learned to decode snapshot values: their `genres` / `alt_titles`
+    were stored as JSON text wrapped in a second layer of JSON (a string
+    containing '["Action", ...]'), which nothing can read, so the restored
+    series had lost every tag.
+
+    Decodes those values back into real lists. Only a value that decodes to a
+    string which itself decodes to a list/dict is touched, so correct rows and
+    anything unrelated are left alone, and it is safe to run on every start.
+    Returns how many values were repaired."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, genres, alt_titles FROM series")
+    repaired = 0
+    for series_id, genres, alt_titles in cursor.fetchall():
+        fixed = {}
+        for column, value in (('genres', genres), ('alt_titles', alt_titles)):
+            if not value:
+                continue
+            try:
+                outer = json.loads(value)
+            except ValueError:
+                continue
+            if not isinstance(outer, str):
+                continue
+            inner = _decode_snapshot_json(outer)
+            if isinstance(inner, (list, dict)):
+                fixed[column] = json.dumps(inner, ensure_ascii=False)
+        if fixed:
+            assignments = ', '.join(f"{column} = ?" for column in fixed)
+            # searchable_text was built from the garbled alt titles; clearing
+            # it lets backfill_searchable_text() (runs right after) rebuild it
+            reset_search = ", searchable_text = NULL" if 'alt_titles' in fixed else ""
+            cursor.execute(
+                f"UPDATE series SET {assignments}{reset_search} WHERE id = ?",
+                (*fixed.values(), series_id)
+            )
+            repaired += len(fixed)
+    release_db(conn)
+    if repaired:
+        print(f"[Database] Repaired {repaired} double-encoded genres/alt_titles value(s) on restored series")
+    return repaired
+
 
 def backfill_searchable_text():
     """Populate searchable_text for existing series (run once)."""

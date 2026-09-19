@@ -8,6 +8,14 @@ import json
 from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
 
+# How long Activity Log entries are kept before cleanup_old_logs() deletes them.
+ACTIVITY_LOG_RETENTION_DAYS = 30
+
+# Tag merge/ban history is a permanent record of the corrections made by hand
+# (the Fixes page's Recent Changes list), so it is exempt from cleanup: these
+# entries are never deleted, however old they get.
+TAG_ACTION_TYPES = ('tag_merged', 'tag_unmerged', 'tag_banned', 'tag_unbanned')
+
 def init_activity_log_table():
     """Create activity_log table if it doesn't exist."""
     conn = get_db()
@@ -58,9 +66,11 @@ def log_activity(action_type, series_id=None, series_title=None, old_value=None,
     Args:
         action_type: 'added', 'deleted', 'progress', 'status', 'edited',
                      'source_added', 'source_removed',
-                     'bookmark_added', 'bookmark_updated', 'bookmark_deleted'
+                     'bookmark_added', 'bookmark_updated', 'bookmark_deleted',
+                     'tag_merged', 'tag_unmerged', 'tag_banned', 'tag_unbanned'
         series_id: ID of the series (None if deleted, or not series-scoped)
-        series_title: Title of the series (or bookmark name, for bookmark events)
+        series_title: Title of the series (or bookmark name, for bookmark events;
+                      the tag name(s), for tag events)
         old_value: Dict of old values (will be JSON-encoded)
         new_value: Dict of new values (will be JSON-encoded)
         is_bulk: Whether this is part of a bulk operation
@@ -183,14 +193,20 @@ def get_series_snapshot(series_id):
         return None
 
 def cleanup_old_logs():
-    """Delete logs older than 14 days."""
+    """Delete logs older than ACTIVITY_LOG_RETENTION_DAYS (the scheduler runs
+    this once a day). Tag rule entries are never deleted -- see
+    TAG_ACTION_TYPES."""
     try:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=14)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=ACTIVITY_LOG_RETENTION_DAYS)
         cutoff_str = cutoff.isoformat().replace('+00:00', 'Z')
-        
+
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM activity_log WHERE timestamp < ?", (cutoff_str,))
+        placeholders = ','.join('?' * len(TAG_ACTION_TYPES))
+        cursor.execute(
+            f"DELETE FROM activity_log WHERE timestamp < ? AND action_type NOT IN ({placeholders})",
+            (cutoff_str, *TAG_ACTION_TYPES)
+        )
         deleted = cursor.rowcount
         release_db(conn)
         
@@ -236,12 +252,15 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
         where_parts = []
         params = []
         
-        # Type filter. 'source' and 'bookmark' are grouped filters covering
-        # multiple underlying action_type values (added/removed/updated).
+        # Type filter. 'source', 'bookmark' and 'tag' are grouped filters
+        # covering multiple underlying action_type values (added/removed/updated).
         if type_filter == 'source':
             where_parts.append("action_type IN ('source_added', 'source_removed')")
         elif type_filter == 'bookmark':
             where_parts.append("action_type IN ('bookmark_added', 'bookmark_updated', 'bookmark_deleted')")
+        elif type_filter == 'tag':
+            where_parts.append(f"action_type IN ({','.join('?' * len(TAG_ACTION_TYPES))})")
+            params.extend(TAG_ACTION_TYPES)
         elif type_filter != 'all':
             where_parts.append("action_type = ?")
             params.append(type_filter)

@@ -1102,15 +1102,26 @@ def api_series():
         include_genres = [genre_list[i] for i in range(len(genre_list)) if genre_modes[i] == 'include']
         exclude_genres = [genre_list[i] for i in range(len(genre_list)) if genre_modes[i] == 'exclude']
         
+        # A tag in the dropdown may stand for several stored tags (merged
+        # via Fixes > Tag), so each selection matches any of them. A banned
+        # tag matches nothing, so a stale selection of one is ignored rather
+        # than silently narrowing results by something no longer listed.
+        from .tag_utils import load_tag_rules, tags_matching
+        tag_rules = load_tag_rules(cursor)
+
         # Include genres - series must have ALL of these
         for g in include_genres:
-            where_parts.append("genres LIKE ?")
-            params.append(f'%"{g}"%')
-        
+            names = tags_matching(g, tag_rules)
+            if not names:
+                continue
+            where_parts.append("(" + " OR ".join(["genres LIKE ?"] * len(names)) + ")")
+            params.extend(f'%"{n}"%' for n in names)
+
         # Exclude genres - series must NOT have ANY of these
         for g in exclude_genres:
-            where_parts.append("genres NOT LIKE ?")
-            params.append(f'%"{g}"%')
+            for n in tags_matching(g, tag_rules):
+                where_parts.append("genres NOT LIKE ?")
+                params.append(f'%"{n}"%')
     
     # Process ratings
     if rating_list and len(rating_list) == len(rating_modes):
@@ -1295,31 +1306,29 @@ def api_series():
 @app.route('/api/genres')
 def api_genres():
     try:
+        from .tag_utils import load_tag_rules, count_tags
         conn = get_db()
         cursor = conn.cursor()
         # Only select non-empty, non-null-looking strings
         cursor.execute("""
-            SELECT genres FROM series 
-            WHERE genres IS NOT NULL 
+            SELECT genres FROM series
+            WHERE genres IS NOT NULL
               AND genres != ''
               AND genres NOT LIKE 'null'
               AND genres LIKE '[%'
         """)
-        rows = cursor.fetchall()
+        rows = [row[0] for row in cursor.fetchall()]
+        rules = load_tag_rules(cursor)
         release_db(conn)
 
-        genre_set = set()
-        for (genre_str,) in rows:
-            try:
-                parsed = json.loads(genre_str)
-                if isinstance(parsed, list):
-                    for g in parsed:
-                        if isinstance(g, str) and g.strip():
-                            genre_set.add(g.strip())
-            except (json.JSONDecodeError, TypeError):
-                continue
-
-        return jsonify(sorted(genre_set))
+        # Tags with a merge or ban rule (Fixes page > Tag) are folded into
+        # their target / left out here. Sources also disagree on casing
+        # ("Slice of Life" vs "Slice Of Life"), so each tag is listed once
+        # under its most common spelling -- the filter query's LIKE is
+        # case-insensitive, so that one entry still matches series stored
+        # with either spelling.
+        genres = [entry['tag'] for entry in count_tags(rows, rules)]
+        return jsonify(sorted(genres, key=str.casefold))
     except Exception as e:
         print(f"[Genres API] Error: {e}")
         return jsonify([]), 500
@@ -1498,8 +1507,20 @@ def api_update_series(series_id):
     _is_bulk = data.pop('_is_bulk', False)
     
     # REMOVE 'source_url' from allowed_fields
-    allowed_fields = {'current_chapter', 'current_volume', 'status', 'cover_url', 'title'}
+    allowed_fields = {'current_chapter', 'current_volume', 'status', 'cover_url', 'title', 'source_type', 'content_rating'}
     updates = {k: v for k, v in data.items() if k in allowed_fields}
+
+    # source_type here is the series' content type (what the dashboard's
+    # Content Type filter uses), not one of its source sites
+    content_types = ('manga', 'manhwa', 'manhua', 'other')
+    if 'source_type' in updates and updates['source_type'] not in content_types:
+        return jsonify({'error': f"source_type must be one of: {', '.join(content_types)}"}), 400
+
+    # content_rating is the age rating the Tags filter's rating section uses
+    # (mild = "Suggestive"). 'unknown' exists on some series but isn't a choice.
+    content_ratings = ('safe', 'mild', 'mature', 'explicit')
+    if 'content_rating' in updates and updates['content_rating'] not in content_ratings:
+        return jsonify({'error': f"content_rating must be one of: {', '.join(content_ratings)}"}), 400
     
     if 'current_chapter' in updates:
         val = updates['current_chapter']
@@ -1516,12 +1537,12 @@ def api_update_series(series_id):
     try:
         conn_old = get_db()
         cursor_old = conn_old.cursor()
-        cursor_old.execute("SELECT title, current_chapter, status FROM series WHERE id = ?", (series_id,))
+        cursor_old.execute("SELECT title, current_chapter, status, cover_url, source_type, content_rating FROM series WHERE id = ?", (series_id,))
         old_row = cursor_old.fetchone()
         release_db(conn_old)
         
         if old_row:
-            old_title, old_chapter, old_status = old_row
+            old_title, old_chapter, old_status, old_cover, old_type, old_rating = old_row
             
             # Determine action type and log values
             if 'current_chapter' in updates and old_chapter != updates['current_chapter']:
@@ -1557,12 +1578,8 @@ def api_update_series(series_id):
                     old_vals['title'] = old_title
                     new_vals['title'] = updates['title']
                 if 'cover_url' in updates:
-                    cursor_old = conn_old.cursor()
-                    cursor_old.execute("SELECT cover_url FROM series WHERE id = ?", (series_id,))
-                    old_cover = cursor_old.fetchone()
-                    if old_cover:
-                        old_vals['cover_url'] = old_cover[0]
-                        new_vals['cover_url'] = updates['cover_url']
+                    old_vals['cover_url'] = old_cover
+                    new_vals['cover_url'] = updates['cover_url']
                 
                 log_activity(
                     action_type='edited',
@@ -1570,6 +1587,28 @@ def api_update_series(series_id):
                     series_title=old_title,
                     old_value=old_vals,
                     new_value=new_vals,
+                    is_bulk=_is_bulk,
+                    bulk_id=_bulk_id
+                )
+
+            # Content type and content rating are logged together, in one entry
+            # of their own: the if/elif chain above records only ONE kind of edit
+            # per save, and these have their own undo.
+            classification_old = {}
+            classification_new = {}
+            if 'source_type' in updates and old_type != updates['source_type']:
+                classification_old['source_type'] = old_type
+                classification_new['source_type'] = updates['source_type']
+            if 'content_rating' in updates and old_rating != updates['content_rating']:
+                classification_old['content_rating'] = old_rating
+                classification_new['content_rating'] = updates['content_rating']
+            if classification_new:
+                log_activity(
+                    action_type='edited',
+                    series_id=series_id,
+                    series_title=old_title,
+                    old_value=classification_old,
+                    new_value=classification_new,
                     is_bulk=_is_bulk,
                     bulk_id=_bulk_id
                 )
@@ -2161,26 +2200,16 @@ def api_get_stats():
         """)
         rating_breakdown = {row[0]: row[1] for row in cursor.fetchall()}
         
-        # Most common genre
+        # Most common genre (counted with Fixes > Tag's merges/bans applied)
+        from .tag_utils import load_tag_rules, count_tags
         cursor.execute("SELECT genres FROM series WHERE genres IS NOT NULL AND genres != ''")
-        all_genres = []
-        for row in cursor.fetchall():
-            try:
-                genre_list = json.loads(row[0])
-                if isinstance(genre_list, list):
-                    all_genres.extend(genre_list)
-            except:
-                pass
-        
-        if all_genres:
-            genre_counts = {}
-            for genre in all_genres:
-                genre_counts[genre] = genre_counts.get(genre, 0) + 1
-            most_common_genre = max(genre_counts.items(), key=lambda x: x[1])[0]
-        else:
-            most_common_genre = 'N/A'
-        
+        genre_rows = [row[0] for row in cursor.fetchall()]
+        tag_rules = load_tag_rules(cursor)
+
         release_db(conn)
+
+        tag_counts = count_tags(genre_rows, tag_rules)
+        most_common_genre = max(tag_counts, key=lambda t: t['count'])['tag'] if tag_counts else 'N/A'
         
         # === RETURN STATS ===
         return jsonify({

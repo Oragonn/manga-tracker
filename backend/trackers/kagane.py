@@ -2,6 +2,7 @@
 
 import re
 from ..camoufox_kagane import kagane_browser
+from ..tag_utils import merge_tag_lists
 
 def extract_series_id(url):
     """Extract Kagane series ID from a series URL, e.g.
@@ -218,7 +219,7 @@ def get_series_info(series_id):
         'status': source_status,
         'chapters': chapters,
         'alt_titles': [t['title'] for t in meta.get('alternate_titles', []) if t.get('title')],
-        'genres': clean_genres,
+        'genres': merge_tag_lists(clean_genres, meta.get('tags', [])),
         'content_rating': content_rating,
         'source_type': source_type
     }

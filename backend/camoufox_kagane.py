@@ -252,6 +252,9 @@ class KaganeBrowserClient:
             'name': raw.get('title', 'Unknown Title'),
             'status': raw.get('publication_status', ''),
             'genres': genre_names,
+            # Kagane keeps its themes/tropes in a separate 'tags' list next
+            # to 'genres' -- pass them through so kagane.py can merge both.
+            'tags': [t.get('tag_name') for t in raw.get('tags', []) if t.get('tag_name')],
             'content_rating': raw.get('content_rating'),
             'cover_url': cover_url,
             'alternate_titles': [

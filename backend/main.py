@@ -4,7 +4,7 @@ load_dotenv()
 
 from .api import app, run_server
 from .auth import init_auth
-from flask import Flask, request, jsonify, render_template, send_file
+from flask import Flask, request, jsonify, render_template, send_file, redirect, url_for
 
 init_auth(app)
 import re
@@ -171,15 +171,17 @@ def api_get_logs():
     """
     Get activity logs with filters.
     Query params:
-      - type: all|added|deleted|progress|status|edited|source|bookmark
+      - type: all|added|deleted|progress|status|edited|source|bookmark|tag
       - time: all|today|week|month
       - search: series title search
+      - limit: most entries to return (default 100, at most 1000)
     """
     type_filter = request.args.get('type', 'all')
     time_filter = request.args.get('time', 'all')
     search_query = request.args.get('search', '')
-    
-    logs = get_logs(type_filter, time_filter, search_query, limit=100)
+    limit = min(max(request.args.get('limit', 100, type=int), 1), 1000)
+
+    logs = get_logs(type_filter, time_filter, search_query, limit=limit)
     return jsonify(logs)
 
 @app.route('/api/logs/undo/<int:log_id>', methods=['POST'])
@@ -191,7 +193,8 @@ def api_undo_log(log_id):
             get_db, release_db, update_series, add_source_to_series, remove_source,
             get_filter_bookmarks, create_filter_bookmark, update_filter_bookmark, delete_filter_bookmark,
             create_custom_tag, add_custom_tag_to_series, delete_series,
-            upsert_chapter_override, delete_chapter_override
+            upsert_chapter_override, delete_chapter_override,
+            create_tag_merge, create_tag_bans, revert_tag_merge, revert_tag_bans
         )
         
         conn = get_db()
@@ -354,6 +357,13 @@ def api_undo_log(log_id):
                         updates['title'] = old_value['title']
                     if 'cover_url' in old_value:
                         updates['cover_url'] = old_value['cover_url']
+                    if 'source_type' in old_value:
+                        updates['source_type'] = old_value['source_type']
+                    if 'content_rating' in old_value:
+                        updates['content_rating'] = old_value['content_rating']
+                    if 'genres' in old_value:
+                        # The log holds the tag list; the column holds its JSON text
+                        updates['genres'] = json.dumps(old_value['genres'], ensure_ascii=False) if old_value['genres'] else None
                     if updates:
                         update_series(series_id, updates)
                 except Exception as e:
@@ -485,6 +495,30 @@ def api_undo_log(log_id):
                 new_bookmark_id = create_filter_bookmark(old_value['name'], old_value['filter_state'])
                 if new_bookmark_id is None:
                     return jsonify({'error': 'Failed to restore bookmark'}), 500
+
+        elif action_type in ('tag_merged', 'tag_unmerged', 'tag_banned', 'tag_unbanned'):
+            # Tag rules aren't tied to a series. A conflict (the tag has since
+            # been given a different rule, say) is reported back as a 400 and
+            # the entry stays undoable, since nothing was changed.
+            try:
+                if action_type == 'tag_merged':
+                    # Drop the merge (and un-flatten anything it re-pointed)
+                    revert_tag_merge(
+                        (new_value or {}).get('sources'), (new_value or {}).get('target'),
+                        (new_value or {}).get('repointed')
+                    )
+                elif action_type == 'tag_unmerged':
+                    # Put the tags back into the merge they were removed from
+                    create_tag_merge((old_value or {}).get('tags'), (old_value or {}).get('target'))
+                elif action_type == 'tag_banned':
+                    revert_tag_bans((new_value or {}).get('tags'))
+                else:
+                    create_tag_bans([(old_value or {}).get('tag')])
+            except ValueError as e:
+                return jsonify({'error': f"Can't undo: {e}"}), 400
+            except Exception as e:
+                print(f"[Undo] Failed to revert tag change: {e}")
+                return jsonify({'error': f'Failed to revert tag change: {str(e)}'}), 500
 
         # Mark as undone
         mark_log_undone(log_id=log_id)
@@ -658,6 +692,12 @@ def api_undo_bulk(bulk_id):
                             updates['title'] = old_value['title']
                         if 'cover_url' in old_value:
                             updates['cover_url'] = old_value['cover_url']
+                        if 'source_type' in old_value:
+                            updates['source_type'] = old_value['source_type']
+                        if 'content_rating' in old_value:
+                            updates['content_rating'] = old_value['content_rating']
+                        if 'genres' in old_value:
+                            updates['genres'] = json.dumps(old_value['genres'], ensure_ascii=False) if old_value['genres'] else None
                         if updates:
                             update_series(series_id, updates)
                     except Exception as e:
@@ -997,18 +1037,12 @@ def api_add_source(series_id):
 
                 # genres can hit the same shape problem as alt_titles above --
                 # normalize both sides the same way before merging.
-                if isinstance(existing_genres, dict):
-                    existing_genres = list(existing_genres.values())
-                elif not isinstance(existing_genres, list):
-                    existing_genres = [str(existing_genres)] if existing_genres else []
-
-                if isinstance(new_genres, dict):
-                    new_genres = list(new_genres.values())
-                elif not isinstance(new_genres, list):
-                    new_genres = [str(new_genres)] if new_genres else []
+                from .tag_utils import normalize_tag_list, merge_tag_lists
+                existing_genres = normalize_tag_list(existing_genres)
+                new_genres = normalize_tag_list(new_genres)
 
                 merged_alt_titles = list(set(existing_alt_titles + new_alt_titles))
-                merged_genres = list(set(existing_genres + new_genres))
+                merged_genres = merge_tag_lists(existing_genres, new_genres)
 
                 # Content rating: sources can disagree (e.g. Atsumaru tags a
                 # series Mature but MangaDex calls it Safe). Trust whichever
@@ -1450,10 +1484,270 @@ def api_delete_chapter_override(series_id, override_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/fixes')
+def fixes_page():
+    """Chapter fixes (ban/edit/manually-add a source's chapter link for a
+    series) and tag fixes (merge/ban scraped tags), on separate tabs."""
+    return render_template('fixes.html')
+
+
 @app.route('/chapter-fixes')
 def chapter_fixes_page():
-    """Ban/edit/manually-add a source's chapter link for a series."""
-    return render_template('chapter_fixes.html')
+    """The Fixes page's old URL -- redirects (keeping ?series_id=) so
+    existing bookmarks and deep links still work."""
+    return redirect(url_for('fixes_page', **request.args))
+
+
+# --- Tag rules (Fixes page > Tag tab) ---
+# Merges/bans are applied when tags are read (see tag_utils.py), never
+# written into series.genres, so removing a rule restores the original tags.
+# Every change is written to the Activity Log with what /api/logs/undo needs
+# to reverse it.
+
+def _tag_names_title(names, limit=3):
+    """A short display title for a log entry about several tags."""
+    shown = ', '.join(names[:limit])
+    return shown + (f' +{len(names) - limit} more' if len(names) > limit else '')
+
+
+def _log_tag_activity(action_type, title, old_value=None, new_value=None):
+    try:
+        from .activity_logger import log_activity
+        log_activity(action_type=action_type, series_title=title, old_value=old_value, new_value=new_value)
+    except Exception as log_err:
+        print(f"[Tag Rules] Logging failed: {log_err}")
+
+
+@app.route('/api/tag-rules')
+def api_get_tag_rules():
+    """Every merge group and ban, plus every stored tag with how many series
+    have it (the tag picker's search list)."""
+    from .database import get_db, release_db
+    from .tag_utils import load_tag_rules, count_tags
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        rules = load_tag_rules(cursor)
+        cursor.execute("SELECT genres FROM series WHERE genres IS NOT NULL AND genres != ''")
+        genre_rows = [row[0] for row in cursor.fetchall()]
+    finally:
+        release_db(conn)
+
+    stored = count_tags(genre_rows)
+    stored_counts = {t['tag'].casefold(): t['count'] for t in stored}
+    merged_counts = {t['tag'].casefold(): t['count'] for t in count_tags(genre_rows, rules)}
+
+    merges = {}
+    bans = []
+    for rule in sorted(rules.values(), key=lambda r: r['id']):
+        entry = {'id': rule['id'], 'tag': rule['tag'], 'count': stored_counts.get(rule['tag'].casefold(), 0)}
+        if rule['action'] == 'ban':
+            bans.append(entry)
+        else:
+            group = merges.setdefault(rule['target_key'], {
+                'target': rule['target'],
+                'count': merged_counts.get(rule['target_key'], 0),
+                'aliases': []
+            })
+            group['aliases'].append(entry)
+
+    return jsonify({
+        'merges': sorted(merges.values(), key=lambda g: g['target'].casefold()),
+        'bans': bans,
+        'tags': sorted(stored, key=lambda t: (-t['count'], t['tag'].casefold()))
+    })
+
+
+@app.route('/api/tag-rules/merge', methods=['POST'])
+def api_merge_tags():
+    """Merge `sources` (a list of tags) into `target`."""
+    from .database import create_tag_merge
+    data = request.get_json() or {}
+    sources = data.get('sources')
+    if not isinstance(sources, list):
+        return jsonify({'error': 'sources must be a list of tags'}), 400
+    try:
+        result = create_tag_merge(sources, data.get('target'))
+        _log_tag_activity(
+            'tag_merged', result['target'],
+            new_value={'target': result['target'], 'sources': result['sources'], 'repointed': result['repointed']}
+        )
+        return jsonify({'success': True, 'created': result['created'], 'target': result['target']})
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"[Tag Rules] Merge failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tag-rules/ban', methods=['POST'])
+def api_ban_tags():
+    """Ban a list of tags."""
+    from .database import create_tag_bans
+    data = request.get_json() or {}
+    tags = data.get('tags')
+    if not isinstance(tags, list):
+        return jsonify({'error': 'tags must be a list of tags'}), 400
+    try:
+        banned = create_tag_bans(tags)
+        _log_tag_activity('tag_banned', _tag_names_title(banned), new_value={'tags': banned})
+        return jsonify({'success': True, 'created': len(banned)})
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"[Tag Rules] Ban failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tag-rules/<int:rule_id>', methods=['DELETE'])
+def api_delete_tag_rule(rule_id):
+    """Remove one rule: un-ban a tag, or take one tag back out of a merge."""
+    from .database import delete_tag_rule
+    try:
+        rule = delete_tag_rule(rule_id)
+        if not rule:
+            return jsonify({'error': 'Rule not found'}), 404
+        if rule['action'] == 'ban':
+            _log_tag_activity('tag_unbanned', rule['tag'], old_value={'tag': rule['tag']})
+        else:
+            _log_tag_activity(
+                'tag_unmerged', rule['target'],
+                old_value={'target': rule['target'], 'tags': [rule['tag']]}
+            )
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"[Tag Rules] Delete failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/tag-rules', methods=['DELETE'])
+def api_delete_tag_merge_group():
+    """Unmerge everything that was merged into ?target=<tag>."""
+    from .database import delete_tag_merge_group
+    target = request.args.get('target', '').strip()
+    if not target:
+        return jsonify({'error': 'target required'}), 400
+    try:
+        removed = delete_tag_merge_group(target)
+        if removed:
+            _log_tag_activity(
+                'tag_unmerged', removed[0]['target'],
+                old_value={'target': removed[0]['target'], 'tags': [r['tag'] for r in removed]}
+            )
+        return jsonify({'success': True, 'removed': len(removed)})
+    except Exception as e:
+        print(f"[Tag Rules] Unmerge failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# --- Per-series tags (Series Settings modal) ---
+# The modal shows and edits a series' EFFECTIVE tags -- what the Tags filter
+# sees, after the Fixes page's merges and bans (see tag_utils.edit_series_tags
+# for how an edit maps back onto the stored tags). Every change is logged as an
+# undoable 'edited' entry that holds the full stored list before and after.
+
+MAX_TAG_NAME_LENGTH = 80
+MAX_TAGS_PER_EDIT = 500
+
+
+def _clean_tag_edit_list(value, label):
+    """Validate the add/remove list of a tag edit: returns the stripped,
+    non-empty names, or raises ValueError with a message for the user."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f'{label} must be a list of tags')
+    names = [item.strip() for item in value if item.strip()]
+    if any(len(name) > MAX_TAG_NAME_LENGTH for name in names):
+        raise ValueError(f'Tag names can be at most {MAX_TAG_NAME_LENGTH} characters')
+    if len(names) > MAX_TAGS_PER_EDIT:
+        raise ValueError('Too many tags in one edit')
+    return names
+
+
+@app.route('/api/series/<int:series_id>/tags')
+def api_get_series_tags(series_id):
+    """A series' effective tags (after merges/bans), the name of every banned
+    tag (so the editor can refuse to add one), and its content type."""
+    from .database import get_db, release_db
+    from .tag_utils import load_tag_rules, parse_stored_tags, apply_tag_rules
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT genres, source_type FROM series WHERE id = ?", (series_id,))
+        row = cursor.fetchone()
+        rules = load_tag_rules(cursor) if row else {}
+    finally:
+        release_db(conn)
+    if not row:
+        return jsonify({'error': 'Series not found'}), 404
+
+    tags = sorted(apply_tag_rules(parse_stored_tags(row[0]), rules), key=str.casefold)
+    banned = sorted((r['tag'] for r in rules.values() if r['action'] == 'ban'), key=str.casefold)
+    return jsonify({'tags': tags, 'banned': banned, 'source_type': row[1]})
+
+
+@app.route('/api/series/<int:series_id>/tags', methods=['PUT'])
+def api_edit_series_tags(series_id):
+    """Add and/or remove tags on a series: {"add": [...], "remove": [...]},
+    both as effective tag names. Adding a banned tag is refused (400)."""
+    from .database import get_db, release_db
+    from .tag_utils import load_tag_rules, parse_stored_tags, apply_tag_rules, edit_series_tags
+
+    data = request.get_json() or {}
+    try:
+        add = _clean_tag_edit_list(data.get('add'), 'add')
+        remove = _clean_tag_edit_list(data.get('remove'), 'remove')
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT title, genres FROM series WHERE id = ?", (series_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'error': 'Series not found'}), 404
+        rules = load_tag_rules(cursor)
+        before = parse_stored_tags(row[1])
+        try:
+            after = edit_series_tags(before, add, remove, rules)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        changed = after != before
+        if changed:
+            # Stored as the column's JSON text (an empty list is NULL, like a
+            # series that never had tags)
+            cursor.execute(
+                "UPDATE series SET genres = ? WHERE id = ?",
+                (json.dumps(after, ensure_ascii=False) if after else None, series_id)
+            )
+    finally:
+        release_db(conn)
+
+    if changed:
+        # What the user saw change (effective names), for the log's description;
+        # 'genres' is the stored list, which is what undo restores.
+        shown_before = {tag.casefold(): tag for tag in apply_tag_rules(before, rules)}
+        shown_after = {tag.casefold(): tag for tag in apply_tag_rules(after, rules)}
+        try:
+            from .activity_logger import log_activity
+            log_activity(
+                action_type='edited', series_id=series_id, series_title=row[0],
+                old_value={'genres': before},
+                new_value={
+                    'genres': after,
+                    'added': [tag for key, tag in shown_after.items() if key not in shown_before],
+                    'removed': [tag for key, tag in shown_before.items() if key not in shown_after],
+                }
+            )
+        except Exception as log_err:
+            print(f"[Series Tags] Logging failed: {log_err}")
+
+    tags = sorted(apply_tag_rules(after, rules), key=str.casefold)
+    return jsonify({'success': True, 'changed': changed, 'tags': tags})
 
 
 @app.route('/import-kenmei')

@@ -932,6 +932,27 @@ html {
   display: none !important;
 }
 
+/* Search box above the tags list -- with every source's tags merged in, the
+   list runs into the thousands and needs filtering. */
+.multi-select-menu .tags-search-input {
+  flex-shrink: 0;
+  width: calc(100% - 16px);
+  height: 34px;
+  margin: 8px 8px 0;
+  padding: 0 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+
+.multi-select-menu .tags-search-input:focus {
+  outline: none;
+  border-color: #678ec9;
+}
+
 #filter-genre-menu .combined-tags-list {
   max-height: 320px;
   overflow-y: auto;
@@ -2646,6 +2667,325 @@ html {
   padding: 5px;
 }
 
+/* ─── Series Settings modal: Content Type + the series' own Tags ─── */
+.settings-segmented {
+  display: flex;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #1a2436;
+}
+
+.settings-segmented-btn {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  border-right: 1px solid #334155;
+  color: #94a3b8;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-segmented-btn:last-child {
+  border-right: none;
+}
+
+.settings-segmented-btn:hover {
+  background: #263449;
+  color: white;
+}
+
+.settings-segmented-btn.active {
+  background: rgb(2, 60, 191);
+  color: white;
+  font-weight: 600;
+}
+
+/* Content type / rating colours -- the same ones the /stats breakdowns use
+   (COLOR_MAP in stats.html), so a value reads the same colour in both places.
+   Each button carries a bar of its colour along the bottom edge (a dot inside
+   the button would eat the width the labels need -- they truncate as it is);
+   the selected one is tinted with the colour instead of the generic blue and
+   gets an inset ring so it still stands out when the tint is faint. */
+.settings-segmented-btn[data-value="manga"],
+.settings-summary-dot[data-value="manga"]     { --seg-color: #3b82f6; }
+.settings-segmented-btn[data-value="manhwa"],
+.settings-summary-dot[data-value="manhwa"]    { --seg-color: #10b981; }
+.settings-segmented-btn[data-value="manhua"],
+.settings-summary-dot[data-value="manhua"]    { --seg-color: #f59e0b; }
+.settings-segmented-btn[data-value="other"],
+.settings-summary-dot[data-value="other"]     { --seg-color: #6366f1; }
+.settings-segmented-btn[data-value="safe"],
+.settings-summary-dot[data-value="safe"]      { --seg-color: #22c55e; }
+.settings-segmented-btn[data-value="mild"],
+.settings-summary-dot[data-value="mild"]      { --seg-color: #eab308; }
+.settings-segmented-btn[data-value="mature"],
+.settings-summary-dot[data-value="mature"]    { --seg-color: #f97316; }
+.settings-segmented-btn[data-value="explicit"],
+.settings-summary-dot[data-value="explicit"]  { --seg-color: #ef4444; }
+
+.settings-segmented-btn[data-value] {
+  box-shadow: inset 0 -3px 0 var(--seg-color);
+}
+
+.settings-segmented-btn[data-value].active {
+  background: #263449; /* fallback where color-mix() isn't supported */
+  background: color-mix(in srgb, var(--seg-color) 24%, #1a2436);
+  box-shadow: inset 0 0 0 1.5px var(--seg-color);
+}
+
+/* The Type, Rating & Tags button's summary line: type, rating and tag count
+   as separate flex items so each dot is centred on its label's line box
+   (vertical-align on an inline dot sits it visibly low against the text). */
+#settings-typetags-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-summary-part {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+/* If the line ever runs out of room, the tag count gives way (with an
+   ellipsis, as the plain-text summary did) rather than the type or rating. */
+.settings-summary-part:last-child {
+  display: block;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-summary-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--seg-color);
+}
+
+/* Phone widths: each of the four options is only ~70-80px wide, and the
+   selected one is bold, so "Suggestive" got cut to "Suggesti…". A little
+   less side padding and a 13px label lets it (and "Manhwa") fit down to
+   ~360px. Scoped to the menu, not #edit-series-modal: the menu is moved to
+   <body> when it opens, so it is no longer inside the modal. */
+@media (max-width: 768px) {
+  .settings-typetags-menu .settings-segmented-btn {
+    padding: 0 3px;
+    font-size: 13px;
+  }
+}
+
+/* The Content Type & Tags button (a full-width selector like Source/Status whose
+   text summarises both) and the menu it opens. */
+.settings-typetags-group {
+  position: relative;
+}
+
+/* Something in the menu differs from what's saved */
+.settings-source-selector.changed .settings-source-name {
+  color: #678ec9;
+}
+
+.settings-typetags-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+/* Applied once openTypeTagsMenu() reparents the menu to <body> -- the modal
+   scrolls, which would clip an absolutely-positioned menu at its edge. The
+   position (top/bottom/left/width/max-height) is set inline from the button's
+   live coordinates; z-index has to clear the modal backdrop's 1000. */
+.settings-typetags-menu-portal {
+  position: fixed;
+  z-index: 1001;
+  overflow-y: auto;
+}
+
+.settings-typetags-menu.hidden {
+  display: none;
+}
+
+.settings-typetags-menu-label {
+  margin: 0 0 6px 0;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.settings-typetags-menu-label:not(:first-child) {
+  margin-top: 14px;
+}
+
+.settings-typetags-done {
+  width: 100%;
+  height: 32px;
+  margin-top: 12px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #cbd5e1;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.settings-typetags-done:hover {
+  background: #263449;
+  color: white;
+}
+
+.settings-scraped-tags-count {
+  color: #64748b;
+  font-weight: 400;
+}
+
+.settings-scraped-tags-box {
+  background: #141b2f;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.settings-scraped-tags-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 110px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+}
+
+.settings-scraped-tags-empty {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.settings-scraped-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px 3px 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  color: #e2e8f0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* Added in this session, not saved yet */
+.settings-scraped-tag.pending {
+  border-color: #678ec9;
+}
+
+.settings-scraped-tag-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: #94a3b8;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-scraped-tag-x:hover {
+  background: #334155;
+  color: white;
+}
+
+.settings-scraped-tags-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  margin: 0;
+  padding: 0 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: white;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.settings-scraped-tags-input:focus {
+  outline: none;
+  border-color: #678ec9;
+}
+
+.settings-scraped-tags-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Suggestions sit inline under the input (not a popover) -- the modal scrolls,
+   so an absolutely-positioned list would be clipped at its edge. */
+.settings-scraped-tags-suggest {
+  margin-top: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+  background: #141b2f;
+  border: 1px solid #334155;
+  border-radius: 6px;
+}
+
+.settings-scraped-tags-suggest.hidden {
+  display: none;
+}
+
+.settings-scraped-tag-option {
+  padding: 6px 10px;
+  color: #e2e8f0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-scraped-tag-option:hover {
+  background: #263449;
+}
+
+.settings-scraped-tag-option.add-new {
+  color: #678ec9;
+}
+
+.settings-scraped-tags-suggest-empty {
+  padding: 8px 10px;
+  color: #64748b;
+  font-size: 13px;
+}
+
 .settings-save-btn {
   width: 100%;
   justify-content: center;
@@ -3061,6 +3401,118 @@ html {
 /* ================================
    NOTIFICATION SYSTEM
    ================================ */
+/* Confirm dialog (showConfirmDialog in notifications.js) -- replaces the
+   browser's native confirm(). z-index sits above the app's own modals (up to
+   4000) but below the toast notifications (9999). */
+.confirm-dialog-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.6);
+  animation: confirm-dialog-fade 0.12s ease-out;
+}
+
+@keyframes confirm-dialog-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.confirm-dialog {
+  width: 100%;
+  max-width: 420px;
+  background: #141b2f;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+
+.confirm-dialog-title {
+  margin: 0 0 8px 0;
+  color: white;
+  font-size: 17px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.confirm-dialog-message {
+  margin: 0 0 20px 0;
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* A dialog with no message: the buttons follow the title directly */
+.confirm-dialog-title + .confirm-dialog-actions {
+  margin-top: 12px;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-dialog-actions button {
+  min-width: 88px;
+  height: 38px;
+  padding: 0 16px;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.confirm-dialog-actions button:focus-visible {
+  outline: 2px solid #678ec9;
+  outline-offset: 2px;
+}
+
+.confirm-dialog-cancel {
+  background: #1a2436;
+  color: #cbd5e1;
+}
+
+.confirm-dialog-cancel:hover {
+  background: #1e2c40;
+  color: white;
+}
+
+.confirm-dialog-confirm {
+  background: #1665f4;
+  border-color: #1665f4;
+  color: white;
+  font-weight: 600;
+}
+
+.confirm-dialog-confirm:hover {
+  background: #1256d0;
+}
+
+.confirm-dialog-confirm.danger {
+  background: #e04b4b;
+  border-color: #e04b4b;
+}
+
+.confirm-dialog-confirm.danger:hover {
+  background: #c93c3c;
+}
+
+@media (max-width: 480px) {
+  .confirm-dialog-actions button {
+    flex: 1;
+  }
+}
+
 .notification-container {
   position: fixed;
   top: 16px; /* Below header */
@@ -3741,6 +4193,12 @@ html {
     display: flex;
     flex-direction: column;
     max-height: 300px;
+  }
+
+  /* 16px keeps iOS from zooming the page when the search box is focused */
+  #mobile-filter-genre-menu .tags-search-input {
+    height: 40px;
+    font-size: 16px;
   }
 
   .filter-section {

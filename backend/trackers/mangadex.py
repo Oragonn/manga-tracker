@@ -103,15 +103,22 @@ def get_manga_info(manga_id):
         }
         content_rating = content_rating_map.get(content_rating_raw, 'safe')
         
-        # Extract genre tags (group = "genre")
+        # Keep every tag MangaDex attaches, not just group = "genre" -- its
+        # themes (Isekai, Reincarnation...), content warnings and formats
+        # are tags too and were being dropped.
         for tag in attrs.get('tags', []):
-            if tag.get('attributes', {}).get('group') == 'genre':
-                name_map = tag['attributes'].get('name', {})
-                # Prefer English name
-                genre_name = name_map.get('en') or next(iter(name_map.values()), None)
-                if genre_name and genre_name not in ('Manga', 'Manhwa', 'Manhua'):
-                    genres.append(genre_name)
-        
+            name_map = tag.get('attributes', {}).get('name', {})
+            # Prefer English name
+            tag_name = name_map.get('en') or next(iter(name_map.values()), None)
+            if tag_name and tag_name not in ('Manga', 'Manhwa', 'Manhua'):
+                genres.append(tag_name)
+
+        # The demographic (Shounen, Seinen...) isn't a tag on MangaDex, it's
+        # its own attribute, but every other source lists it as one.
+        demographic = attrs.get('publicationDemographic')
+        if demographic:
+            genres.append(demographic.capitalize())
+
         # Determine source_type from originalLanguage
         lang = attrs.get('originalLanguage')
         if lang == 'ja':

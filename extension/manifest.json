@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Manga Tracker – Kenmei Import Helper",
   "version": "1.0.0",
-  "description": "Speeds up matching Kenmei CSV rows on the Manga Tracker import page: opens all 5 source searches per row and lets you grab/skip results with W/U, then confirm with Y.",
-  "permissions": ["tabs"],
+  "description": "Speeds up matching Kenmei CSV rows on the Manga Tracker import page: opens all 5 source searches per row and lets you grab/skip results with W/U, then confirm with Y. Also works directly on a kenmei.co series page: I opens the same 5 searches, Y copies the matched links to the clipboard.",
+  "permissions": ["tabs", "clipboardWrite", "offscreen"],
   "host_permissions": [
     "https://mangadex.org/*",
     "https://atsu.moe/*",
@@ -11,6 +11,7 @@
     "https://kagane.to/*",
     "https://kagane.org/*",
     "https://hivetoons.org/*",
+    "https://kenmei.co/*",
     "http://*:8080/*"
   ],
   "background": {
@@ -34,6 +35,13 @@
         "http://*:8080/import-kenmei*"
       ],
       "js": ["content_import.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://kenmei.co/series/*"
+      ],
+      "js": ["content_kenmei.js"],
       "run_at": "document_idle"
     }
   ]

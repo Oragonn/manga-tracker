@@ -2,6 +2,9 @@
 
 Companion Chrome/Brave extension for `/import-kenmei`. Speeds up matching
 rows from a Kenmei CSV export to MangaDex/Atsumaru/AsuraScans/Kagane/HiveToons.
+Also works directly on a `kenmei.co/series/...` page for looking up one
+series at a time outside of a CSV - see [Kenmei series lookup](#kenmei-series-lookup)
+below.
 
 ## Install (unpacked, not published)
 
@@ -33,6 +36,56 @@ Moving to the next row is always manual (**I**) - nothing auto-advances,
 so the loop is "I to start, look/Y/U ×5, [auto-submits], I for the next
 row" whenever you're ready.
 
+## Kenmei series lookup
+
+On any `https://kenmei.co/series/...` page, the same source-matching step
+works without a CSV import in progress:
+
+| Key | Where              | Does |
+|-----|--------------------|------|
+| `I` | on the series page | open the same 5 source searches for this page's title |
+| `K` | on a source tab    | jump into the first result on a search-results page |
+| `Y` | on a source tab    | copy the running `url, url, ...` list to the clipboard, close the tab |
+| `U` | on a source tab    | no match here - just close the tab |
+| `I` | on a source tab    | re-run the search for the current series (start over) |
+
+`I` also peeks at Kenmei's own **Add to your Dashboard** → source dropdown in
+the background (expanding that form and opening its source list just long
+enough to read it, then closing the list with Escape) and shows which of the
+5 sources Kenmei itself already lists for this series on the badge - e.g.
+`Kenmei has: Atsumaru, AsuraScans, HiveToons (not MangaDex, Kagane)`. That
+form is left expanded but nothing is ever saved - the dashboard add only
+commits on a separate Save click, which this never makes, so your Kenmei
+library is untouched. Purely informational: all 5 search tabs still open
+either way, so it's still your call whether to bother waiting on a source
+Kenmei doesn't list.
+
+Once that check comes back, each of the 5 opened tabs also gets a small dot
+just to the left of the first result (the same one `K` would jump into) -
+green if Kenmei's list includes that tab's source, red if not. It sits
+beside the result, not on it: the dot means "Kenmei says this *site* has the
+series", not "this specific result is the confirmed match" - a site's search
+can come up empty (or wrong) purely from a title mismatch even when the
+series is genuinely there, so it's kept visually separate from whatever the
+search happened to find. It's a one-time snapshot taken when the check
+finishes - pressing `K` to navigate to a result page loses it (the dot
+doesn't follow across a navigation), and a tab closed (`Y`/`U`) before the
+check finishes never gets one. Falls back to a fixed top-right corner dot if
+no first result is found on the page at all. Each tab both waits for that
+info to be pushed to it and asks for it on load, so a tab that reloaded into
+a different page shortly after opening (Kagane's Cloudflare Turnstile
+challenge does this) still gets its dot once it's back and asking.
+
+Every `Y` overwrites the clipboard with the full `url, url, ...` list
+captured so far - by the last one, the clipboard holds every matched link,
+ready to paste straight into the import page's URL box (which wants just
+URLs, comma-separated - no title). Unlike the CSV import flow there's
+nothing to auto-submit here (no row, no Add button), so nothing happens on
+its own after the last tab closes - the clipboard is the end result. A
+status badge (bottom-right of the series page, showing the title so you
+don't lose track of which series you're matching) shows progress the same
+way.
+
 ## Known limitations (scaffold, not polished)
 
 - Only finds pending rows on the *currently visible page* of the import
@@ -53,3 +106,8 @@ row" whenever you're ready.
   results could in principle win instead of the real first result. Wasn't
   verified against live pages while building this - if K ever grabs the
   wrong link on a given site, say so and I'll tighten the match.
+- Kenmei series lookup: navigating from one kenmei.co series to another via
+  an in-page (SPA) link won't re-run `content_kenmei.js`, so `I` would still
+  open searches for the *previous* page's title - reload the page (or open
+  the link in a new tab) after following an in-page link to a different
+  series.

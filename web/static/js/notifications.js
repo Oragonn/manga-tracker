@@ -253,6 +253,105 @@ function closeNotification(notification, direction = 'right') {
 // Export for use in other files
 window.showNotification = showNotification;
 
+// ─── Confirm dialog ───────────────────────────────────────────
+/**
+ * The app's replacement for the browser's native confirm(). Resolves true if
+ * confirmed, false if cancelled (Cancel button, Escape, or a click on the
+ * dimmed backdrop):
+ *
+ *   if (!(await showConfirmDialog({
+ *     title: 'Delete series?', message: 'This cannot be undone.',
+ *     confirmText: 'Delete', danger: true
+ *   }))) return;
+ *
+ * title and message are set as text, so series/tag names can go straight in.
+ * With `danger` the button is red and focus starts on Cancel, so a stray
+ * Enter can't confirm a destructive action.
+ */
+let confirmDialogCounter = 0;
+
+function showConfirmDialog({ title = 'Are you sure?', message = '', confirmText = 'Confirm', cancelText = 'Cancel', danger = false } = {}) {
+  return new Promise(resolve => {
+    const id = `confirm-dialog-${confirmDialogCounter++}`;
+    const previouslyFocused = document.activeElement;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-dialog-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'confirm-dialog';
+    dialog.setAttribute('role', 'alertdialog');
+    dialog.setAttribute('aria-modal', 'true');
+    dialog.setAttribute('aria-labelledby', `${id}-title`);
+
+    const titleEl = document.createElement('h3');
+    titleEl.className = 'confirm-dialog-title';
+    titleEl.id = `${id}-title`;
+    titleEl.textContent = title;
+    dialog.appendChild(titleEl);
+
+    if (message) {
+      const messageEl = document.createElement('p');
+      messageEl.className = 'confirm-dialog-message';
+      messageEl.id = `${id}-message`;
+      messageEl.textContent = message;
+      dialog.setAttribute('aria-describedby', messageEl.id);
+      dialog.appendChild(messageEl);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'confirm-dialog-actions';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'confirm-dialog-cancel';
+    cancelBtn.textContent = cancelText;
+    const confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.className = 'confirm-dialog-confirm' + (danger ? ' danger' : '');
+    confirmBtn.textContent = confirmText;
+    actions.append(cancelBtn, confirmBtn);
+    dialog.appendChild(actions);
+    overlay.appendChild(dialog);
+
+    let settled = false;
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', onKeyDown, true);
+      overlay.remove();
+      if (previouslyFocused && typeof previouslyFocused.focus === 'function') previouslyFocused.focus();
+      resolve(result);
+    }
+
+    // Captured on the document so Escape/Tab are handled here before anything
+    // behind the dialog (an open modal, say) gets to react to them.
+    function onKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        finish(false);
+      } else if (e.key === 'Tab') {
+        // Keep focus inside the dialog: it only has the two buttons
+        e.preventDefault();
+        const other = document.activeElement === cancelBtn ? confirmBtn : cancelBtn;
+        other.focus();
+      }
+    }
+
+    cancelBtn.addEventListener('click', () => finish(false));
+    confirmBtn.addEventListener('click', () => finish(true));
+    overlay.addEventListener('click', e => {
+      if (e.target === overlay) finish(false);
+    });
+    document.addEventListener('keydown', onKeyDown, true);
+
+    document.body.appendChild(overlay);
+    (danger ? cancelBtn : confirmBtn).focus();
+  });
+}
+
+window.showConfirmDialog = showConfirmDialog;
+
 // ─── Unread error count badge ─────────────────────────────────
 // Every page's nav ships the same three badge elements (desktop nav link,
 // mobile hamburger drawer's Errors row, and a small dot on the hamburger

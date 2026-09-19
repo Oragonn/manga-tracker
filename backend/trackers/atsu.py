@@ -7,6 +7,8 @@ import threading
 import requests
 from datetime import datetime, timezone
 
+from ..tag_utils import merge_tag_lists
+
 _session = requests.Session()
 _session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
@@ -178,6 +180,9 @@ def get_series_info(manga_id):
         status = status_map.get(mp.get('status'), 'plan_to_read')
 
         genres = [g['name'] for g in mp.get('genres', []) if g.get('name')]
+        # 'tags' is the much larger taxonomy (themes, tropes, character types,
+        # demographics...) -- genres alone only covers a handful of broad ones.
+        tags = [t['name'] for t in (mp.get('tags') or []) if t.get('name')]
 
         # isAdult alone only distinguishes Pornographic from everything else.
         # Atsumaru's 'tags' field carries hierarchical namePaths like
@@ -220,7 +225,7 @@ def get_series_info(manga_id):
             'status': status,
             'chapters': chapters,
             'alt_titles': alt_titles,
-            'genres': genres,
+            'genres': merge_tag_lists(genres, tags),
             'content_rating': content_rating,
             'source_type': source_type
         }

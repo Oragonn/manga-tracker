@@ -95,6 +95,34 @@ function getDefaultRatingState() {
 	return DEFAULT_EXCLUDED_RATINGS.map(name => ({ name, mode: 'exclude' }));
 }
 
+// ─── Confirmations ────────────────────────────────────────────────
+// The app never uses the browser's native confirm()/alert(): confirmations
+// go through showConfirmDialog() (notifications.js) and notices through
+// showNotification(). These are the confirmations that appear in more than
+// one place (the desktop and mobile versions of the same action), so their
+// wording stays identical.
+const confirmRemoveSource = () => showConfirmDialog({
+	title: 'Remove this source?',
+	message: "Chapters from this source will remain but won't be updated.",
+	confirmText: 'Remove',
+	danger: true
+});
+
+const confirmDiscardChanges = (message = 'You have unsaved source changes.') => showConfirmDialog({
+	title: 'Discard changes?',
+	message,
+	confirmText: 'Discard',
+	cancelText: 'Keep editing',
+	danger: true
+});
+
+const confirmDeleteSeries = title => showConfirmDialog({
+	title: `Delete "${title}"?`,
+	message: 'This action cannot be undone.',
+	confirmText: 'Delete',
+	danger: true
+});
+
 // Shared by the desktop and mobile Tags dropdowns. Mature/Explicit start
 // hidden by default (a safety default, not a filter the user picked), so
 // they're never counted here regardless of mode -- only genres, custom
@@ -107,6 +135,22 @@ function formatTagsTriggerText(genreCount, ratingList, customTagCount) {
 	const totalCount = genreCount + activeRatingCount + customTagCount;
 
 	return totalCount === 0 ? 'Tags' : `${totalCount} Selected`;
+}
+
+// Every source's tags get merged into genres, so the Tags list can run into
+// the thousands -- both dropdowns get a search box that filters it. Only each
+// label's display is toggled, so checkbox state and the 3-state click
+// handlers are untouched. Returns a function that re-applies the current
+// query (needed after the list is rebuilt).
+function setupTagSearch(searchInput, listSection) {
+	const applySearch = () => {
+		const query = searchInput.value.trim().toLowerCase();
+		listSection.querySelectorAll('label').forEach(label => {
+			label.style.display = !query || label.textContent.toLowerCase().includes(query) ? '' : 'none';
+		});
+	};
+	searchInput.addEventListener('input', applySearch);
+	return applySearch;
 }
 
 // ─── Filter Bookmarks (saved views) ───────────────────────────────
@@ -800,6 +844,8 @@ function closeEditSeriesModal() {
 	// openTagsMenu) to escape the modal's overflow clipping, so it's no
 	// longer a descendant that hiding the modal auto-hides.
 	document.getElementById('settings-tags-menu')?.classList.add('hidden');
+	// Same for the Content Type & Tags menu.
+	closeTypeTagsMenu();
 
 	// html itself (not body) is the page's actual scrolling element --
 	// style.css sets `html { overflow-y: scroll }` with no height/overflow
@@ -827,7 +873,7 @@ function openEditModal(series) {
 	pendingCoverUrl = null;
 
 	const fixChaptersLink = document.getElementById('settings-fix-chapters-link');
-	if (fixChaptersLink) fixChaptersLink.href = `/chapter-fixes?series_id=${series.id}`;
+	if (fixChaptersLink) fixChaptersLink.href = `/fixes?series_id=${series.id}`;
 	// closeCoverMenu() lives inside the DOMContentLoaded closure below and
 	// isn't reachable from this top-level function, so reset directly.
 	document.getElementById('settings-cover-menu')?.classList.add('hidden');
@@ -839,8 +885,16 @@ function openEditModal(series) {
 		cover_url: series.cover_url || '',
 		status: series.status || 'plan_to_read',
 		current_chapter: series.current_chapter,
-		current_volume: series.current_volume ?? null
+		current_volume: series.current_volume ?? null,
+		// Anything that isn't one of the four types (a series with none set) shows as Other
+		source_type: CONTENT_TYPE_VALUES.includes(series.source_type) ? series.source_type : 'other',
+		// Kept as stored -- 'unknown' or nothing means unrated (no button selected)
+		content_rating: series.content_rating ?? null
 	};
+	pendingContentType = originalSeriesValues.source_type;
+	pendingContentRating = originalSeriesValues.content_rating;
+	syncContentTypeUI();
+	syncContentRatingUI();
 
 	const statusSelect = document.getElementById('edit-status');
 	if (statusSelect) statusSelect.value = originalSeriesValues.status;
@@ -864,6 +918,7 @@ function openEditModal(series) {
 
 	// Same reset for the Tags picker.
 	document.getElementById('settings-tags-menu')?.classList.add('hidden');
+	closeTypeTagsMenu();
 
 	// Same reset for the Chapter and Status custom dropdowns.
 	document.getElementById('chapter-select-menu')?.classList.add('hidden');
@@ -922,6 +977,8 @@ function openEditModal(series) {
 		renderTagsList();
 		renderTagsSelectorText();
 	});
+
+	loadSeriesTagsForEdit(series.id);
 
 	// Load chapters (existing code)
 	fetch(`/api/series/${series.id}/chapters`)
@@ -1097,7 +1154,11 @@ function updateSaveButtonState() {
 	const tagsChanged = tagIdSetsDiffer(pendingSeriesTagIds, currentSeriesTagIds);
 	const primarySourceChanged = pendingPrimarySourceId !== currentPrimarySourceId;
 
-	btn.disabled = !(chapterChanged || volumeChanged || titleChanged || coverChanged || statusChanged || tagsChanged || primarySourceChanged);
+	const typeChanged = contentTypeChanged();
+	const ratingChanged = contentRatingChanged();
+	const seriesTagsEdited = seriesTagsChanged();
+
+	btn.disabled = !(chapterChanged || volumeChanged || titleChanged || coverChanged || statusChanged || tagsChanged || primarySourceChanged || typeChanged || ratingChanged || seriesTagsEdited);
 }
 
 function formatManualStepperValues() {
@@ -1400,7 +1461,7 @@ async function saveSourceChanges(seriesId) {
 }
 
 async function removeSource(seriesId, sourceId) {
-	if (!confirm('Remove this source? Chapters from this source will remain but won\'t be updated.')) {
+	if (!(await confirmRemoveSource())) {
 		return;
 	}
 
@@ -1438,13 +1499,13 @@ async function addNewSource() {
 	const url = document.getElementById('new-source-url').value.trim();
 
 	if (!url) {
-		alert('Please enter a source URL');
+		showNotification('Please enter a source URL', 'error');
 		return;
 	}
 
 	// Validate URL — NOTE: fixed extra spaces in comparison
 	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/')) {
-		alert('Only MangaDex, Kagane, Atsumaru, AsuraScans, and HiveToons sources are supported');
+		showNotification('Only MangaDex, Kagane, Atsumaru, AsuraScans, and HiveToons sources are supported', 'error');
 		return;
 	}
 
@@ -1681,6 +1742,397 @@ async function addSeriesSource(url) {
 	}
 }
 
+// ─── Series Settings modal: Content Type + the series' own Tags ─────
+// Two more staged edits, like title/cover/status -- nothing is sent until Save.
+//  - Content type is series.source_type (manga / manhwa / manhua / other), what
+//    the Content Type filter matches. It is NOT one of the series' source sites.
+//  - Tags are the series' scraped tags (series.genres, what the Tags filter
+//    uses), as that filter sees them: after the Fixes page's merges and bans,
+//    so a merged tag shows once under its new name and a banned tag doesn't show
+//    at all (it stays on the series, hidden). Separate from Custom Tags above.
+const CONTENT_TYPE_VALUES = ['manga', 'manhwa', 'manhua', 'other'];
+const SERIES_TAG_SUGGESTION_LIMIT = 40;
+const CONTENT_TYPE_LABELS = { manga: 'Manga', manhwa: 'Manhwa', manhua: 'Manhua', other: 'Other' };
+// The age rating the Tags filter's rating section uses ('mild' is shown as "Suggestive").
+// A series can also carry 'unknown' or nothing: no button is selected then and the
+// summary says "Unrated", but 'unknown' can't be chosen.
+const CONTENT_RATING_VALUES = ['safe', 'mild', 'mature', 'explicit'];
+const CONTENT_RATING_LABELS = { safe: 'Safe', mild: 'Suggestive', mature: 'Mature', explicit: 'Explicit' };
+let pendingContentType = 'other';
+let pendingContentRating = null;
+let currentSeriesTags = [];      // saved tags, as fetched when the modal opened
+let pendingSeriesTags = [];      // what the chips show; Save diffs it against the above
+let seriesTagsLoaded = false;    // Save never sends tag changes for tags that failed to load
+let seriesTagsFailed = false;    // loading them failed (the button says so instead of a count)
+let seriesTagPool = [];          // every tag in the Tags filter, for suggestions
+let bannedTagKeys = new Set();   // lowercased banned names -- these can't be added
+
+const seriesTagKey = name => String(name).trim().toLowerCase();
+
+function sortSeriesTagNames(names) {
+	return [...names].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }));
+}
+
+// What Save has to send: tags the chips now show that weren't saved, and saved
+// tags that are no longer shown.
+function getSeriesTagChanges() {
+	if (!seriesTagsLoaded) return { add: [], remove: [] };
+	const savedKeys = new Set(currentSeriesTags.map(seriesTagKey));
+	const shownKeys = new Set(pendingSeriesTags.map(seriesTagKey));
+	return {
+		add: pendingSeriesTags.filter(name => !savedKeys.has(seriesTagKey(name))),
+		remove: currentSeriesTags.filter(name => !shownKeys.has(seriesTagKey(name)))
+	};
+}
+
+function seriesTagsChanged() {
+	const { add, remove } = getSeriesTagChanges();
+	return add.length > 0 || remove.length > 0;
+}
+
+function contentTypeChanged() {
+	return pendingContentType !== (originalSeriesValues?.source_type ?? pendingContentType);
+}
+
+function contentRatingChanged() {
+	if (!originalSeriesValues) return false;
+	return pendingContentRating !== (originalSeriesValues.content_rating ?? null);
+}
+
+// Rows for the suggestion list under the tag input: existing tags matching what
+// was typed (prefix matches first, then alphabetical), minus ones already shown
+// or banned, plus an "Add" row for a name that doesn't exist yet.
+function getSeriesTagSuggestions(query, pool, shownKeys, bannedKeys, limit = SERIES_TAG_SUGGESTION_LIMIT) {
+	const typed = String(query || '').trim();
+	const q = seriesTagKey(typed);
+	let matches = sortSeriesTagNames(pool.filter(name => {
+		const key = seriesTagKey(name);
+		return !shownKeys.has(key) && !bannedKeys.has(key) && (!q || key.includes(q));
+	}));
+	if (q) {
+		matches = [
+			...matches.filter(name => seriesTagKey(name).startsWith(q)),
+			...matches.filter(name => !seriesTagKey(name).startsWith(q))
+		];
+	}
+	const rows = matches.slice(0, limit).map(name => ({ name, isNew: false }));
+	const exists = pool.some(name => seriesTagKey(name) === q);
+	if (q && !exists && !shownKeys.has(q) && !bannedKeys.has(q)) rows.unshift({ name: typed, isNew: true });
+	return rows;
+}
+
+// The tag chips inside the menu, plus the summary on the button that opens it
+function renderSeriesTags(message) {
+	renderSeriesTagChips(message);
+	renderTypeTagsSummary();
+}
+
+function renderSeriesTagChips(message) {
+	const chipsEl = document.getElementById('settings-scraped-tags-chips');
+	const countEl = document.getElementById('settings-scraped-tags-count');
+	if (!chipsEl) return;
+	chipsEl.innerHTML = '';
+
+	if (message) {
+		const note = document.createElement('span');
+		note.className = 'settings-scraped-tags-empty';
+		note.textContent = message;
+		chipsEl.appendChild(note);
+		if (countEl) countEl.textContent = '';
+		return;
+	}
+
+	const savedKeys = new Set(currentSeriesTags.map(seriesTagKey));
+	const names = sortSeriesTagNames(pendingSeriesTags);
+	if (!names.length) {
+		const note = document.createElement('span');
+		note.className = 'settings-scraped-tags-empty';
+		note.textContent = 'No tags yet';
+		chipsEl.appendChild(note);
+	}
+	for (const name of names) {
+		const chip = document.createElement('span');
+		chip.className = 'settings-scraped-tag' + (savedKeys.has(seriesTagKey(name)) ? '' : ' pending');
+		chip.append(name);
+		const remove = document.createElement('button');
+		remove.type = 'button';
+		remove.className = 'settings-scraped-tag-x';
+		remove.textContent = '\u00d7';
+		remove.title = 'Remove tag';
+		remove.setAttribute('aria-label', `Remove tag ${name}`);
+		remove.addEventListener('click', () => removeSeriesTag(name));
+		chip.appendChild(remove);
+		chipsEl.appendChild(chip);
+	}
+	if (countEl) countEl.textContent = names.length ? `(${names.length})` : '';
+}
+
+// Rebuild the suggestion list (and show it). refreshSeriesTagSuggestions()
+// only does so if it's already open.
+function renderSeriesTagSuggestions() {
+	const input = document.getElementById('settings-scraped-tags-input');
+	const box = document.getElementById('settings-scraped-tags-suggest');
+	if (!input || !box) return;
+	const shownKeys = new Set(pendingSeriesTags.map(seriesTagKey));
+	const rows = getSeriesTagSuggestions(input.value, seriesTagPool, shownKeys, bannedTagKeys);
+	box.innerHTML = '';
+	if (!rows.length) {
+		const empty = document.createElement('div');
+		empty.className = 'settings-scraped-tags-suggest-empty';
+		empty.textContent = 'No matching tags';
+		box.appendChild(empty);
+	}
+	for (const row of rows) {
+		const option = document.createElement('div');
+		option.className = 'settings-scraped-tag-option' + (row.isNew ? ' add-new' : '');
+		option.textContent = row.isNew ? `Add "${row.name}"` : row.name;
+		option.addEventListener('click', () => {
+			addSeriesTag(row.name);
+			input.value = '';
+			input.focus();
+			renderSeriesTagSuggestions();
+		});
+		box.appendChild(option);
+	}
+	box.classList.remove('hidden');
+}
+
+function refreshSeriesTagSuggestions() {
+	const box = document.getElementById('settings-scraped-tags-suggest');
+	if (box && !box.classList.contains('hidden')) renderSeriesTagSuggestions();
+}
+
+// Stage a tag. Returns false if it was refused (empty or banned), true if it was
+// added or the series already shows it -- i.e. whether the input can be cleared.
+function addSeriesTag(rawName) {
+	const name = String(rawName || '').trim();
+	if (!name) return false;
+	const key = seriesTagKey(name);
+	if (bannedTagKeys.has(key)) {
+		showNotification(`"${name}" is a banned tag - unban it on the Fixes page first`, 'error');
+		return false;
+	}
+	if (pendingSeriesTags.some(tag => seriesTagKey(tag) === key)) return true;
+	// Reuse the spelling of a tag that already exists ("action" -> "Action")
+	pendingSeriesTags.push(seriesTagPool.find(tag => seriesTagKey(tag) === key) || name);
+	renderSeriesTags();
+	refreshSeriesTagSuggestions();
+	updateSaveButtonState();
+	return true;
+}
+
+function removeSeriesTag(name) {
+	pendingSeriesTags = pendingSeriesTags.filter(tag => seriesTagKey(tag) !== seriesTagKey(name));
+	renderSeriesTags();
+	refreshSeriesTagSuggestions();
+	updateSaveButtonState();
+}
+
+// Enter in the tag input: the best existing match, or the typed name if nothing matches
+function submitSeriesTagInput() {
+	const input = document.getElementById('settings-scraped-tags-input');
+	if (!input) return;
+	const shownKeys = new Set(pendingSeriesTags.map(seriesTagKey));
+	const rows = getSeriesTagSuggestions(input.value, seriesTagPool, shownKeys, bannedTagKeys);
+	const pick = rows.find(row => !row.isNew) || rows[0];
+	if (addSeriesTag(pick ? pick.name : input.value)) input.value = '';
+	refreshSeriesTagSuggestions();
+}
+
+function syncContentTypeUI() {
+	document.querySelectorAll('#settings-type-segmented .settings-segmented-btn').forEach(btn => {
+		const active = btn.dataset.value === pendingContentType;
+		btn.classList.toggle('active', active);
+		btn.setAttribute('aria-checked', active ? 'true' : 'false');
+	});
+	renderTypeTagsSummary();
+}
+
+function setPendingContentType(value) {
+	if (!CONTENT_TYPE_VALUES.includes(value)) return;
+	pendingContentType = value;
+	syncContentTypeUI();
+	updateSaveButtonState();
+}
+
+function syncContentRatingUI() {
+	document.querySelectorAll('#settings-rating-segmented .settings-segmented-btn').forEach(btn => {
+		const active = btn.dataset.value === pendingContentRating;
+		btn.classList.toggle('active', active);
+		btn.setAttribute('aria-checked', active ? 'true' : 'false');
+	});
+	renderTypeTagsSummary();
+}
+
+function setPendingContentRating(value) {
+	if (!CONTENT_RATING_VALUES.includes(value)) return;
+	pendingContentRating = value;
+	syncContentRatingUI();
+	updateSaveButtonState();
+}
+
+// Fetch this series' tags (and the tag list for suggestions) when the modal opens
+function loadSeriesTagsForEdit(seriesId) {
+	seriesTagsLoaded = false;
+	seriesTagsFailed = false;
+	currentSeriesTags = [];
+	pendingSeriesTags = [];
+	seriesTagPool = [];
+	bannedTagKeys = new Set();
+	const input = document.getElementById('settings-scraped-tags-input');
+	if (input) {
+		input.value = '';
+		input.disabled = true;
+	}
+	document.getElementById('settings-scraped-tags-suggest')?.classList.add('hidden');
+	renderSeriesTags('Loading\u2026');
+
+	return Promise.all([
+		fetch(`/api/series/${seriesId}/tags`).then(res => {
+			if (!res.ok) throw new Error('Failed to load tags');
+			return res.json();
+		}),
+		fetch('/api/genres').then(res => (res.ok ? res.json() : [])).catch(() => [])
+	]).then(([data, pool]) => {
+		// The modal may have moved on to another series while this was loading
+		if (currentSeriesIdForEdit !== seriesId) return;
+		currentSeriesTags = data.tags || [];
+		pendingSeriesTags = [...currentSeriesTags];
+		bannedTagKeys = new Set((data.banned || []).map(seriesTagKey));
+		seriesTagPool = Array.isArray(pool) ? pool : [];
+		seriesTagsLoaded = true;
+		if (input) input.disabled = false;
+		renderSeriesTags();
+		updateSaveButtonState();
+	}).catch(() => {
+		if (currentSeriesIdForEdit !== seriesId) return;
+		seriesTagsFailed = true;
+		renderSeriesTags("Couldn't load this series' tags");
+	});
+}
+
+// The text on the Content Type & Tags button: what the menu currently holds,
+// e.g. "Manhwa · Safe · 62 tags", with the type and rating each led by their
+// /stats colour dot (an unrated series gets no dot). It turns blue while
+// something is unsaved.
+function renderTypeTagsSummary() {
+	const summary = document.getElementById('settings-typetags-summary');
+	if (!summary) return;
+	const count = pendingSeriesTags.length;
+	const tagsText = seriesTagsFailed ? 'tags unavailable'
+		: !seriesTagsLoaded ? '…'
+		: `${count} tag${count === 1 ? '' : 's'}`;
+	const typeText = CONTENT_TYPE_LABELS[pendingContentType] || 'Other';
+	const ratingText = CONTENT_RATING_LABELS[pendingContentRating] || 'Unrated';
+
+	// One flex item per piece (see #settings-typetags-summary in style.css)
+	const part = (text, dotValue = null) => {
+		const el = document.createElement('span');
+		el.className = 'settings-summary-part';
+		if (dotValue) {
+			const dot = document.createElement('span');
+			dot.className = 'settings-summary-dot';
+			dot.dataset.value = dotValue;
+			el.appendChild(dot);
+		}
+		el.appendChild(document.createTextNode(text));
+		return el;
+	};
+	summary.replaceChildren(
+		part(typeText, CONTENT_TYPE_LABELS[pendingContentType] ? pendingContentType : 'other'),
+		part('·'),
+		part(ratingText, CONTENT_RATING_LABELS[pendingContentRating] ? pendingContentRating : null),
+		part('·'),
+		part(tagsText)
+	);
+	document.getElementById('settings-typetags-selector')?.classList.toggle('changed', contentTypeChanged() || contentRatingChanged() || seriesTagsChanged());
+}
+
+// The menu is moved to <body> the first time it opens and positioned from the
+// button's live coordinates: the modal scrolls, so a menu left inside it would
+// be clipped at the modal's edge (same reason as the Custom Tags menu). It opens
+// downwards unless there is clearly more room above, and never taller than the
+// room it has.
+function openTypeTagsMenu() {
+	const menu = document.getElementById('settings-typetags-menu');
+	const trigger = document.getElementById('settings-typetags-selector');
+	if (!menu || !trigger) return;
+	if (menu.parentElement !== document.body) {
+		document.body.appendChild(menu);
+		menu.classList.add('settings-typetags-menu-portal');
+	}
+	const rect = trigger.getBoundingClientRect();
+	const width = Math.min(rect.width, window.innerWidth - 16);
+	menu.style.width = `${width}px`;
+	menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+	const below = window.innerHeight - rect.bottom - 16;
+	const above = rect.top - 16;
+	if (below >= 320 || below >= above) {
+		menu.style.top = `${rect.bottom + 4}px`;
+		menu.style.bottom = 'auto';
+		menu.style.maxHeight = `${Math.max(below, 200)}px`;
+	} else {
+		menu.style.top = 'auto';
+		menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+		menu.style.maxHeight = `${Math.max(above, 200)}px`;
+	}
+	menu.classList.remove('hidden');
+	trigger.classList.add('open');
+}
+
+function closeTypeTagsMenu() {
+	document.getElementById('settings-typetags-menu')?.classList.add('hidden');
+	document.getElementById('settings-typetags-selector')?.classList.remove('open');
+	document.getElementById('settings-scraped-tags-suggest')?.classList.add('hidden');
+}
+
+// Event wiring for the tag input and the content type buttons (called once from
+// the DOMContentLoaded block below)
+function initSeriesTagsEditor() {
+	const input = document.getElementById('settings-scraped-tags-input');
+	const box = document.getElementById('settings-scraped-tags-suggest');
+	if (input && box) {
+		input.addEventListener('input', renderSeriesTagSuggestions);
+		input.addEventListener('focus', renderSeriesTagSuggestions);
+		input.addEventListener('blur', () => box.classList.add('hidden'));
+		input.addEventListener('keydown', e => {
+			if (e.key === 'Enter') {
+				e.preventDefault();
+				submitSeriesTagInput();
+			} else if (e.key === 'Escape') {
+				box.classList.add('hidden');
+			}
+		});
+		// Keep focus in the input while a suggestion is clicked, so the blur
+		// handler above doesn't hide the list before the click lands
+		box.addEventListener('mousedown', e => e.preventDefault());
+	}
+	document.querySelectorAll('#settings-type-segmented .settings-segmented-btn').forEach(btn => {
+		btn.addEventListener('click', () => setPendingContentType(btn.dataset.value));
+	});
+	document.querySelectorAll('#settings-rating-segmented .settings-segmented-btn').forEach(btn => {
+		btn.addEventListener('click', () => setPendingContentRating(btn.dataset.value));
+	});
+
+	// The menu itself (the button that opens it is wired with the other Series
+	// Settings popovers below, since they all close each other)
+	const menu = document.getElementById('settings-typetags-menu');
+	menu?.addEventListener('click', e => e.stopPropagation());
+	menu?.addEventListener('keydown', e => {
+		if (e.key === 'Escape') {
+			closeTypeTagsMenu();
+			document.getElementById('settings-typetags-selector')?.focus();
+		}
+	});
+	document.getElementById('settings-typetags-done')?.addEventListener('click', closeTypeTagsMenu);
+	document.addEventListener('click', e => {
+		if (!menu || menu.classList.contains('hidden')) return;
+		if (!menu.contains(e.target) && !document.getElementById('settings-typetags-selector')?.contains(e.target)) closeTypeTagsMenu();
+	});
+	// Scrolling the modal would leave a fixed-position menu floating where the button was
+	document.querySelector('#edit-series-modal .settings-modal')?.addEventListener('scroll', closeTypeTagsMenu, { passive: true });
+}
+
 // ─── Series Settings modal: custom Tags picker ───────────────────
 function renderTagsSelectorText() {
 	const textEl = document.getElementById('settings-tags-selector-text');
@@ -1690,7 +2142,7 @@ function renderTagsSelectorText() {
 		.filter(Boolean);
 
 	if (names.length === 0) {
-		textEl.textContent = 'Choose a tag';
+		textEl.textContent = 'Choose a custom tag';
 		textEl.classList.add('settings-tags-selector-muted');
 	} else if (names.length === 1) {
 		textEl.textContent = names[0];
@@ -1739,7 +2191,12 @@ function renderTagsList() {
 			e.stopPropagation();
 			const tagId = parseInt(btn.dataset.tagId, 10);
 			const tag = allCustomTagsCache.find(t => t.id === tagId);
-			if (!confirm(`Delete the tag "${tag ? tag.name : ''}"? This removes it from every series, not just this one.`)) return;
+			if (!(await showConfirmDialog({
+					title: `Delete the tag "${tag ? tag.name : ''}"?`,
+					message: 'This removes it from every series, not just this one.',
+					confirmText: 'Delete',
+					danger: true
+				}))) return;
 
 			try {
 				const res = await fetch(`/api/custom-tags/${tagId}`, { method: 'DELETE' });
@@ -3038,6 +3495,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	const genreListSection = genreMenu.querySelector('.genre-list-section');
 	const ratingCheckboxes = genreMenu.querySelectorAll('.rating-checkbox');
 	const clearAllBtn = document.getElementById('btn-clear-all-tags');
+	const genreSearchInput = document.getElementById('filter-genre-search');
+	const applyGenreSearch = setupTagSearch(genreSearchInput, genreListSection);
 
 	// Close menu when clicking outside
 	document.addEventListener('click', (e) => {
@@ -3054,6 +3513,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			closeAllMultiSelectMenus(genreMenu);
 			const rect = genreTrigger.getBoundingClientRect();
 			genreMenu.style.width = (rect.width * 1.6) + 'px';
+			// Start each open with a fresh search and the cursor ready to type
+			genreSearchInput.value = '';
+			applyGenreSearch();
+			genreSearchInput.focus();
 			// Scroll to top when opening
 			const scrollContainer = genreMenu.querySelector('.combined-tags-list');
 			if (scrollContainer) {
@@ -3229,6 +3692,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					
 					genreListSection.appendChild(label);
 				});
+				applyGenreSearch();
 			}
 		} catch (e) {
 			console.error('Failed to load genres:', e);
@@ -3690,7 +4154,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			delBtn.addEventListener('click', async (e) => {
 				e.stopPropagation();
 				if (!currentSeriesIdForEdit) return;
-				if (!confirm('Delete this uploaded cover? This cannot be undone.')) return;
+				if (!(await showConfirmDialog({
+						title: 'Delete this uploaded cover?',
+						message: 'This cannot be undone.',
+						confirmText: 'Delete',
+						danger: true
+					}))) return;
 
 				const coverId = delBtn.dataset.coverId;
 				const deletedEntry = currentSeriesUploadsCache.find(u => String(u.id) === coverId);
@@ -3992,7 +4461,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('settings-status-selector')?.classList.remove('open');
 	}
 
-	// All five Series Settings popovers (cover, source, tags, chapter, status)
+	// All the Series Settings popovers (cover, source, tags, content type & tags, chapter, status, title)
 	// are mutually exclusive. Each trigger's own stopPropagation() keeps its
 	// click from ever reaching the document-level "close if clicked outside"
 	// listeners the OTHERS rely on, so without this they'd stay open forever
@@ -4001,6 +4470,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		closeCoverMenu();
 		closeSourceMenu();
 		closeTagsMenu();
+		closeTypeTagsMenu();
 		closeChapterSelectMenu();
 		closeStatusMenu();
 		closeTitleMenu();
@@ -4035,6 +4505,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	document.getElementById('settings-tags-new-input')?.addEventListener('keydown', (e) => {
 		if (e.key === 'Enter') { e.preventDefault(); document.getElementById('settings-tags-new-submit')?.click(); }
+	});
+
+// ─── Series Settings modal: Content Type & Tags button ──
+	document.getElementById('settings-typetags-selector')?.addEventListener('click', (e) => {
+		e.stopPropagation();
+		const menu = document.getElementById('settings-typetags-menu');
+		const wasHidden = menu?.classList.contains('hidden');
+		closeAllSettingsPopovers();
+		if (wasHidden) openTypeTagsMenu();
 	});
 
 // ─── Series Settings modal: Chapter + Status custom dropdown open/close ──
@@ -4108,6 +4587,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 // ─── Series Settings modal: Save button commits title + chapter ──
+	initSeriesTagsEditor();
 	document.getElementById('edit-current-chapter')?.addEventListener('change', updateSaveButtonState);
 	document.getElementById('edit-status')?.addEventListener('change', updateSaveButtonState);
 
@@ -4138,7 +4618,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		const tagsToRemove = currentSeriesTagIds.filter(id => !pendingSeriesTagIds.includes(id));
 		const primarySourceChanged = pendingPrimarySourceId !== currentPrimarySourceId;
 
-		if (!chapterChanged && !volumeChanged && !titleChanged && !coverChanged && !statusChanged && !tagsChanged && !primarySourceChanged) return;
+		const newContentType = pendingContentType;
+		const contentTypeEdited = contentTypeChanged();
+		const newContentRating = pendingContentRating;
+		const contentRatingEdited = contentRatingChanged();
+		const seriesTagChanges = getSeriesTagChanges();
+		const seriesTagsEdited = seriesTagChanges.add.length > 0 || seriesTagChanges.remove.length > 0;
+
+		if (!chapterChanged && !volumeChanged && !titleChanged && !coverChanged && !statusChanged && !tagsChanged && !primarySourceChanged && !contentTypeEdited && !contentRatingEdited && !seriesTagsEdited) return;
 
 		const payload = {};
 		if (chapterChanged) payload.current_chapter = newChapter;
@@ -4146,6 +4633,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (titleChanged) payload.title = newTitle;
 		if (coverChanged) payload.cover_url = pendingCoverUrl;
 		if (statusChanged) payload.status = newStatus;
+		if (contentTypeEdited) payload.source_type = newContentType;
+		if (contentRatingEdited) payload.content_rating = newContentRating;
 
 		try {
 			const requests = [];
@@ -4162,6 +4651,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			tagsToRemove.forEach(tagId => {
 				requests.push(fetch(`/api/series/${currentSeriesIdForEdit}/custom-tags/${tagId}`, { method: 'DELETE' }));
 			});
+			if (seriesTagsEdited) {
+				requests.push(fetch(`/api/series/${currentSeriesIdForEdit}/tags`, {
+					method: 'PUT',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify(seriesTagChanges)
+				}));
+			}
 			if (primarySourceChanged) {
 				requests.push(fetch(`/api/series/${currentSeriesIdForEdit}/sources/${pendingPrimarySourceId}/primary`, { method: 'POST' }));
 			}
@@ -4179,19 +4675,27 @@ document.addEventListener('DOMContentLoaded', () => {
 				}
 				if (statusChanged && originalSeriesValues) originalSeriesValues.status = newStatus;
 				if (tagsChanged) currentSeriesTagIds = [...pendingSeriesTagIds];
+				if (contentTypeEdited && originalSeriesValues) originalSeriesValues.source_type = newContentType;
+				if (contentRatingEdited && originalSeriesValues) originalSeriesValues.content_rating = newContentRating;
+				if (seriesTagsEdited) currentSeriesTags = [...pendingSeriesTags];
 				if (primarySourceChanged) currentPrimarySourceId = pendingPrimarySourceId;
 				const parts = [];
 				if (titleChanged) parts.push('title');
 				if (chapterChanged || volumeChanged) parts.push('chapter');
 				if (coverChanged) parts.push('cover');
 				if (statusChanged) parts.push('status');
-				if (tagsChanged) parts.push('tags');
+				if (contentTypeEdited) parts.push('content type');
+				if (contentRatingEdited) parts.push('content rating');
+				if (seriesTagsEdited) parts.push('tags');
+				if (tagsChanged) parts.push('custom tags');
 				if (primarySourceChanged) parts.push('source');
 				showNotification(`Updated ${parts.join(', ')}`, 'read');
 				closeEditSeriesModal();
 				refreshSeriesCardInPlace(currentSeriesIdForEdit);
 			} else {
-				showNotification('Failed to save changes', 'error');
+				const failed = results.find(r => !r.ok);
+				const failure = await failed.json().catch(() => ({}));
+				showNotification(failure.error || 'Failed to save changes', 'error');
 			}
 		} catch (e) {
 			showNotification('Failed to save changes', 'error');
@@ -4202,7 +4706,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ─── Modified Save Button Handler ─────────────────────────────
 	document.getElementById('btn-edit-save')?.addEventListener('click', async () => {
 		if (!currentSeriesIdForEdit) {
-			alert('No series selected');
+			showNotification('No series selected', 'error');
 			return;
 		}
 
@@ -4212,7 +4716,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (currentChapterValue !== "-1") {
 			currentChapterNum = parseFloat(currentChapterValue);
 			if (isNaN(currentChapterNum)) {
-				alert('Invalid chapter selection');
+				showNotification('Invalid chapter selection', 'error');
 				return;
 			}
 		}
@@ -4288,9 +4792,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 	// ─── Modified Cancel Button Handler ─────────────────────────────
-	document.getElementById('btn-edit-cancel')?.addEventListener('click', () => {
+	document.getElementById('btn-edit-cancel')?.addEventListener('click', async () => {
 		if (pendingSourceChanges.hasChanges) {
-			if (!confirm('You have unsaved source changes. Discard them?')) {
+			if (!(await confirmDiscardChanges())) {
 				return;
 			}
 		}
@@ -4298,10 +4802,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 	// ─── Modified Modal Close Handler ─────────────────────────────
-	editModal?.addEventListener('click', (e) => {
+	editModal?.addEventListener('click', async (e) => {
 		if (e.target === editModal) {
 			if (pendingPrimarySourceId !== currentPrimarySourceId) {
-				if (!confirm('You have an unsaved source change. Discard it?')) {
+				if (!(await confirmDiscardChanges('You have an unsaved source change.'))) {
 					return;
 				}
 			}
@@ -4419,7 +4923,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const statusSelect = document.getElementById('new-series-status');
 		const selectedStatus = statusSelect?.value || 'reading';
 		if (!url) {
-			alert('Please enter a URL');
+			showNotification('Please enter a URL', 'error');
 			return;
 		}
 		isAdding = true;
@@ -4447,7 +4951,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const maxAttempts = 60;
 			const poll = async () => {
 				if (attempt >= maxAttempts) {
-					alert('⚠️ Add timed out. It may still be processing in the background.');
+					showNotification('Add timed out. It may still be processing in the background.', 'error', 8000);
 					loadPage();
 					isAdding = false;
 					return;
@@ -4502,7 +5006,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					}
 				} catch (e) {
 					if (attempt >= maxAttempts - 1) {
-						alert('Network error during add. Please check logs.');
+						showNotification('Network error during add. Please check logs.', 'error', 8000);
 						loadPage();
 					}
 					isAdding = false;
@@ -5065,7 +5569,9 @@ function createFilterDrawer() {
 				<span>Include Mode</span>
 				</button>
 			</div>
-			
+
+			<input type="search" class="tags-search-input" id="mobile-filter-genre-search" placeholder="Search tags..." autocomplete="off">
+
 			<div class="combined-tags-list">
 				<div class="genre-list-section"></div>
 				<div style="border-top: 1px solid #334155; margin: 8px 0;"></div>
@@ -5203,6 +5709,8 @@ function createFilterDrawer() {
   const mobileCustomTagsSection = mobileGenreMenu.querySelector('.custom-tags-section');
   const mobileRatingCheckboxes = mobileGenreMenu.querySelectorAll('.rating-checkbox');
   const mobileClearAllBtn = document.getElementById('mobile-btn-clear-all-tags');
+  const mobileGenreSearchInput = document.getElementById('mobile-filter-genre-search');
+  const applyMobileGenreSearch = setupTagSearch(mobileGenreSearchInput, mobileGenreListSection);
 
   // Close menu when clicking outside
   document.addEventListener('click', (e) => {
@@ -5217,6 +5725,9 @@ function createFilterDrawer() {
     mobileGenreMenu.classList.toggle('hidden');
     if (!mobileGenreMenu.classList.contains('hidden')) {
       closeAllMultiSelectMenus(mobileGenreMenu);
+      // Fresh search each open; no autofocus here, it would pop the keyboard
+      mobileGenreSearchInput.value = '';
+      applyMobileGenreSearch();
       const scrollContainer = mobileGenreMenu.querySelector('.combined-tags-list');
       if (scrollContainer) {
         scrollContainer.scrollTop = 0;
@@ -5385,6 +5896,7 @@ function createFilterDrawer() {
           
           mobileGenreListSection.appendChild(label);
         });
+        applyMobileGenreSearch();
       }
     } catch (e) {
       console.error('Failed to load genres:', e);
@@ -5981,7 +6493,7 @@ function createBottomSheet() {
 			option.innerHTML = originalHTML;
 		}, 1500);
 		} else {
-		alert('Failed to copy to clipboard');
+		showNotification('Failed to copy to clipboard', 'error');
 		}
 
 		// ADDED: Prevent menu from closing by stopping event propagation
@@ -5990,7 +6502,7 @@ function createBottomSheet() {
 		break;
 		
 		case 'delete':
-		if (confirm(`Delete "${series.title}"? This action cannot be undone.`)) {
+		if (await confirmDeleteSeries(series.title)) {
 			try {
 			const res = await fetch(`/api/series/${series.id}`, {
 				method: 'DELETE'
@@ -6953,7 +7465,7 @@ function initializeMobileDragAndDrop() {
 }
 
 async function removeMobileSource(seriesId, sourceId) {
-  if (!confirm('Remove this source? Chapters from this source will remain but won\'t be updated.')) {
+  if (!(await confirmRemoveSource())) {
     return;
   }
   
@@ -7008,12 +7520,12 @@ async function addMobileNewSource() {
   const seriesId = document.getElementById('mobile-edit-series-id').value;
   
   if (!url) {
-    alert('Please enter a source URL');
+    showNotification('Please enter a source URL', 'error');
     return;
   }
   
   if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/')) {
-    alert('This source is not supported');
+    showNotification('This source is not supported', 'error');
     return;
   }
   
@@ -7078,7 +7590,7 @@ if (res.ok) {
 document.getElementById('mobile-btn-edit-save')?.addEventListener('click', async () => {
   const seriesId = document.getElementById('mobile-edit-series-id').value;
   if (!seriesId) {
-    alert('No series selected');
+    showNotification('No series selected', 'error');
     return;
   }
   
@@ -7088,7 +7600,7 @@ document.getElementById('mobile-btn-edit-save')?.addEventListener('click', async
   if (currentChapterValue !== "-1") {
     currentChapterNum = parseFloat(currentChapterValue);
     if (isNaN(currentChapterNum)) {
-      alert('Invalid chapter selection');
+      showNotification('Invalid chapter selection', 'error');
       return;
     }
   }
@@ -7188,9 +7700,9 @@ document.getElementById('mobile-btn-edit-save')?.addEventListener('click', async
   }
 });
 
-document.getElementById('mobile-btn-edit-cancel')?.addEventListener('click', () => {
+document.getElementById('mobile-btn-edit-cancel')?.addEventListener('click', async () => {
   if (mobilePendingSourceChanges.hasChanges) {
-    if (!confirm('You have unsaved source changes. Discard them?')) {
+    if (!(await confirmDiscardChanges())) {
       return;
     }
   }
@@ -7226,10 +7738,10 @@ document.getElementById('mobile-btn-reset-not-started')?.addEventListener('click
 });
 
 // Click outside to close Edit modal
-document.getElementById('mobile-edit-modal')?.addEventListener('click', (e) => {
+document.getElementById('mobile-edit-modal')?.addEventListener('click', async (e) => {
   if (e.target.id === 'mobile-edit-modal') {
     if (mobilePendingSourceChanges.hasChanges) {
-      if (!confirm('You have unsaved source changes. Discard them?')) {
+      if (!(await confirmDiscardChanges())) {
         return;
       }
     }
@@ -7280,7 +7792,7 @@ async function openMobileSettingsModal(series) {
 document.getElementById('mobile-btn-settings-save')?.addEventListener('click', async () => {
   const seriesId = document.getElementById('mobile-settings-series-id').value;
   if (!seriesId) {
-    alert('No series selected');
+    showNotification('No series selected', 'error');
     return;
   }
   
@@ -7398,7 +7910,7 @@ document.getElementById('mobile-btn-delete-series')?.addEventListener('click', a
   const seriesId = document.getElementById('mobile-settings-series-id').value;
   const title = document.getElementById('mobile-settings-title').value;
   
-  if (!confirm(`Delete "${title}"? This action cannot be undone.`)) return;
+  if (!(await confirmDeleteSeries(title))) return;
   
   try {
     const res = await fetch(`/api/series/${seriesId}`, {

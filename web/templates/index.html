@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel33" />
+  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel40" />
   <style>
     /* style.css only defines .mobile-menu/.mobile-menu-overlay inside its
        @media(max-width:768px) block - on a desktop-width viewport they have
@@ -31,7 +31,7 @@
   </style>
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
-  <script src="/static/js/notifications.js"></script>
+  <script src="/static/js/notifications.js?v=mobilepanel40"></script>
 </head>
 <body>
 
@@ -57,7 +57,7 @@
       </a>
       <a href="/backups" class="nav-link">Backups</a>
       <a href="/logs" class="nav-link">Activity Log</a>
-      <a href="/chapter-fixes" class="nav-link">Chapter Fixes</a>
+      <a href="/fixes" class="nav-link">Fixes</a>
       <a href="/stats" class="nav-link">Stats</a>
     </div>
   </nav>
@@ -90,7 +90,7 @@
     </a>
     <a href="/backups">Backups</a>
     <a href="/logs">Activity Log</a>
-    <a href="/chapter-fixes">Chapter Fixes</a>
+    <a href="/fixes">Fixes</a>
     <a href="/stats">Stats</a>
   </div>
 </div>
@@ -247,6 +247,8 @@
           Tags
         </button>
         <div class="multi-select-menu hidden" id="filter-genre-menu">
+          <input type="search" class="tags-search-input" id="filter-genre-search" placeholder="Search tags..." autocomplete="off">
+
           <!-- COMBINED SCROLLABLE LIST -->
           <div class="combined-tags-list">
             <!-- Genres section -->
@@ -584,9 +586,9 @@
             </div>
           </div>
           <div class="form-group settings-tags-col" id="settings-tags-group">
-            <label>Tags</label>
+            <label>Custom Tags</label>
             <button type="button" class="settings-tags-selector" id="settings-tags-selector">
-              <span class="settings-tags-selector-text settings-tags-selector-muted" id="settings-tags-selector-text">Choose a tag</span>
+              <span class="settings-tags-selector-text settings-tags-selector-muted" id="settings-tags-selector-text">Choose a custom tag</span>
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M6 9l6 6 6-6"/>
               </svg>
@@ -601,6 +603,39 @@
                 <button type="button" class="settings-cover-url-apply" id="settings-tags-new-submit">Add</button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div class="form-group settings-typetags-group" id="settings-typetags-group">
+          <label>Type, Rating &amp; Tags</label>
+          <button type="button" class="settings-source-selector" id="settings-typetags-selector" aria-haspopup="true">
+            <span class="settings-source-name" id="settings-typetags-summary">Other</span>
+            <svg class="settings-source-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </button>
+          <div class="settings-typetags-menu hidden" id="settings-typetags-menu">
+            <p class="settings-typetags-menu-label">Content Type</p>
+            <div class="settings-segmented" id="settings-type-segmented" role="radiogroup" aria-label="Content type">
+              <button type="button" class="settings-segmented-btn" data-value="manga" role="radio" aria-checked="false">Manga</button>
+              <button type="button" class="settings-segmented-btn" data-value="manhwa" role="radio" aria-checked="false">Manhwa</button>
+              <button type="button" class="settings-segmented-btn" data-value="manhua" role="radio" aria-checked="false">Manhua</button>
+              <button type="button" class="settings-segmented-btn" data-value="other" role="radio" aria-checked="false">Other</button>
+            </div>
+            <p class="settings-typetags-menu-label">Content Rating</p>
+            <div class="settings-segmented" id="settings-rating-segmented" role="radiogroup" aria-label="Content rating">
+              <button type="button" class="settings-segmented-btn" data-value="safe" role="radio" aria-checked="false">Safe</button>
+              <button type="button" class="settings-segmented-btn" data-value="mild" role="radio" aria-checked="false">Suggestive</button>
+              <button type="button" class="settings-segmented-btn" data-value="mature" role="radio" aria-checked="false">Mature</button>
+              <button type="button" class="settings-segmented-btn" data-value="explicit" role="radio" aria-checked="false">Explicit</button>
+            </div>
+            <p class="settings-typetags-menu-label">Tags <span class="settings-scraped-tags-count" id="settings-scraped-tags-count"></span></p>
+            <div class="settings-scraped-tags-box">
+              <div class="settings-scraped-tags-chips" id="settings-scraped-tags-chips"></div>
+              <input type="text" id="settings-scraped-tags-input" class="settings-scraped-tags-input" placeholder="Add a tag..." maxlength="80" autocomplete="off" disabled />
+              <div class="settings-scraped-tags-suggest hidden" id="settings-scraped-tags-suggest"></div>
+            </div>
+            <button type="button" class="settings-typetags-done" id="settings-typetags-done">Done</button>
           </div>
         </div>
 
@@ -860,7 +895,7 @@
   </svg>
 </button>
 
-<script src="/static/js/dashboard.js?v=mobilepanel33"></script>
+<script src="/static/js/dashboard.js?v=mobilepanel40"></script>
   <!-- ADDED: Initialize notifications -->
   <script>
   // Initialize notification system on page load
@@ -880,7 +915,7 @@
     document.body.classList.add('mobile-device');
 
     // Hamburger menu (nav drawer) - the dashboard previously had no way to
-    // reach Scheduler/Chapter Fixes/Errors/Backups/Logs/Stats on mobile,
+    // reach Scheduler/Fixes/Errors/Backups/Logs/Stats on mobile,
     // since .nav-links is hidden by CSS there with nothing to replace it.
     const header = document.querySelector('.header-full');
     const navContainer = header?.querySelector('.nav-container');

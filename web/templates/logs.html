@@ -9,6 +9,7 @@
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
   <script src="/static/js/notifications.js"></script>
+  <script src="/static/js/tag_activity.js"></script>
   <style>
     
     .logs-container {
@@ -230,6 +231,10 @@
     .log-icon.bookmark_added { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
     .log-icon.bookmark_updated { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
     .log-icon.bookmark_deleted { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .log-icon.tag_merged { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+    .log-icon.tag_unmerged { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+    .log-icon.tag_banned { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .log-icon.tag_unbanned { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
 
     .log-content {
       flex: 1;
@@ -324,6 +329,69 @@
       cursor: not-allowed;
     }
 
+    /* Inline "Undo this?" confirm that replaces the Undo button in place */
+    .undo-confirm {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .undo-confirm-text {
+      color: #94a3b8;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .btn-undo-cancel,
+    .btn-undo-confirm {
+      padding: 6px 12px;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-undo-cancel {
+      background: #1a2436;
+      color: #cbd5e1;
+    }
+
+    .btn-undo-cancel:hover:not(:disabled) {
+      background: #1e2c40;
+      color: white;
+    }
+
+    .btn-undo-confirm {
+      background: #1665f4;
+      border-color: #1665f4;
+      color: white;
+      font-weight: 600;
+    }
+
+    .btn-undo-confirm:hover:not(:disabled) {
+      background: #1256d0;
+    }
+
+    .btn-undo-cancel:disabled,
+    .btn-undo-confirm:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* On a phone the confirm drops to its own line under the entry instead of
+       squeezing the text into a sliver next to it. */
+    @media (max-width: 768px) {
+      .log-entry.confirming {
+        flex-wrap: wrap;
+      }
+
+      .log-entry.confirming .log-actions {
+        flex: 1 1 100%;
+        justify-content: flex-end;
+      }
+    }
+
     .no-logs {
       text-align: center;
       padding: 60px 20px;
@@ -354,7 +422,7 @@
       </a>
       <a href="/backups" class="nav-link">Backups</a>
       <a href="/logs" class="nav-link">Activity Log</a>
-      <a href="/chapter-fixes" class="nav-link">Chapter Fixes</a>
+      <a href="/fixes" class="nav-link">Fixes</a>
       <a href="/stats" class="nav-link">Stats</a>
     </div>
   </nav>
@@ -384,7 +452,7 @@
     </a>
     <a href="/backups">Backups</a>
     <a href="/logs">Activity Log</a>
-    <a href="/chapter-fixes">Chapter Fixes</a>
+    <a href="/fixes">Fixes</a>
     <a href="/stats">Stats</a>
   </div>
 </div>
@@ -404,6 +472,7 @@
       <option value="edited">Edited</option>
       <option value="source">Sources</option>
       <option value="bookmark">Bookmarks</option>
+      <option value="tag">Tags</option>
     </select>
 
     <select id="filter-time" class="control-input" style="width: auto;">
@@ -506,7 +575,7 @@ async function loadLogs() {
             </div>
           </div>
           <div class="log-actions">
-            ${canUndo ? `<button class="btn-undo" onclick="undoAction(${log.id}, '${log.bulk_id || ''}', '${log.action_type}')">Undo</button>` : ''}
+            ${canUndo ? `<button class="btn-undo" onclick="askUndo(this, ${log.id}, '${log.bulk_id || ''}', '${log.action_type}')">Undo</button>` : ''}
           </div>
         </div>
       `;
@@ -533,10 +602,16 @@ function getLogIcon(type) {
     bookmark_updated: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
     bookmark_deleted: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>'
   };
+  if (isTagActivity(type)) return TAG_ACTIVITY_ICONS[type];
   return icons[type] || icons.edited;
 }
 
 function getLogTitle(log) {
+  // Tag names come from scraped sources or typed text, and this string is
+  // injected as HTML below, so it has to be escaped (series titles are left
+  // as they always were).
+  if (log.action_type.startsWith('tag_')) return escapeHtml(log.series_title || 'Tags');
+
   if (log.is_bulk) {
     const typeLabels = {
       deleted: 'Deleted',
@@ -583,8 +658,21 @@ function getLogDetails(log) {
           return `${statusMap[oldVal.status] || oldVal.status} → ${statusMap[newVal.status] || newVal.status}`;
         }
         return 'Status changed';
-      case 'edited':
-        return 'Metadata updated';
+      case 'edited': {
+        // Content type / tag edits from Series Settings say what changed; older
+        // title and cover entries keep the generic line
+        const parts = [];
+        if (oldVal && 'source_type' in oldVal) {
+          parts.push(`Content type: ${contentTypeLabel(oldVal.source_type)} → ${contentTypeLabel(newVal?.source_type)}`);
+        }
+        if (oldVal && 'content_rating' in oldVal) {
+          parts.push(`Content rating: ${contentRatingLabel(oldVal.content_rating)} → ${contentRatingLabel(newVal?.content_rating)}`);
+        }
+        if (oldVal && 'genres' in oldVal) {
+          parts.push(describeSeriesTagEdit(oldVal.genres, newVal));
+        }
+        return parts.length ? escapeHtml(parts.join(' · ')) : 'Metadata updated';
+      }
       case 'source_added': {
         const label = sourceTypeLabel(newVal?.source_type);
         return `Added ${label} as a source`;
@@ -613,12 +701,47 @@ function getLogDetails(log) {
         return newVal?.renamed ? `Renamed to "${newVal.name}"` : 'Filters updated';
       case 'bookmark_deleted':
         return 'Saved view deleted';
+      case 'tag_merged':
+      case 'tag_unmerged':
+      case 'tag_banned':
+      case 'tag_unbanned':
+        return escapeHtml(tagActivityText(log));
       default:
         return '';
     }
   } catch {
     return '';
   }
+}
+
+// The Tags filter calls 'mild' "Suggestive"
+function contentRatingLabel(rating) {
+  const labels = { safe: 'Safe', mild: 'Suggestive', mature: 'Mature', explicit: 'Explicit' };
+  return labels[rating] || 'Unrated';
+}
+
+function contentTypeLabel(type) {
+  const labels = { manga: 'Manga', manhwa: 'Manhwa', manhua: 'Manhua', other: 'Other' };
+  return labels[type] || 'Not set';
+}
+
+// "Tags: added "a", "b", removed "c"" as plain text (the caller escapes it).
+// Uses the tags as the user saw them (newVal.added/removed) when the entry
+// has them, else diffs the stored lists.
+function describeSeriesTagEdit(oldTags, newVal) {
+  let added = newVal?.added;
+  let removed = newVal?.removed;
+  if (!Array.isArray(added) || !Array.isArray(removed)) {
+    const keys = list => new Set((list || []).map(tag => tag.toLowerCase()));
+    const oldKeys = keys(oldTags);
+    const newKeys = keys(newVal?.genres);
+    added = (newVal?.genres || []).filter(tag => !oldKeys.has(tag.toLowerCase()));
+    removed = (oldTags || []).filter(tag => !newKeys.has(tag.toLowerCase()));
+  }
+  const parts = [];
+  if (added.length) parts.push(`added ${formatTagNames(added, 3)}`);
+  if (removed.length) parts.push(`removed ${formatTagNames(removed, 3)}`);
+  return parts.length ? `Tags: ${parts.join(', ')}` : 'Tags updated';
 }
 
 function sourceTypeLabel(type) {
@@ -629,6 +752,7 @@ function sourceTypeLabel(type) {
 // What undo actually did, per action_type -- "Restored" is only true for
 // the types that put something back; the others remove/revert instead.
 function getUndoMessage(actionType, name) {
+  if (isTagActivity(actionType)) return tagUndoMessage(actionType, name);
   const templates = {
     deleted: n => `Restored ${n}`,
     added: n => `Removed ${n}`,
@@ -657,19 +781,50 @@ function getBulkUndoMessage(actionType, count) {
   return (templates[actionType] || (c => `Undone for ${c} series`))(count);
 }
 
-async function undoAction(logId, bulkId, actionType) {
-  if (!confirm('Undo this action?')) return;
+// Undo asks for confirmation in place -- the button swaps itself for
+// "Undo this? Cancel / Undo" (no native dialog) and comes back if cancelled or
+// if the undo is refused.
+function askUndo(button, logId, bulkId, actionType) {
+  const actions = button.closest('.log-actions');
+  const entry = button.closest('.log-entry');
+  // Grab the entry's name now, before the list reloads
+  const entryTitle = entry?.querySelector('.log-title')?.textContent?.trim() || null;
+  const originalNodes = Array.from(actions.childNodes);
 
-  // Get series name from DOM BEFORE making the API call (before reload)
-  let seriesNameFromDOM = null;
-  if (!bulkId) {
-    // Find the log entry by searching for the undo button
-    const undoButton = event.target;
-    const logEntry = undoButton.closest('.log-entry');
-    const titleElement = logEntry?.querySelector('.log-title');
-    seriesNameFromDOM = titleElement?.textContent?.trim() || null;
+  const wrap = document.createElement('div');
+  wrap.className = 'undo-confirm';
+  const text = document.createElement('span');
+  text.className = 'undo-confirm-text';
+  text.textContent = 'Undo this?';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'btn-undo-cancel';
+  cancel.textContent = 'Cancel';
+  const confirmBtn = document.createElement('button');
+  confirmBtn.type = 'button';
+  confirmBtn.className = 'btn-undo-confirm';
+  confirmBtn.textContent = 'Undo';
+  wrap.append(text, cancel, confirmBtn);
+
+  function restore() {
+    entry?.classList.remove('confirming');
+    actions.replaceChildren(...originalNodes);
   }
 
+  entry?.classList.add('confirming');
+  actions.replaceChildren(wrap);
+  cancel.addEventListener('click', restore);
+  confirmBtn.addEventListener('click', async () => {
+    cancel.disabled = true;
+    confirmBtn.disabled = true;
+    confirmBtn.textContent = 'Undoing...';
+    const done = await undoAction(logId, bulkId, actionType, entryTitle);
+    if (!done) restore();
+  });
+}
+
+// Performs the undo. Returns true if it worked, false if it was refused/failed.
+async function undoAction(logId, bulkId, actionType, entryTitle) {
   try {
     const url = bulkId ? `/api/logs/undo-bulk/${bulkId}` : `/api/logs/undo/${logId}`;
     const res = await fetch(url, { method: 'POST' });
@@ -682,17 +837,21 @@ async function undoAction(logId, bulkId, actionType) {
         const count = data.affected_count || data.restored_count || 'Multiple';
         showNotification(getBulkUndoMessage(data.action_type || actionType, count), 'undo');
       } else {
-        // Single undo - try backend response first, then use DOM value
-        const seriesName = data.series?.title || data.title || data.series_title || seriesNameFromDOM || 'Series';
+        // Single undo - try backend response first, then the name read off the entry
+        const seriesName = data.series?.title || data.title || data.series_title || entryTitle || 'Series';
         showNotification(getUndoMessage(actionType, seriesName), 'undo');
       }
 
       loadLogs();
-    } else {
-      showNotification('Failed to undo action', 'error');
+      return true;
     }
+
+    const err = await res.json().catch(() => ({}));
+    showNotification(err.error || 'Failed to undo action', 'error');
+    return false;
   } catch (err) {
     showNotification('Error: ' + err.message, 'error');
+    return false;
   }
 }
 
