@@ -965,6 +965,7 @@
     <label for="tag-sort">Sort tags by</label>
     <select id="tag-sort" class="control-input">
       <option value="count">Most used</option>
+      <option value="count-asc">Least used</option>
       <option value="name-asc">Name (A-Z)</option>
       <option value="name-desc">Name (Z-A)</option>
     </select>
@@ -1397,7 +1398,7 @@
   // thousands of tags can be browsed (by name, say) without building them all.
   const SUGGESTION_PAGE_SIZE = 50;
   const HISTORY_PAGE_SIZE = 25;
-  const SORT_MODES = ['count', 'name-asc', 'name-desc'];
+  const SORT_MODES = ['count', 'count-asc', 'name-asc', 'name-desc'];
   const SORT_STORAGE_KEY = 'fixesTagSort';
   const nameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 
@@ -1419,7 +1420,7 @@
   const historyList = document.getElementById('tag-history');
   const sortSelect = document.getElementById('tag-sort');
 
-  let tagSort = 'count';       // 'count' (most used first) | 'name-asc' | 'name-desc'
+  let tagSort = 'count';       // 'count' (most used first) | 'count-asc' (least used first) | 'name-asc' | 'name-desc'
   try {
     const saved = localStorage.getItem(SORT_STORAGE_KEY);
     if (SORT_MODES.includes(saved)) tagSort = saved;
@@ -1440,11 +1441,12 @@
   const keyOf = tag => tag.trim().toLowerCase();
   const includesTag = (list, key) => list.some(tag => keyOf(tag) === key);
 
-  // A copy of `list` in the chosen tag order: most series first (ties by
-  // name), or by name either way. Used for every tag list on this tab.
+  // A copy of `list` in the chosen tag order: most or fewest series first
+  // (ties by name), or by name either way. Used for every tag list on this tab.
   function sortTags(list, nameOf, countOf) {
     const sorted = [...list];
-    if (tagSort === 'name-asc') sorted.sort((a, b) => nameCollator.compare(nameOf(a), nameOf(b)));
+    if (tagSort === 'count-asc') sorted.sort((a, b) => countOf(a) - countOf(b) || nameCollator.compare(nameOf(a), nameOf(b)));
+    else if (tagSort === 'name-asc') sorted.sort((a, b) => nameCollator.compare(nameOf(a), nameOf(b)));
     else if (tagSort === 'name-desc') sorted.sort((a, b) => nameCollator.compare(nameOf(b), nameOf(a)));
     else sorted.sort((a, b) => countOf(b) - countOf(a) || nameCollator.compare(nameOf(a), nameOf(b)));
     return sorted;
@@ -1575,7 +1577,7 @@
       matches = sortTags(matches, entry => entry.tag, entry => entry.count);
       // When ranking by usage, a tag that starts with what was typed beats
       // one that merely contains it. A name sort stays strictly alphabetical.
-      if (tagSort === 'count' && query) {
+      if (tagSort.startsWith('count') && query) {
         matches = [
           ...matches.filter(entry => keyOf(entry.tag).startsWith(query)),
           ...matches.filter(entry => !keyOf(entry.tag).startsWith(query))
