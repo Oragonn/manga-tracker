@@ -1553,8 +1553,8 @@
   // ---------- Tag picker (search box with a suggestion list) ----------
 
   // `exclude(key)` hides tags that can't be chosen right now. Picking calls
-  // `onPick(tag)`; with `keepOpen` the box clears and stays open so several
-  // tags can be added in a row. A typed name that isn't an existing tag is
+  // `onPick(tag)`; with `keepOpen` the list stays open so several tags can be
+  // added in a row (a click keeps the search text, Enter clears it). A typed name that isn't an existing tag is
   // offered as "Add ..." (needed for a brand-new merge target). Enter picks
   // the best existing match, or with `enterKeepsTyped` (the merge-into box,
   // where a new name is the norm) keeps exactly what was typed.
@@ -1591,8 +1591,8 @@
       return out;
     }
 
-    function appendRows() {
-      const next = list.slice(shown, shown + SUGGESTION_PAGE_SIZE);
+    function appendRows(count = SUGGESTION_PAGE_SIZE) {
+      const next = list.slice(shown, shown + count);
       for (const entry of next) {
         const row = document.createElement('div');
         row.className = 'tag-suggest-row' + (entry.isNew ? ' add-new' : '');
@@ -1606,13 +1606,18 @@
           count.textContent = `${entry.count} series`;
           row.append(name, count);
         }
-        row.addEventListener('click', () => pick(entry.tag));
+        row.addEventListener('click', () => pick(entry.tag, { keepQuery: true }));
         box.appendChild(row);
       }
       shown += next.length;
     }
 
-    function render() {
+    // Rebuilds the list from the top. With `keepPosition` (a tag was just
+    // picked from it) it re-renders as many rows as were showing and restores
+    // the scroll, so the list stays put with just the picked tag gone.
+    function render({ keepPosition = false } = {}) {
+      const keptRows = shown;
+      const keptScroll = box.scrollTop;
       list = rows();
       shown = 0;
       box.innerHTML = '';
@@ -1623,8 +1628,9 @@
         empty.textContent = 'No matching tags';
         box.appendChild(empty);
       }
-      appendRows();
+      appendRows(keepPosition ? Math.max(keptRows, SUGGESTION_PAGE_SIZE) : SUGGESTION_PAGE_SIZE);
       box.classList.add('open');
+      if (keepPosition) box.scrollTop = keptScroll;
     }
 
     // Load the next page once the list is scrolled close to its end.
@@ -1638,19 +1644,26 @@
 
     pickers.push({ refresh: () => { if (box.classList.contains('open')) render(); } });
 
-    function pick(tag) {
+    // A click keeps what was typed and the list position, so several tags
+    // from one search can be picked in a row. Enter has used up what was
+    // typed, so it clears the box for the next tag.
+    function pick(tag, { keepQuery = false } = {}) {
       onPick(tag);
       if (keepOpen) {
-        input.value = '';
-        render();
-        input.focus();
+        if (keepQuery) {
+          render({ keepPosition: true });
+        } else {
+          input.value = '';
+          render();
+        }
+        input.focus({ preventScroll: true });
       } else {
         close();
       }
     }
 
-    input.addEventListener('input', render);
-    input.addEventListener('focus', render);
+    input.addEventListener('input', () => render());
+    input.addEventListener('focus', () => render());
     input.addEventListener('blur', close);
     input.addEventListener('keydown', e => {
       if (e.key === 'Escape') {
