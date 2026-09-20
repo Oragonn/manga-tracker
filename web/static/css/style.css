@@ -1240,6 +1240,83 @@ html {
   z-index: 2;
 }
 
+/* Warning shown when a series is missing chapters in between (1, 2, 3, 5 ->
+   4). Same dark plate as the selection checkbox so it stays legible over any
+   cover art. */
+.missing-chapters-flag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 27, 47, 0.85);
+  border: 1px solid rgba(250, 204, 21, 0.55);
+  border-radius: 6px;
+  color: #facc15;
+  cursor: help;
+  z-index: 3;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.missing-chapters-flag:hover,
+.missing-chapters-flag.open {
+  background: rgba(20, 27, 47, 1);
+  border-color: #facc15;
+}
+
+/* The selection checkbox fades into that same corner on hover and in bulk
+   mode. On a card that has the warning it takes the slot to its left, so
+   neither one ever has to move out of the other's way. */
+.series-card.has-missing-chapters .series-checkbox {
+  right: 40px;
+}
+
+.missing-chapters-tip {
+  display: none;
+  position: absolute;
+  top: 38px;
+  left: 8px;
+  right: 8px;
+  padding: 8px 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.missing-chapters-tip > div + div {
+  margin-top: 3px;
+}
+
+.missing-chapters-tip-title {
+  color: #facc15;
+  font-weight: 600;
+}
+
+.missing-chapters-flag:focus-visible + .missing-chapters-tip,
+.missing-chapters-flag.open + .missing-chapters-tip {
+  display: block;
+}
+
+/* Hover only reveals it on devices that can really hover. On touch, :hover
+   sticks to whatever was last tapped, so the tooltip would never close -
+   there it opens on tap (.open) and closes on the next touch instead. */
+@media (hover: hover) {
+  .missing-chapters-flag:hover + .missing-chapters-tip {
+    display: block;
+  }
+}
+
 .card-info {
   padding: 12px;
 }
@@ -1876,26 +1953,26 @@ html {
   border-color: rgb(2, 60, 191);
 }
 
-/* #settings-cover-mangadex-list reuses .settings-cover-source-list's grid
+/* #settings-cover-gallery-list reuses .settings-cover-source-list's grid
    styling (display:flex) for the thumbnails, but the carousel + page
    counter below it need to stack vertically, not sit side by side as
    flex items - override back to block just for this one list. */
-#settings-cover-mangadex-list {
+#settings-cover-gallery-list {
   display: block;
 }
 
-.mangadex-cover-carousel {
+.gallery-cover-carousel {
   position: relative;
   display: flex;
   justify-content: center;
 }
 
-.mangadex-cover-page {
+.gallery-cover-page {
   display: flex;
   gap: 8px;
 }
 
-.mangadex-cover-arrow {
+.gallery-cover-arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
@@ -1910,19 +1987,19 @@ html {
   z-index: 2;
 }
 
-.mangadex-cover-arrow:hover {
+.gallery-cover-arrow:hover {
   color: white;
 }
 
-.mangadex-cover-arrow-prev {
+.gallery-cover-arrow-prev {
   left: -10px;
 }
 
-.mangadex-cover-arrow-next {
+.gallery-cover-arrow-next {
   right: -10px;
 }
 
-.mangadex-cover-counter {
+.gallery-cover-counter {
   text-align: center;
   color: #64748b;
   font-size: 11px;

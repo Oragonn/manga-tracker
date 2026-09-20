@@ -791,14 +791,15 @@ let currentSeriesSourcesPromise = null;
 // can be prepended without waiting on another round-trip to the server.
 let currentSeriesUploadsPromise = null;
 let currentSeriesUploadsCache = [];
-// The full MangaDex cover gallery (every volume/locale variant), fetched
-// automatically when a MangaDex source was added - same await-a-promise
-// pattern as sources/uploads above, no separate fetch needed in the menu.
-let currentSeriesMangadexCoversPromise = null;
+// The full cover gallery (every volume/language variant) from every
+// MangaDex, Atsumaru and Kagane source on the series, fetched automatically
+// when each source was added - same await-a-promise pattern as
+// sources/uploads above, no separate fetch needed in the menu.
+let currentSeriesGalleryCoversPromise = null;
 // Which page of 4 gallery covers is currently showing - reset whenever a
 // series' modal (re)opens so it doesn't carry over between series.
-let mangadexCoverPage = 0;
-const MANGADEX_COVERS_PER_PAGE = 4;
+let galleryCoverPage = 0;
+const GALLERY_COVERS_PER_PAGE = 4;
 // Aggregate chapter count shown next to the source name in the Source
 // selector -- we don't track a per-source chapter count, so this is the
 // series-wide latest_chapter as a reasonable stand-in.
@@ -961,8 +962,8 @@ function openEditModal(series) {
 			return currentSeriesUploadsCache;
 		});
 
-	mangadexCoverPage = 0;
-	currentSeriesMangadexCoversPromise = fetch(`/api/series/${series.id}/mangadex-covers`)
+	galleryCoverPage = 0;
+	currentSeriesGalleryCoversPromise = fetch(`/api/series/${series.id}/gallery-covers`)
 		.then(r => r.json())
 		.then(data => data.covers || [])
 		.catch(() => []);
@@ -2308,6 +2309,73 @@ const imageObserver = new IntersectionObserver((entries) => {
 	rootMargin: '50px' // Start loading 50px before entering viewport
 });
 
+// ─── Missing Chapters ────────────────────────────────────────
+// Whole-number chapters absent between the lowest and highest chapter a
+// series has: 1, 2, 3, 5, 6 -> chapter 4 is missing. Returns
+// [{ from, to, before, after }] - from..to is the missing run, before/after
+// the chapters either side of it. A decimal chapter (2.1, 2.2, Kagane's
+// 12.01 specials) counts as being in its whole-number slot, so 1, 2.1, 2.2, 3
+// has nothing missing. Nothing before the first or after the last chapter
+// counts (a source that starts at chapter 20 isn't "missing" 1-19), and
+// oneshots aren't part of a numbered run so they're skipped.
+function findMissingChapterGaps(chapters) {
+	// whole-number slot -> lowest and highest chapter number sitting in it
+	const slots = new Map();
+	for (const ch of chapters || []) {
+		const n = Number(ch.chapter_number);
+		if (ch.is_oneshot || !Number.isFinite(n)) continue;
+		const slot = slots.get(Math.floor(n));
+		if (!slot) slots.set(Math.floor(n), { lowest: n, highest: n });
+		else {
+			slot.lowest = Math.min(slot.lowest, n);
+			slot.highest = Math.max(slot.highest, n);
+		}
+	}
+	const sorted = [...slots.keys()].sort((a, b) => a - b);
+	const gaps = [];
+	for (let i = 1; i < sorted.length; i++) {
+		if (sorted[i] - sorted[i - 1] > 1) {
+			gaps.push({
+				from: sorted[i - 1] + 1,
+				to: sorted[i] - 1,
+				// The real chapters either side, so 1, 2.1, 2.2, 4 reads
+				// "between 2.2 and 4" rather than naming a chapter 2 that
+				// doesn't exist as such.
+				before: slots.get(sorted[i - 1]).highest,
+				after: slots.get(sorted[i]).lowest
+			});
+		}
+	}
+	return gaps;
+}
+
+// Tooltip lines for the card's warning icon, e.g. "Ch. 4 (between 3 and 5)".
+// A series with dozens of gaps would make a tooltip taller than the cover,
+// so only the first few are listed and the rest are counted.
+const MISSING_CHAPTER_GAPS_SHOWN = 6;
+function describeMissingChapterGaps(gaps) {
+	const total = gaps.reduce((sum, g) => sum + (g.to - g.from + 1), 0);
+	const lines = gaps.slice(0, MISSING_CHAPTER_GAPS_SHOWN).map(g => {
+		const range = g.from === g.to ? `Ch. ${g.from}` : `Ch. ${g.from}–${g.to}`;
+		return `${range} (between ${g.before} and ${g.after})`;
+	});
+	const hidden = gaps.length - MISSING_CHAPTER_GAPS_SHOWN;
+	if (hidden > 0) lines.push(`…and ${hidden} more gap${hidden === 1 ? '' : 's'}`);
+	return { title: `${total} chapter${total === 1 ? '' : 's'} missing`, lines };
+}
+
+// The warning icon is a button so the mobile tap handlers (which ignore taps
+// on buttons) don't treat a tap on it as a tap on the card. Tapping opens the
+// tooltip there, since touch has no hover; touching anywhere else closes it.
+// touchstart is listened for as well as click because a tap on a mobile card
+// preventDefault()s its touchend, which suppresses the click entirely.
+function closeMissingChapterTips(e) {
+	if (e.target.closest && e.target.closest('.missing-chapters-flag')) return;
+	document.querySelectorAll('.missing-chapters-flag.open').forEach(f => f.classList.remove('open'));
+}
+document.addEventListener('click', closeMissingChapterTips);
+document.addEventListener('touchstart', closeMissingChapterTips, { passive: true });
+
 // ─── Card Rendering ──────────────────────────────────────────
 function renderSeriesCard(series, chapters = null) {
 	const initialCurrent = parseFloat(series.current_chapter);
@@ -2505,6 +2573,7 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 			card.originalIndex = pendingIndex;
 			card.pendingChapterNumber = pendingChapterNumber;
 			card.pendingHasExactMatch = pendingHasExactMatch;
+			updateMissingChaptersFlag(chaptersData);
 			updateUnreadBadge();
 			updateChapterDisplay();
 			updateButtonState();
@@ -2517,6 +2586,54 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 			updateButtonState();
 		}
 	})();
+
+	// Yellow warning at the cover's top right when the series is missing
+	// chapters in between - hover (or tap, on touch) for which ones.
+	function updateMissingChaptersFlag(chaptersData) {
+		const coverContainer = card.querySelector('.series-cover-container');
+		coverContainer.querySelectorAll('.missing-chapters-flag, .missing-chapters-tip').forEach(el => el.remove());
+
+		const gaps = findMissingChapterGaps(chaptersData);
+		// Lets the CSS shift the selection checkbox over to make room.
+		card.classList.toggle('has-missing-chapters', gaps.length > 0);
+		if (gaps.length === 0) return;
+		const { title, lines } = describeMissingChapterGaps(gaps);
+
+		const flag = document.createElement('button');
+		flag.type = 'button';
+		flag.className = 'missing-chapters-flag';
+		flag.setAttribute('aria-label', `${title}: ${lines.join(', ')}`);
+		flag.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>
+<path d="M12 9v4"/>
+<path d="M12 17h.01"/>
+</svg>`;
+
+		// A sibling of the button (not a child) so it can span the cover's
+		// width instead of being squeezed into the space left of the icon.
+		const tip = document.createElement('div');
+		tip.className = 'missing-chapters-tip';
+		tip.setAttribute('role', 'tooltip');
+		const heading = document.createElement('div');
+		heading.className = 'missing-chapters-tip-title';
+		heading.textContent = title;
+		tip.appendChild(heading);
+		lines.forEach(text => {
+			const line = document.createElement('div');
+			line.textContent = text;
+			tip.appendChild(line);
+		});
+
+		flag.addEventListener('click', (e) => {
+			e.stopPropagation();
+			const wasOpen = flag.classList.contains('open');
+			document.querySelectorAll('.missing-chapters-flag.open').forEach(f => f.classList.remove('open'));
+			if (!wasOpen) flag.classList.add('open');
+		});
+
+		coverContainer.appendChild(flag);
+		coverContainer.appendChild(tip);
+	}
 
 	function updateUnreadBadge() {
 		const sorted = card.sortedChapters || [];
@@ -3981,7 +4098,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('settings-cover-menu')?.classList.remove('hidden');
 		document.getElementById('settings-cover-col')?.classList.add('cover-menu-open');
 		renderCoverSourceList();
-		renderMangadexCoversList();
+		renderGalleryCoversList();
 		renderCoverUploadsList();
 	}
 
@@ -4050,6 +4167,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		return '/static/placeholder.png';
 	}
 
+	const sourceTypeLabel = {
+		mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru',
+		asura: 'AsuraScans', hive: 'HiveToons', unknown: 'Unknown'
+	};
+
 	async function renderCoverSourceList() {
 		const list = document.getElementById('settings-cover-source-list');
 		if (!list) return;
@@ -4062,11 +4184,6 @@ document.addEventListener('DOMContentLoaded', () => {
 			return;
 		}
 
-		const sourceTypeLabel = {
-			mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru',
-			asura: 'AsuraScans', hive: 'HiveToons', unknown: 'Unknown'
-		};
-
 		list.innerHTML = withCovers.map(s => `
 			<img src="${escapeHtml(s.cover_url)}" class="settings-cover-source-thumb"
 				data-cover-url="${escapeHtml(s.cover_url)}" referrerpolicy="no-referrer"
@@ -4078,51 +4195,55 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-	async function renderMangadexCoversList() {
-		const list = document.getElementById('settings-cover-mangadex-list');
+	async function renderGalleryCoversList() {
+		const list = document.getElementById('settings-cover-gallery-list');
 		if (!list) return;
 		list.innerHTML = '<p class="settings-cover-menu-empty">Loading…</p>';
-		const covers = currentSeriesMangadexCoversPromise ? await currentSeriesMangadexCoversPromise : [];
+		const covers = currentSeriesGalleryCoversPromise ? await currentSeriesGalleryCoversPromise : [];
 
 		if (covers.length === 0) {
-			list.innerHTML = '<p class="settings-cover-menu-empty">No MangaDex source linked (or its gallery hasn\'t been fetched yet).</p>';
+			list.innerHTML = '<p class="settings-cover-menu-empty">No gallery covers yet (fetched when a MangaDex, Atsumaru or Kagane source is added).</p>';
 			return;
 		}
 
-		const totalPages = Math.ceil(covers.length / MANGADEX_COVERS_PER_PAGE);
-		if (mangadexCoverPage < 0 || mangadexCoverPage >= totalPages) mangadexCoverPage = 0;
-		const start = mangadexCoverPage * MANGADEX_COVERS_PER_PAGE;
-		const pageCovers = covers.slice(start, start + MANGADEX_COVERS_PER_PAGE);
+		const totalPages = Math.ceil(covers.length / GALLERY_COVERS_PER_PAGE);
+		if (galleryCoverPage < 0 || galleryCoverPage >= totalPages) galleryCoverPage = 0;
+		const start = galleryCoverPage * GALLERY_COVERS_PER_PAGE;
+		const pageCovers = covers.slice(start, start + GALLERY_COVERS_PER_PAGE);
 
 		const thumbsHtml = pageCovers.map(c => {
-			const label = c.volume ? `Vol. ${c.volume}` : 'No volume';
+			// "Atsumaru · Vol. 2 (ko) - Cover from Naver Series": which
+			// source it came from matters now that several share the list.
+			const source = sourceTypeLabel[c.source_type] || c.source_type;
+			const volume = c.volume ? `Vol. ${c.volume}` : 'No volume';
+			const tooltip = `${source} · ${volume}${c.locale ? ` (${c.locale})` : ''}${c.note ? ` - ${c.note}` : ''}`;
 			return `
 				<img src="${escapeHtml(c.cover_url)}" class="settings-cover-source-thumb"
 					data-cover-url="${escapeHtml(c.cover_url)}" referrerpolicy="no-referrer"
-					title="${escapeHtml(label)}${c.locale ? ` (${escapeHtml(c.locale)})` : ''}" />
+					title="${escapeHtml(tooltip)}" />
 			`;
 		}).join('');
 
 		list.innerHTML = `
-			<div class="mangadex-cover-carousel">
-				<div class="mangadex-cover-page">${thumbsHtml}</div>
-				<button type="button" class="mangadex-cover-arrow mangadex-cover-arrow-prev" id="mangadex-cover-prev" title="Previous">‹</button>
-				<button type="button" class="mangadex-cover-arrow mangadex-cover-arrow-next" id="mangadex-cover-next" title="Next">›</button>
+			<div class="gallery-cover-carousel">
+				<div class="gallery-cover-page">${thumbsHtml}</div>
+				<button type="button" class="gallery-cover-arrow gallery-cover-arrow-prev" id="gallery-cover-prev" title="Previous">‹</button>
+				<button type="button" class="gallery-cover-arrow gallery-cover-arrow-next" id="gallery-cover-next" title="Next">›</button>
 			</div>
-			${totalPages > 1 ? `<p class="mangadex-cover-counter">Page ${mangadexCoverPage + 1} / ${totalPages}</p>` : ''}
+			${totalPages > 1 ? `<p class="gallery-cover-counter">Page ${galleryCoverPage + 1} / ${totalPages}</p>` : ''}
 		`;
 
 		list.querySelectorAll('.settings-cover-source-thumb').forEach(thumb => {
 			thumb.addEventListener('click', () => applyPendingCover(thumb.dataset.coverUrl));
 		});
 		// Wraparound in both directions - left from page 1 shows the last page.
-		document.getElementById('mangadex-cover-prev')?.addEventListener('click', () => {
-			mangadexCoverPage = (mangadexCoverPage - 1 + totalPages) % totalPages;
-			renderMangadexCoversList();
+		document.getElementById('gallery-cover-prev')?.addEventListener('click', () => {
+			galleryCoverPage = (galleryCoverPage - 1 + totalPages) % totalPages;
+			renderGalleryCoversList();
 		});
-		document.getElementById('mangadex-cover-next')?.addEventListener('click', () => {
-			mangadexCoverPage = (mangadexCoverPage + 1) % totalPages;
-			renderMangadexCoversList();
+		document.getElementById('gallery-cover-next')?.addEventListener('click', () => {
+			galleryCoverPage = (galleryCoverPage + 1) % totalPages;
+			renderGalleryCoversList();
 		});
 	}
 

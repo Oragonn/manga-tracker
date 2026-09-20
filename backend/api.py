@@ -260,8 +260,8 @@ def _add_worker():
                             # this shouldn't fail the add itself.
                             try:
                                 covers = get_all_covers(manga_id)
-                                from .database import save_mangadex_covers
-                                save_mangadex_covers(series_id, covers)
+                                from .database import save_gallery_covers
+                                save_gallery_covers(series_id, 'mangadex', covers)
                             except Exception as cov_err:
                                 print(f"[Add Series] Failed to fetch MangaDex cover gallery: {cov_err}")
 
@@ -351,7 +351,9 @@ def _add_worker():
                         result = {'error': 'Invalid Kagane URL'}
                         task_processed = True
                     else:
-                        kagane_info = get_series_info(kagane_id)
+                        # with_gallery: also download every cover in the series'
+                        # gallery (same browser fetch, no extra navigation)
+                        kagane_info = get_series_info(kagane_id, with_gallery=True)
                         if not kagane_info:
                             result = {'error': 'Failed to fetch Kagane series data'}
                             task_processed = True
@@ -417,6 +419,14 @@ def _add_worker():
                                     """, (latest_ch, latest_release, len(chapters_to_save), series_id))
                                 release_db(conn)
                                 result = {'id': series_id, 'success': True}
+
+                                # Best-effort: store the gallery downloaded
+                                # above for the Series Settings cover picker.
+                                try:
+                                    from .database import save_gallery_covers
+                                    save_gallery_covers(series_id, 'kagane', kagane_info.get('gallery_covers'))
+                                except Exception as cov_err:
+                                    print(f"[Add Series] Failed to save Kagane cover gallery: {cov_err}")
 
                                 # Logging
                                 try:
@@ -574,6 +584,12 @@ def _add_worker():
                                     """, (latest_ch, latest_release, len(chapters_to_save), series_id))
                                 release_db(conn)
                                 result = {'id': series_id, 'success': True}
+
+                                # Full cover gallery for the Series Settings
+                                # cover picker - on its own thread, see
+                                # gallery_covers.py for why.
+                                from .gallery_covers import save_atsu_gallery_in_background
+                                save_atsu_gallery_in_background(series_id, atsu_id)
 
                                 # Logging
                                 try:
@@ -1176,16 +1192,25 @@ def api_series():
 
     # Search filter
     if search_query:
-        query_words = search_query.split()
-        normalized_words = []
-        for word in query_words:
+        from .source_links import parse_source_link, find_series_ids
+        for word in search_query.split():
+            # A pasted source link matches the series that has that source
+            # attached - there's no title text in a URL to match against.
+            link = parse_source_link(word)
+            if link:
+                matching_ids = find_series_ids(cursor, *link)
+                if matching_ids:
+                    where_parts.append(f"id IN ({','.join(['?'] * len(matching_ids))})")
+                    params.extend(matching_ids)
+                else:
+                    where_parts.append("1 = 0")
+                continue
+
             norm_word = normalize_for_search(word)
             if norm_word:
-                normalized_words.append(norm_word)
-        for word in normalized_words:
-            where_parts.append("searchable_text LIKE ?")
-            params.append(f"%{word}%")
-    
+                where_parts.append("searchable_text LIKE ?")
+                params.append(f"%{norm_word}%")
+
     where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
 
     # ADD available_chapters sorting logic
@@ -1665,12 +1690,13 @@ def api_get_uploaded_covers(series_id):
     return jsonify({'covers': get_series_covers(series_id)})
 
 
-@app.route('/api/series/<int:series_id>/mangadex-covers')
-def api_get_mangadex_covers(series_id):
-    """The full MangaDex cover gallery (every volume/locale variant) fetched
-    when a MangaDex source was added, for the Series Settings cover picker."""
-    from .database import get_mangadex_covers
-    return jsonify({'covers': get_mangadex_covers(series_id)})
+@app.route('/api/series/<int:series_id>/gallery-covers')
+def api_get_gallery_covers(series_id):
+    """The full cover gallery (every volume/locale variant) fetched when a
+    MangaDex, Atsumaru or Kagane source was added, for the Series Settings
+    cover picker. Each entry says which source it came from."""
+    from .database import get_gallery_covers
+    return jsonify({'covers': get_gallery_covers(series_id)})
 
 
 @app.route('/api/series/<int:series_id>/uploaded-covers/<int:cover_id>', methods=['DELETE'])

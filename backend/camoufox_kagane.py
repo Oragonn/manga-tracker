@@ -40,6 +40,10 @@ _COVER_CONTENT_TYPE_EXT = {
     'image/gif': '.gif',
 }
 
+# Seconds get_series_info(with_gallery=True) may spend downloading gallery
+# covers, on top of the normal fetch (see KaganeBrowserClient._download_gallery).
+_GALLERY_TIME_BUDGET = 45
+
 _FETCH_IMAGE_AS_DATA_URL_JS = """async (url) => {
     try {
         const res = await fetch(url, { credentials: 'include' });
@@ -155,13 +159,18 @@ class KaganeBrowserClient:
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return future.result(timeout=timeout)
 
-    def get_series_info(self, series_id):
+    def get_series_info(self, series_id, with_gallery=False):
         """
         Fetch series metadata and chapters via Kagane's API using a
         stealth-hardened browser to clear Cloudflare's Turnstile challenge.
         Returns (meta_dict, books_list), shaped exactly like the old
         Selenium-based client's output so kagane.py needs no changes beyond
         the import line.
+
+        with_gallery also downloads every cover in the series' gallery and
+        returns them as meta['gallery_covers']. Off by default: the
+        scheduler calls this on every scan, and a gallery is only worth
+        fetching when a source is first added.
         """
         if not series_id:
             raise ValueError("series_id is required")
@@ -184,7 +193,11 @@ class KaganeBrowserClient:
                 self.last_call = time.time()
 
                 try:
-                    return self._run_coro(self._fetch_all_async(series_id), timeout=90)
+                    return self._run_coro(
+                        self._fetch_all_async(series_id, with_gallery=with_gallery),
+                        # The gallery's own time budget rides on top of the base allowance
+                        timeout=90 + (_GALLERY_TIME_BUDGET + 15 if with_gallery else 0)
+                    )
                 except Exception as e:
                     last_error = e
                     try:
@@ -203,18 +216,26 @@ class KaganeBrowserClient:
                 pass
             raise RuntimeError(f"Kagane fetch failed after recovery: {last_error}")
 
-    async def _fetch_all_async(self, series_id):
+    async def _fetch_all_async(self, series_id, with_gallery=False):
         meta_url = f"https://kagane.to/api/v2/series/{series_id}"
         raw = await self._fetch_json_async(meta_url)
         cover_url = await self._get_cached_or_download_cover(raw)
-        return self._transform(raw, cover_url)
+        meta, books = self._transform(raw, cover_url)
+        if with_gallery:
+            meta['gallery_covers'] = await self._download_gallery(raw)
+        return meta, books
 
     async def _get_cached_or_download_cover(self, raw):
         covers = raw.get('series_covers') or []
         image_id = covers[0].get('image_id') if covers else None
         if not image_id:
             return None
+        return await self._cache_image(image_id)
 
+    async def _cache_image(self, image_id):
+        """Local /static URL for one Kagane image, downloading it through
+        the cleared browser page first if it isn't cached yet. Returns None
+        on any failure - a missing cover shouldn't fail the whole fetch."""
         os.makedirs(_COVER_DIR, exist_ok=True)
 
         for ext in _COVER_CONTENT_TYPE_EXT.values():
@@ -234,11 +255,49 @@ class KaganeBrowserClient:
             ext = _COVER_CONTENT_TYPE_EXT.get(content_type, '.jpg')
 
             filename = f"{image_id}{ext}"
-            with open(os.path.join(_COVER_DIR, filename), 'wb') as f:
+            # Write-then-rename so a half-written file (killed mid-download)
+            # can never be mistaken for a cached cover by the exists() check.
+            final_path = os.path.join(_COVER_DIR, filename)
+            tmp_path = f"{final_path}.part"
+            with open(tmp_path, 'wb') as f:
                 f.write(image_bytes)
+            os.replace(tmp_path, final_path)
             return f"/static/uploads/kagane_covers/{filename}"
         except Exception:
-            return None  # a missing cover shouldn't fail the whole fetch
+            return None
+
+    async def _download_gallery(self, raw):
+        """Cache every entry of the series' `series_covers` list (one per
+        volume/language, same set as the series page's cover gallery) and
+        return them as [{cover_url, volume, locale, note}].
+
+        Best-effort and time-boxed: this runs inside get_series_info's own
+        timeout, and a long-running series can have well over 100 covers, so
+        past the budget it stops and returns what it has rather than
+        letting the gallery fail the whole fetch. Covers already cached are
+        skipped instantly on a re-run, so a later re-run (the backfill
+        script) picks up where this one left off."""
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + _GALLERY_TIME_BUDGET
+        gallery = []
+        for cover in raw.get('series_covers') or []:
+            image_id = cover.get('image_id')
+            if not image_id:
+                continue
+            if loop.time() > deadline:
+                print(f"[Kagane] Gallery download hit its {_GALLERY_TIME_BUDGET}s budget "
+                      f"after {len(gallery)} of {len(raw.get('series_covers') or [])} covers")
+                break
+            local_url = await self._cache_image(image_id)
+            if not local_url:
+                continue
+            gallery.append({
+                'cover_url': local_url,
+                'volume': cover.get('volume_number'),
+                'locale': cover.get('language'),
+                'note': cover.get('note')
+            })
+        return gallery
 
     def _transform(self, raw, cover_url):
         """Adapt kagane.to's current API shape to the (meta, books) shape

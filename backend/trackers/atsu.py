@@ -83,11 +83,47 @@ def _download_cover(poster):
         if resp.status_code != 200:
             return None
         os.makedirs(_COVER_DIR, exist_ok=True)
-        with open(local_path, 'wb') as f:
+        # Write-then-rename so a half-written file (killed mid-download) can
+        # never be mistaken for a cached cover by the exists() check above.
+        tmp_path = f"{local_path}.{threading.get_ident()}.part"
+        with open(tmp_path, 'wb') as f:
             f.write(resp.content)
+        os.replace(tmp_path, local_path)
         return f"/static/uploads/atsu_covers/{filename}"
     except Exception:
         return None
+
+def get_gallery(manga_id):
+    """Every cover in Atsumaru's gallery for a manga - the set its
+    /manga/<id>/gallery page shows: one per volume or season, in any
+    language - not just the single poster get_series_info() picks. Each is
+    downloaded into the local cache like that poster is (the CDN blocks
+    hotlinking), so every returned cover_url is a local /static/... path.
+    Returns [{cover_url, volume, locale, note}]; a cover whose download
+    fails is skipped. Raises if the gallery list itself can't be fetched -
+    callers treat this as optional/best-effort and should catch accordingly.
+    """
+    if not manga_id:
+        raise ValueError("manga_id is required")
+
+    resp = _delayed_get("https://atsu.moe/api/manga/gallery", params={'mangaId': manga_id})
+    if resp.status_code != 200:
+        raise Exception(f"Atsumaru gallery returned HTTP {resp.status_code} for manga {manga_id}")
+
+    covers = []
+    for entry in resp.json().get('covers') or []:
+        # Gallery entries carry the same image/mediumImage/largeImage keys
+        # as the page response's poster, so the same downloader applies.
+        local_url = _download_cover(entry)
+        if not local_url:
+            continue
+        covers.append({
+            'cover_url': local_url,
+            'volume': entry.get('volume'),
+            'locale': entry.get('language'),
+            'note': entry.get('note')
+        })
+    return covers
 
 def get_series_info(manga_id):
     """

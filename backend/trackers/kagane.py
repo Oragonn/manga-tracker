@@ -121,12 +121,15 @@ def _extract_season_and_chapter(title):
     # Not parseable - but this is normal for special chapters, so don't log
     return (season_number, None)
 
-def get_series_info(series_id):
+def get_series_info(series_id, with_gallery=False):
+    """with_gallery=True also downloads the series' full cover gallery and
+    returns it under 'gallery_covers' as [{cover_url, volume, locale, note}].
+    Only worth it when a source is first added - not on routine scans."""
     if not series_id:
         raise ValueError("Invalid series ID")
 
     # Fetch via a stealth-hardened browser (clears Cloudflare's Turnstile challenge)
-    meta, books = kagane_browser.get_series_info(series_id)
+    meta, books = kagane_browser.get_series_info(series_id, with_gallery=with_gallery)
 
     chapters = []
     books_sorted = sorted(books, key=lambda x: x.get('number_sort', 0))
@@ -213,7 +216,7 @@ def get_series_info(series_id):
     else:
         source_type = 'other'
 
-    return {
+    info = {
         'title': meta.get('name', 'Unknown Title'),
         'cover_url': meta.get('cover_url'),
         'status': source_status,
@@ -223,3 +226,6 @@ def get_series_info(series_id):
         'content_rating': content_rating,
         'source_type': source_type
     }
+    if with_gallery:
+        info['gallery_covers'] = meta.get('gallery_covers') or []
+    return info

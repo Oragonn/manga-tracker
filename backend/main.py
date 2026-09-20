@@ -951,15 +951,17 @@ def api_add_source(series_id):
                 # Series Settings cover picker - not fetching this
                 # shouldn't fail adding the source itself.
                 try:
-                    from .database import save_mangadex_covers
-                    save_mangadex_covers(series_id, get_all_covers(manga_id))
+                    from .database import save_gallery_covers
+                    save_gallery_covers(series_id, 'mangadex', get_all_covers(manga_id))
                 except Exception as cov_err:
                     print(f"[Add Source] Failed to fetch MangaDex cover gallery: {cov_err}")
         elif source_type == 'kagane':
             from .trackers.kagane import extract_series_id, get_series_info
             kagane_id = extract_series_id(source_url)
             if kagane_id:
-                new_metadata = get_series_info(kagane_id)
+                # with_gallery: also download every cover in the series'
+                # gallery (saved below, once the source itself is added)
+                new_metadata = get_series_info(kagane_id, with_gallery=True)
         elif source_type == 'atsu':
             from .trackers.atsu import extract_series_id, get_series_info
             atsu_id = extract_series_id(source_url)
@@ -989,7 +991,19 @@ def api_add_source(series_id):
         if not source_id:
             _log_source_add_failure(series_id, source_url, 'Failed to add source')
             return jsonify({'error': 'Failed to add source'}), 500
-        
+
+        # Best-effort: store the new source's cover gallery for the Series
+        # Settings cover picker (MangaDex's was already saved above).
+        try:
+            if source_type == 'kagane' and new_metadata:
+                from .database import save_gallery_covers
+                save_gallery_covers(series_id, 'kagane', new_metadata.get('gallery_covers'))
+            elif source_type == 'atsu' and atsu_id:
+                from .gallery_covers import save_atsu_gallery_in_background
+                save_atsu_gallery_in_background(series_id, atsu_id)
+        except Exception as cov_err:
+            print(f"[Add Source] Failed to save cover gallery: {cov_err}")
+
         # *** FIX: Merge metadata with existing series ***
         if new_metadata:
             conn = get_db()
