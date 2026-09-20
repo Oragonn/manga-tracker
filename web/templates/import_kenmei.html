@@ -191,6 +191,28 @@
       white-space: nowrap;
     }
 
+    .row-action-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .row-skip-btn {
+      color: #94a3b8;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .row-skip-btn:hover {
+      background: #3b1d24;
+      border-color: #f56565;
+      color: #f56565;
+    }
+
+    .import-table tbody tr.row-skipped {
+      opacity: 0.55;
+    }
+
     .row-status-text {
       font-size: 12px;
       white-space: nowrap;
@@ -274,6 +296,7 @@
         <option value="all">All rows</option>
         <option value="pending">Not imported yet</option>
         <option value="imported">Imported this session</option>
+        <option value="skipped">Skipped</option>
       </select>
       <span class="result-count" id="result-count"></span>
     </div>
@@ -314,7 +337,7 @@
     completed: 'Completed'
   };
 
-  let allRows = [];   // { title, status, origStatus, chapter, source_site, url, importState: 'pending'|'adding'|'imported'|'error', errorMsg, infoMsg, seriesId }
+  let allRows = [];   // { title, status, origStatus, chapter, source_site, url, importState: 'pending'|'adding'|'imported'|'error', errorMsg, infoMsg, seriesId, skipped }
   let currentPage = 1;
 
   // --- Persistence: remember progress AND the last uploaded CSV across reloads/sessions ---
@@ -349,7 +372,8 @@
       status: row.status,
       chapter: row.chapter,
       errorMsg: row.errorMsg,
-      infoMsg: row.infoMsg
+      infoMsg: row.infoMsg,
+      skipped: row.skipped
     };
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
@@ -413,6 +437,9 @@
     const statusQuery = filterStatus.value;
     const importedQuery = filterImported.value;
     return allRows.filter(r => {
+      // Skipped rows only show up under the "Skipped" filter, so they stay
+      // out of the way of everything else but can still be restored.
+      if ((importedQuery === 'skipped') !== !!r.skipped) return false;
       if (titleQuery && !r.title.toLowerCase().includes(titleQuery)) return false;
       if (statusQuery !== 'all' && r.status !== statusQuery) return false;
       if (importedQuery === 'pending' && r.importState === 'imported') return false;
@@ -427,7 +454,8 @@
     if (currentPage > totalPages) currentPage = totalPages;
     if (currentPage < 1) currentPage = 1;
 
-    resultCount.textContent = `${filtered.length} of ${allRows.length} rows`;
+    const skippedCount = allRows.filter(r => r.skipped).length;
+    resultCount.textContent = `${filtered.length} of ${allRows.length} rows` + (skippedCount ? ` (${skippedCount} skipped)` : '');
     pageIndicator.textContent = `Page ${currentPage} of ${totalPages}`;
 
     const start = (currentPage - 1) * PAGE_SIZE;
@@ -443,7 +471,7 @@
 
     for (const row of pageRows) {
       const tr = document.createElement('tr');
-      tr.className = row.importState === 'imported' ? 'row-imported' : '';
+      tr.className = row.skipped ? 'row-skipped' : (row.importState === 'imported' ? 'row-imported' : '');
 
       const originHtml = row.source_site
         ? `<span class="row-origin">was on ${row.source_site}</span>`
@@ -455,7 +483,10 @@
 
       const busy = row.importState === 'adding';
       const committed = row.importState === 'imported'; // already has a primary source
-      const fieldsLocked = busy || committed; // status/chapter are only meaningful before the first add
+      const fieldsLocked = busy || committed || row.skipped; // status/chapter are only meaningful before the first add
+      // Skip (X) is only offered while the row is still a to-do: once it has
+      // a series in the library there is nothing left to opt out of.
+      const canSkip = !busy && !committed && !row.skipped;
 
       tr.innerHTML = `
         <td>
@@ -481,16 +512,21 @@
           </div>
         </td>
         <td>
-          <input type="text" class="control-input row-url-input" placeholder="Paste URL(s), comma-separated..." value="${row.url ? escapeHtml(row.url) : ''}" ${busy ? 'disabled' : ''} />
+          <input type="text" class="control-input row-url-input" placeholder="Paste URL(s), comma-separated..." value="${row.url ? escapeHtml(row.url) : ''}" ${busy || row.skipped ? 'disabled' : ''} />
         </td>
         <td>
-          <button type="button" class="control-button primary row-add-btn" ${busy ? 'disabled' : ''}>
-            ${busy ? 'Adding...' : (committed ? 'Add Source' : 'Add')}
-          </button>
+          <div class="row-action-group">
+            ${row.skipped
+              ? `<button type="button" class="control-button row-restore-btn">Restore</button>`
+              : `<button type="button" class="control-button primary row-add-btn" ${busy ? 'disabled' : ''}>
+                  ${busy ? 'Adding...' : (committed ? 'Add Source' : 'Add')}
+                </button>`}
+            ${canSkip ? `<button type="button" class="control-button square-button row-skip-btn" title="Skip - I don't want to add this series" aria-label="Skip ${escapeHtml(row.title)}">&#10005;</button>` : ''}
+          </div>
         </td>
         <td>
-          <span class="row-status-text ${committed ? 'ok' : (row.importState === 'error' ? 'err' : 'pending')}">
-            ${committed ? '✓ Imported' : (row.importState === 'error' ? row.errorMsg : '')}
+          <span class="row-status-text ${row.skipped ? 'pending' : (committed ? 'ok' : (row.importState === 'error' ? 'err' : 'pending'))}">
+            ${row.skipped ? 'Skipped' : (committed ? '✓ Imported' : (row.importState === 'error' ? row.errorMsg : ''))}
           </span>
           ${row.infoMsg ? `<div class="row-info-msg">${escapeHtml(row.infoMsg)}</div>` : ''}
         </td>
@@ -525,10 +561,23 @@
       urlInput.addEventListener('input', () => { row.url = urlInput.value.trim(); persistRow(row); });
 
       const addBtn = tr.querySelector('.row-add-btn');
-      addBtn.addEventListener('click', () => addRow(row, tr));
+      if (addBtn) addBtn.addEventListener('click', () => addRow(row, tr));
+
+      // Skipping is reversible from the "Skipped" filter, so no confirmation.
+      const skipBtn = tr.querySelector('.row-skip-btn');
+      if (skipBtn) skipBtn.addEventListener('click', () => setSkipped(row, true));
+
+      const restoreBtn = tr.querySelector('.row-restore-btn');
+      if (restoreBtn) restoreBtn.addEventListener('click', () => setSkipped(row, false));
 
       tbody.appendChild(tr);
     }
+  }
+
+  function setSkipped(row, skipped) {
+    row.skipped = skipped;
+    render();
+    persistRow(row);
   }
 
   function escapeHtml(s) {
@@ -707,7 +756,8 @@
         importState: 'pending',
         errorMsg: '',
         infoMsg: '',
-        seriesId: null
+        seriesId: null,
+        skipped: false
       };
       const saved = persisted[rowKey(base)];
       return saved ? { ...base, ...saved } : base;
