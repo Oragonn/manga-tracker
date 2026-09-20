@@ -112,6 +112,12 @@ async function startRow(title, urls, originTab, mode) {
   lastRowMode = mode;
   lastRowKenmeiSites = null;
 
+  // Put the series name on the clipboard so it can be pasted straight into a
+  // source's own search box. Not awaited: a slow or failed copy must never
+  // hold up opening the row's tabs. In kenmei mode the first Y then replaces
+  // it with the captured link list.
+  copyToClipboard(title).catch(() => {});
+
   for (let i = 0; i < urls.length; i++) {
     const tab = await chrome.tabs.create({
       url: urls[i],
