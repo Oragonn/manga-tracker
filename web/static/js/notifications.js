@@ -267,10 +267,14 @@ window.showNotification = showNotification;
  * title and message are set as text, so series/tag names can go straight in.
  * With `danger` the button is red and focus starts on Cancel, so a stray
  * Enter can't confirm a destructive action.
+ *
+ * `alternateText` adds a third button between the two, which resolves the
+ * string 'alternate' (a third answer that is neither "confirm" nor "cancel";
+ * Escape and the backdrop still cancel).
  */
 let confirmDialogCounter = 0;
 
-function showConfirmDialog({ title = 'Are you sure?', message = '', confirmText = 'Confirm', cancelText = 'Cancel', danger = false } = {}) {
+function showConfirmDialog({ title = 'Are you sure?', message = '', confirmText = 'Confirm', cancelText = 'Cancel', alternateText = '', danger = false } = {}) {
   return new Promise(resolve => {
     const id = `confirm-dialog-${confirmDialogCounter++}`;
     const previouslyFocused = document.activeElement;
@@ -309,7 +313,18 @@ function showConfirmDialog({ title = 'Are you sure?', message = '', confirmText 
     confirmBtn.type = 'button';
     confirmBtn.className = 'confirm-dialog-confirm' + (danger ? ' danger' : '');
     confirmBtn.textContent = confirmText;
-    actions.append(cancelBtn, confirmBtn);
+    actions.append(cancelBtn);
+    let alternateBtn = null;
+    if (alternateText) {
+      alternateBtn = document.createElement('button');
+      alternateBtn.type = 'button';
+      alternateBtn.className = 'confirm-dialog-alternate';
+      alternateBtn.textContent = alternateText;
+      dialog.classList.add('has-alternate');
+      actions.appendChild(alternateBtn);
+    }
+    actions.appendChild(confirmBtn);
+    const buttons = alternateBtn ? [cancelBtn, alternateBtn, confirmBtn] : [cancelBtn, confirmBtn];
     dialog.appendChild(actions);
     overlay.appendChild(dialog);
 
@@ -331,15 +346,16 @@ function showConfirmDialog({ title = 'Are you sure?', message = '', confirmText 
         e.stopPropagation();
         finish(false);
       } else if (e.key === 'Tab') {
-        // Keep focus inside the dialog: it only has the two buttons
+        // Keep focus inside the dialog: it only has its buttons
         e.preventDefault();
-        const other = document.activeElement === cancelBtn ? confirmBtn : cancelBtn;
-        other.focus();
+        const at = buttons.indexOf(document.activeElement);
+        buttons[(at + (e.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus();
       }
     }
 
     cancelBtn.addEventListener('click', () => finish(false));
     confirmBtn.addEventListener('click', () => finish(true));
+    if (alternateBtn) alternateBtn.addEventListener('click', () => finish('alternate'));
     overlay.addEventListener('click', e => {
       if (e.target === overlay) finish(false);
     });

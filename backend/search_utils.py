@@ -260,3 +260,59 @@ def suggest_series(rows, query, allowed_ids=None, limit=4):
     titles = {series_id: title or '' for series_id, title, _ in rows}
     ranked = sorted(best, key=lambda series_id: (best[series_id], titles[series_id]))
     return ranked[:limit]
+
+
+# ---------------------------------------------------------------------------
+# "You already track this": what to warn about when a series being added
+# shares a title with one that is already in the library.
+#
+# Two series are alike when any of their normalised titles (main or alternate)
+# is identical. Very short titles and the placeholders the add flow falls back
+# on when a source gives no title are left out - they would tie unrelated
+# series together.
+
+DUPLICATE_MIN_TITLE_LENGTH = 3
+PLACEHOLDER_TITLES = frozenset({'untitled', 'unknown title', 'unknown manga'})
+
+
+def comparable_titles(titles):
+    """The set of normalised titles worth comparing: everything in `titles`
+    except very short titles and the add flow's placeholders."""
+    kept = set()
+    for title in titles:
+        normalised = normalize_search_text(title) if isinstance(title, str) else ''
+        if len(normalised) >= DUPLICATE_MIN_TITLE_LENGTH and normalised not in PLACEHOLDER_TITLES:
+            kept.add(normalised)
+    return kept
+
+
+def same_title_rank(main_a, titles_a, main_b, titles_b):
+    """How alike two series are, by their normalised main titles and sets of
+    comparable titles: 0 same main title, 1 one's main title is among the
+    other's titles, 2 only alternate titles in common, None nothing in common."""
+    if not (titles_a & titles_b):
+        return None
+    if main_a == main_b:
+        return 0
+    if main_a in titles_b or main_b in titles_a:
+        return 1
+    return 2
+
+
+def find_same_title_series(rows, titles, limit=3):
+    """[(id, title)] of the series in (id, title, searchable_text) `rows` that
+    share a normalised title with `titles` (the main title first), most
+    likely the same series first (see same_title_rank)."""
+    wanted = comparable_titles(titles)
+    if not wanted:
+        return []
+    new_main = normalize_search_text(titles[0])
+
+    found = []
+    for series_id, title, text in rows:
+        existing = comparable_titles((text or '').split(TITLE_SEP))
+        rank = same_title_rank(new_main, wanted, normalize_search_text(title), existing)
+        if rank is not None:
+            found.append((rank, -len(wanted & existing), series_id, title))
+    found.sort()
+    return [(series_id, title) for _, _, series_id, title in found[:limit]]

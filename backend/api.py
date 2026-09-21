@@ -9,12 +9,14 @@ import uuid
 from queue import Queue, Empty
 from .activity_logger import log_activity, get_series_snapshot, detect_source_type
 from .source_links import clean_source_url
+from .search_utils import find_same_title_series
 
 
 from .database import (
     init_db,
     update_series,
     add_series,
+    series_search_titles,
     update_last_dashboard_visit,
     get_unread_reading_count,
     get_db,
@@ -27,6 +29,53 @@ from .scheduler import MangaScheduler
 _add_queue = Queue()
 _add_results = {}  # task_id -> result dict
 _add_lock = threading.Lock()
+
+class PossibleDuplicate(Exception):
+    """Raised inside the add worker when the series being added shares a title
+    with one that is already tracked. `result` is what add-status returns."""
+    def __init__(self, result):
+        super().__init__(result.get('error'))
+        self.result = result
+
+
+def _check_for_duplicate_titles(data, url, titles):
+    """Stop an add whose titles match a series that is already tracked, so the
+    dashboard can offer to attach the link to that series as another source
+    instead. Only for requests that ask for it (check_duplicates) and haven't
+    been answered yet (allow_duplicate), and never when the link itself is
+    already tracked - the add's usual duplicate handling covers that."""
+    if not data.get('check_duplicates') or data.get('allow_duplicate'):
+        return
+    try:
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM series WHERE source_url = ? UNION SELECT 1 FROM series_sources WHERE source_url = ?",
+                (url, url)
+            )
+            if cursor.fetchone():
+                return
+            cursor.execute("SELECT id, title, searchable_text, status FROM series")
+            all_rows = cursor.fetchall()
+        finally:
+            release_db(conn)
+        statuses = {row[0]: row[3] for row in all_rows}
+        matches = find_same_title_series([row[:3] for row in all_rows], titles)
+    except Exception as e:
+        # a failed look-up must not stop the add
+        print(f"[Add Series] Duplicate title check failed: {e}")
+        return
+    if matches:
+        raise PossibleDuplicate({
+            'success': False,
+            'title': titles[0],
+            'possible_duplicates': [
+                {'id': series_id, 'title': title, 'status': statuses.get(series_id)} for series_id, title in matches
+            ],
+            'error': f'You already track "{matches[0][1]}" - add this as a source of it instead?'
+        })
+
 
 class AddTask:
     def __init__(self, data, task_id):
@@ -199,6 +248,7 @@ def _add_worker():
                             chapters_to_save = []
 
                         try:
+                            _check_for_duplicate_titles(data, url, series_search_titles(title, title_en, title_romaji, title_native, alt_titles))
                             series_id = add_series(
                                 title=title,
                                 source_url=url,
@@ -293,6 +343,9 @@ def _add_worker():
                             except Exception as stats_err:
                                 pass
                             task_processed = True
+                        except PossibleDuplicate as dup:
+                            result = dup.result
+                            task_processed = True
                         except sqlite3.IntegrityError as e:
                             error_str = str(e).lower()
                             if "source_url" in error_str or "unique" in error_str:
@@ -366,6 +419,7 @@ def _add_worker():
                             _chapters_source_type = 'kagane'
 
                             try:
+                                _check_for_duplicate_titles(data, url, series_search_titles(title, None, None, None, alt_titles))
                                 series_id = add_series(
                                     title=title,
                                     source_url=url,
@@ -456,6 +510,9 @@ def _add_worker():
                                 except Exception as stats_err:
                                     pass
                                 task_processed = True
+                            except PossibleDuplicate as dup:
+                                result = dup.result
+                                task_processed = True
                             except sqlite3.IntegrityError as e:
                                 error_str = str(e).lower()
                                 if "source_url" in error_str or "unique" in error_str:
@@ -531,6 +588,7 @@ def _add_worker():
                             _chapters_source_type = 'atsu'
 
                             try:
+                                _check_for_duplicate_titles(data, url, series_search_titles(title, None, None, None, alt_titles))
                                 series_id = add_series(
                                     title=title,
                                     source_url=url,
@@ -619,6 +677,9 @@ def _add_worker():
                                 except Exception as stats_err:
                                     pass
                                 task_processed = True
+                            except PossibleDuplicate as dup:
+                                result = dup.result
+                                task_processed = True
                             except sqlite3.IntegrityError as e:
                                 error_str = str(e).lower()
                                 if "source_url" in error_str or "unique" in error_str:
@@ -690,6 +751,7 @@ def _add_worker():
                             _chapters_source_type = 'asura'
 
                             try:
+                                _check_for_duplicate_titles(data, url, series_search_titles(title, None, None, None, alt_titles))
                                 series_id = add_series(
                                     title=title,
                                     source_url=url,
@@ -772,6 +834,9 @@ def _add_worker():
                                 except Exception as stats_err:
                                     pass
                                 task_processed = True
+                            except PossibleDuplicate as dup:
+                                result = dup.result
+                                task_processed = True
                             except sqlite3.IntegrityError as e:
                                 error_str = str(e).lower()
                                 if "source_url" in error_str or "unique" in error_str:
@@ -843,6 +908,7 @@ def _add_worker():
                             _chapters_source_type = 'hive'
 
                             try:
+                                _check_for_duplicate_titles(data, url, series_search_titles(title, None, None, None, alt_titles))
                                 series_id = add_series(
                                     title=title,
                                     source_url=url,
@@ -924,6 +990,9 @@ def _add_worker():
                                     update_current_period_stats()
                                 except Exception as stats_err:
                                     pass
+                                task_processed = True
+                            except PossibleDuplicate as dup:
+                                result = dup.result
                                 task_processed = True
                             except sqlite3.IntegrityError as e:
                                 error_str = str(e).lower()
@@ -1086,10 +1155,13 @@ def api_series():
     where_parts = []
     params = []
 
-    # Status filter
+    # Status filter. Held apart from the others and added last, so a search
+    # that finds series only this filter hides can say so (hidden_matches).
+    status_where = []
+    status_params = []
     if status_filter != 'all':
-        where_parts.append("status = ?")
-        params.append(status_filter)
+        status_where.append("status = ?")
+        status_params.append(status_filter)
 
     # Type filter (multi-select)
     type_filter = request.args.get('type', '').strip()
@@ -1194,6 +1266,7 @@ def api_series():
     # Search filter
     search_rank_sql = None
     search_suggestions = []
+    filter_clause_count = len(where_parts)
     if search_query:
         from .source_links import parse_source_link, find_series_ids
         from .search_utils import search_series, suggest_series
@@ -1221,8 +1294,8 @@ def api_series():
                     # Nothing matched: offer the closest titles, but only among
                     # series that pass the other active filters, so picking one
                     # can't lead to another empty screen.
-                    where_so_far = "WHERE " + " AND ".join(where_parts) if where_parts else ""
-                    cursor.execute(f"SELECT id FROM series {where_so_far}", params)
+                    where_so_far = "WHERE " + " AND ".join(where_parts + status_where) if where_parts or status_where else ""
+                    cursor.execute(f"SELECT id FROM series {where_so_far}", params + status_params)
                     allowed_ids = {row[0] for row in cursor.fetchall()}
                     titles_by_id = {row[0]: row[1] for row in search_rows}
                     search_suggestions = [
@@ -1242,6 +1315,20 @@ def api_series():
                             f"WHEN {int(i)} THEN {int(tier)}" for i, tier in matches.items()
                         ) + " ELSE 99 END"
 
+    # Matches the status filter alone hides: the search itself and every other
+    # filter are satisfied, the series just has another status. Counted per
+    # status so the dashboard can offer to search them.
+    hidden_matches = {}
+    if status_where and len(where_parts) > filter_clause_count:
+        cursor.execute(
+            f"SELECT status, COUNT(*) FROM series WHERE {' AND '.join(where_parts)} "
+            "AND status != ? GROUP BY status",
+            params + [status_filter]
+        )
+        hidden_matches = {status: count for status, count in cursor.fetchall() if status}
+
+    where_parts += status_where
+    params += status_params
     where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
 
     # ADD available_chapters sorting logic
@@ -1363,6 +1450,8 @@ def api_series():
     }
     if search_suggestions:
         response['suggestions'] = search_suggestions
+    if hidden_matches:
+        response['hidden_matches'] = hidden_matches
     return jsonify(response)
 
 @app.route('/api/genres')

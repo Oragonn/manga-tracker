@@ -3266,6 +3266,52 @@ function renderSearchSuggestions(grid, suggestions) {
 	grid.appendChild(box);
 }
 
+// A search that matched series the Status filter is hiding ("3 more in
+// Completed, 1 in On Hold. Search all statuses?"). hidden is the server's
+// {status: count}. With no results it sits under "No series found."; with
+// some, above the cards.
+function renderHiddenMatches(grid, hidden, hasResults) {
+	const entries = Object.entries(hidden || {})
+		.filter(([, count]) => count > 0)
+		.sort((a, b) => b[1] - a[1]);
+	if (entries.length === 0) return;
+
+	const box = document.createElement('div');
+	box.className = 'search-hidden-matches' + (hasResults ? '' : ' no-results');
+	const text = document.createElement('span');
+	const parts = entries.map(([status, count], i) =>
+		`${count} ${i === 0 && hasResults ? 'more ' : ''}in ${STATUS_LABELS_FOR_BOOKMARKS[status] || status}`);
+	text.textContent = parts.join(', ') + '.';
+	box.appendChild(text);
+
+	const button = document.createElement('button');
+	button.type = 'button';
+	button.className = 'search-suggestion-chip';
+	button.textContent = 'Search all statuses';
+	button.addEventListener('click', searchAllStatuses);
+	box.appendChild(button);
+
+	if (hasResults) {
+		grid.prepend(box);
+	} else {
+		grid.querySelector(':scope > p')?.classList.add('has-suggestions');
+		grid.appendChild(box);
+	}
+}
+
+// Same as picking "All Statuses" in the Status dropdown (which keeps the
+// dropdown's label in step and reloads), with the search left as typed.
+function searchAllStatuses() {
+	const option = document.querySelector('#filter-status-container .option-item[data-value="all"]');
+	if (option) {
+		option.click();
+		return;
+	}
+	state.status = 'all';
+	state.page = 1;
+	loadPage();
+}
+
 // Put a suggested title into the search box(es) and search for it. Both the
 // desktop and the mobile box are set - loadPage() reads whichever has text.
 function applySearchSuggestion(title) {
@@ -3425,7 +3471,8 @@ async function loadPage() {
 				seriesGrid.appendChild(card);
 			});
 		}
-		
+		renderHiddenMatches(seriesGrid, data.hidden_matches, data.items.length > 0);
+
 		renderPagination(data.current_page, data.total_pages, status, sort);
 	} catch (err) {
 		seriesGrid.innerHTML = `
@@ -3567,6 +3614,111 @@ function setupSingleSelect(trigger, menu, stateKey, labelMap, defaultValue) {
 			opt.classList.add('selected');
 		}
 	});
+}
+
+// ─── Adding a series ──────────────────────────────────────────
+// Attach more links to a series that already exists: [{ok, error}], one per link.
+function addSourcesToSeries(seriesId, urls) {
+	return Promise.all(urls.map(u =>
+		fetch(`/api/series/${seriesId}/sources`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ source_url: u })
+		}).then(async r => {
+			const data = await r.json().catch(() => ({}));
+			return { ok: r.ok && !data.error, error: data.error };
+		}).catch(() => ({ ok: false, error: 'network error' }))
+	));
+}
+
+// The series was added: attach any further links that were pasted with it
+// and say so.
+async function announceAddedSeries(statusData, extraUrls) {
+	const status = statusData.series?.status || document.getElementById('new-series-status')?.value || 'plan_to_read';
+	const statusText = STATUS_LABELS_FOR_BOOKMARKS[status] || status;
+
+	if (extraUrls.length && statusData.id) {
+		const results = await addSourcesToSeries(statusData.id, extraUrls);
+		const failedCount = results.filter(r => !r.ok).length;
+		const extraMsg = failedCount === 0
+			? `, +${results.length} source${results.length > 1 ? 's' : ''} added`
+			: `, ${results.length - failedCount}/${results.length} extra source(s) added`;
+		showNotification(`Series added to ${statusText}${extraMsg}`, 'added');
+	} else {
+		showNotification(`Series added to ${statusText}`, 'added');
+	}
+	loadGenres();
+}
+
+// POST /api/series and wait for the add queue to finish with it: resolves the
+// finished task's result ({success: false, error} if it couldn't be started).
+async function addSeriesToQueue(body) {
+	try {
+		const res = await fetch('/api/series', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body)
+		});
+		if (!res.ok) {
+			const err = await res.json().catch(() => ({}));
+			return { success: false, error: err.error || 'Unknown error' };
+		}
+		const { task_id } = await res.json();
+		for (let attempt = 0; attempt < 60; attempt++) {
+			const data = await (await fetch(`/api/series/add-status/${task_id}`)).json();
+			if (data.status !== 'pending') return data;
+			await new Promise(resolve => setTimeout(resolve, 1000));
+		}
+		return { success: false, error: 'Add timed out. It may still be processing in the background.' };
+	} catch (e) {
+		return { success: false, error: 'Network error' };
+	}
+}
+
+// The add stopped because the new series shares a title with one that is
+// already tracked (statusData.possible_duplicates, best match first): offer to
+// attach the link to that series as another source, or add it as its own.
+async function resolvePossibleDuplicate(statusData, url, extraUrls, status) {
+	const [match, ...others] = statusData.possible_duplicates;
+	// "Title" (Status): the status tells apart tracked series that share a name
+	const describe = (series) => {
+		const statusText = STATUS_LABELS_FOR_BOOKMARKS[series.status];
+		return statusText ? `"${series.title}" (${statusText})` : `"${series.title}"`;
+	};
+	const sameName = statusData.title.trim().toLowerCase() === match.title.trim().toLowerCase();
+	let message = sameName
+		? `You already track ${describe(match)}.`
+		: `"${statusData.title}" shares a title with ${describe(match)}, which you already track.`;
+	if (others.length) {
+		message += ` Also similar: ${others.map(describe).join(', ')}.`;
+	}
+	message += ` Add this link as another source of ${others.length ? 'the first one' : 'it'}, or create a separate series?`;
+	const choice = await showConfirmDialog({
+		title: 'Already in your library?',
+		message,
+		confirmText: 'Add as a source',
+		alternateText: 'Add as new series',
+		cancelText: 'Cancel'
+	});
+
+	if (choice === true) {
+		const results = await addSourcesToSeries(match.id, [url, ...extraUrls]);
+		const failed = results.find(r => !r.ok);
+		if (failed) {
+			showNotification(`Failed to add source: ${failed.error || 'Unknown error'}`, 'error');
+		} else {
+			showNotification(`Added as a source of "${match.title}"`, 'added');
+		}
+	} else if (choice === 'alternate') {
+		const data = await addSeriesToQueue({ source_url: url, status, allow_duplicate: true });
+		if (!data.success) {
+			showNotification('Failed to add series: ' + (data.error || 'Unknown error'), 'error');
+		} else if (data.duplicate) {
+			showNotification('Series already exists in your library', 'error');
+		} else {
+			await announceAddedSeries(data, extraUrls);
+		}
+	}
 }
 
 // ─── Initial Setup ────────────────────────────────────────────
@@ -5094,7 +5246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const res = await fetch('/api/series', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ source_url: url, status: selectedStatus })
+				body: JSON.stringify({ source_url: url, status: selectedStatus, check_duplicates: true })
 			});
 			if (!res.ok) {
 				const err = await res.json().catch(() => ({}));
@@ -5123,43 +5275,20 @@ document.addEventListener('DOMContentLoaded', () => {
 						setTimeout(poll, 1000);
 					} else {
 						if (!statusData.success) {
-							// ADDED: Show error notification
-							showNotification('Failed to add series: ' + (statusData.error || 'Unknown error'), 'error');
+							if (statusData.possible_duplicates?.length) {
+								// Shares a title with a series already tracked - ask whether to
+								// attach this link to it instead
+								await resolvePossibleDuplicate(statusData, url, extraUrls, selectedStatus);
+							} else {
+								// ADDED: Show error notification
+								showNotification('Failed to add series: ' + (statusData.error || 'Unknown error'), 'error');
+							}
 						} else if (statusData.duplicate) {
 							// ADDED: Show duplicate notification
 							showNotification('Series already exists in your library', 'error');
 						} else {
 							// Success - series was added
-							const status = statusData.series?.status || document.getElementById('new-series-status')?.value || 'plan_to_read';
-							const statusMap = {
-								'reading': 'Reading',
-								'plan_to_read': 'Plan to Read',
-								'on_hold': 'On Hold',
-								'dropped': 'Dropped',
-								'completed': 'Completed'
-							};
-							const statusText = statusMap[status] || status;
-
-							if (extraUrls.length && statusData.id) {
-								const results = await Promise.all(extraUrls.map(u =>
-									fetch(`/api/series/${statusData.id}/sources`, {
-										method: 'POST',
-										headers: { 'Content-Type': 'application/json' },
-										body: JSON.stringify({ source_url: u })
-									}).then(async r => {
-										const data = await r.json().catch(() => ({}));
-										return { ok: r.ok && !data.error, error: data.error };
-									}).catch(() => ({ ok: false, error: 'network error' }))
-								));
-								const failedCount = results.filter(r => !r.ok).length;
-								const extraMsg = failedCount === 0
-									? `, +${results.length} source${results.length > 1 ? 's' : ''} added`
-									: `, ${results.length - failedCount}/${results.length} extra source(s) added`;
-								showNotification(`Series added to ${statusText}${extraMsg}`, 'added');
-							} else {
-								showNotification(`Series added to ${statusText}`, 'added');
-							}
-							loadGenres();
+							await announceAddedSeries(statusData, extraUrls);
 						}
 						loadPage();
 					}
@@ -8554,8 +8683,10 @@ function handleMobileScroll() {
 
 // Override renderSeriesCard to add mobile tap behavior
 const originalRenderSeriesCard = window.renderSeriesCard;
-window.renderSeriesCard = function(series) {
-  const card = originalRenderSeriesCard(series);
+window.renderSeriesCard = function(series, chapters = null) {
+  // Pass the chapters through: when loadPage() already has them (from
+  // /api/series) the card must not refetch them, once per card.
+  const card = originalRenderSeriesCard(series, chapters);
   
   if (isMobileDevice()) {
     // Hide checkbox completely on mobile

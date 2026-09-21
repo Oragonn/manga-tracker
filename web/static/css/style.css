@@ -448,6 +448,24 @@ html {
   background: #2d3f5f;
 }
 
+/* Matches that the Status filter is hiding ("3 more in Completed. Search all
+   statuses?") - a slim row above the cards, or under "No series found." */
+.search-hidden-matches {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  padding: 2px 8px 6px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.search-hidden-matches.no-results {
+  padding: 0 20px 60px;
+}
+
 /* ================================
    MULTI-SELECT DROPDOWNS
    ================================ */
@@ -3591,12 +3609,14 @@ html {
   outline-offset: 2px;
 }
 
-.confirm-dialog-cancel {
+.confirm-dialog-cancel,
+.confirm-dialog-alternate {
   background: #1a2436;
   color: #cbd5e1;
 }
 
-.confirm-dialog-cancel:hover {
+.confirm-dialog-cancel:hover,
+.confirm-dialog-alternate:hover {
   background: #1e2c40;
   color: white;
 }
@@ -3624,6 +3644,32 @@ html {
 @media (max-width: 480px) {
   .confirm-dialog-actions button {
     flex: 1;
+  }
+}
+
+/* Three answers (Cancel / alternate / Confirm): a wider dialog, since the
+   labels are longer, and on a phone the buttons stack with Confirm on top. */
+.confirm-dialog.has-alternate {
+  max-width: 480px;
+}
+
+.confirm-dialog.has-alternate .confirm-dialog-actions {
+  flex-wrap: wrap;
+}
+
+.confirm-dialog.has-alternate .confirm-dialog-actions button {
+  height: auto;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+@media (max-width: 480px) {
+  .confirm-dialog.has-alternate .confirm-dialog-actions {
+    flex-direction: column-reverse;
+  }
+
+  .confirm-dialog.has-alternate .confirm-dialog-actions button {
+    flex: none;
   }
 }
 
