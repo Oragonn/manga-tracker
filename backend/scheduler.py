@@ -5,7 +5,7 @@ import os
 import concurrent.futures
 from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
-from .trackers.mangadex import extract_manga_id, get_latest_chapters
+from .trackers.mangadex import extract_manga_id, get_latest_chapters, get_manga_status
 from .trackers.kagane import extract_series_id, get_series_info
 from .trackers import atsu as atsu_tracker
 from .trackers import asura as asura_tracker
@@ -368,9 +368,12 @@ class MangaScheduler:
         conn.commit()
 
     def _fetch_source_chapters(self, source):
-        """Fetch the chapter list for a single source. Runs on a worker
-        thread from scan_series's ThreadPoolExecutor -- raises on failure
-        so the caller's future.result() surfaces the error per-source."""
+        """Fetch the chapter list for a single source, plus its publication
+        status when that's worth having: (chapters, status), where status is
+        None if the source isn't primary or doesn't report one. Runs on a
+        worker thread from scan_series's ThreadPoolExecutor -- raises on
+        failure so the caller's future.result() surfaces the error
+        per-source."""
         source_url = source['source_url']
         source_type = source['source_type']
 
@@ -378,32 +381,64 @@ class MangaScheduler:
 
         if source_type == 'mangadex':
             manga_id = extract_manga_id(source_url)
-            return get_latest_chapters(manga_id, limit=100) if manga_id else None
+            if not manga_id:
+                return None, None
+            chapters = get_latest_chapters(manga_id, limit=100)
+            status = None
+            if source.get('is_primary'):
+                # The chapter feed doesn't carry it, so it's one extra request
+                # - and only for a primary source, the only one whose status
+                # is used. A hiccup here must not throw away the chapters.
+                try:
+                    status = get_manga_status(manga_id)
+                except Exception as status_error:
+                    print(f"[Scheduler] Couldn't read MangaDex status for {manga_id}: {status_error}")
+            return chapters, status
         elif source_type == 'kagane':
             kagane_id = extract_series_id(source_url)
             if not kagane_id:
-                return None
+                return None, None
             kagane_info = get_series_info(kagane_id)
-            return kagane_info['chapters'] if kagane_info else None
+            return (kagane_info['chapters'], kagane_info.get('status')) if kagane_info else (None, None)
         elif source_type == 'atsu':
             atsu_id = atsu_tracker.extract_series_id(source_url)
             if not atsu_id:
-                return None
+                return None, None
             atsu_info = atsu_tracker.get_series_info(atsu_id)
-            return atsu_info['chapters'] if atsu_info else None
+            return (atsu_info['chapters'], atsu_info.get('status')) if atsu_info else (None, None)
         elif source_type == 'asura':
             asura_id = asura_tracker.extract_series_id(source_url)
             if not asura_id:
-                return None
+                return None, None
             asura_info = asura_tracker.get_series_info(asura_id)
-            return asura_info['chapters'] if asura_info else None
+            return (asura_info['chapters'], asura_info.get('status')) if asura_info else (None, None)
         elif source_type == 'hive':
             hive_id = hive_tracker.extract_series_id(source_url)
             if not hive_id:
-                return None
+                return None, None
             hive_info = hive_tracker.get_series_info(hive_id)
-            return hive_info['chapters'] if hive_info else None
-        return None
+            return (hive_info['chapters'], hive_info.get('status')) if hive_info else (None, None)
+        return None, None
+
+    def _update_source_status(self, series_id, status):
+        """Store the primary source's publication status on the series (the
+        value the Publication Status filter reads). The trackers report
+        'plan_to_read' for a status they don't recognise - that says nothing
+        about the series, so it never replaces a status already stored."""
+        if not status or status == 'plan_to_read':
+            return
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE series SET source_status = ? "
+                "WHERE id = ? AND (source_status IS NULL OR source_status != ?)",
+                (status, series_id, status)
+            )
+            if cursor.rowcount:
+                print(f"[Scheduler] Series {series_id}: publication status is now {status}")
+        finally:
+            release_db(conn)
 
     def scan_series(self, series_id):
         """
@@ -441,6 +476,7 @@ class MangaScheduler:
             all_chapters = []
             successful_sources = 0
             sources_reached = 0  # fetch didn't raise, whether or not it returned chapters
+            primary_status = None  # publication status reported by the primary source
 
             # Fetch chapters from all sources concurrently instead of one at a
             # time -- each source is an independent network call, and the
@@ -457,7 +493,7 @@ class MangaScheduler:
                     source = future_to_source[future]
                     source_type = source['source_type']
                     try:
-                        chapters = future.result()
+                        chapters, status = future.result()
                     except Exception as source_error:
                         print(f"[Scheduler] Error fetching from {source_type}: {source_error}")
                         try:
@@ -489,6 +525,8 @@ class MangaScheduler:
                     except Exception:
                         pass
                     sources_reached += 1
+                    if source.get('is_primary') and status:
+                        primary_status = status
 
                     if chapters:
                         # Tag chapters with source info
@@ -503,6 +541,15 @@ class MangaScheduler:
                         print(f"[Scheduler] No chapters from {source_type}")
 
             print(f"[Scheduler] Total raw chapters: {len(all_chapters)} from {successful_sources} sources")
+
+            # The series' publication status follows its primary source. Done
+            # before the chapter merge below (which can return early) since it
+            # doesn't depend on there being any chapters.
+            if primary_status:
+                try:
+                    self._update_source_status(series_id, primary_status)
+                except Exception as status_error:
+                    print(f"[Scheduler] Couldn't update publication status for series {series_id}: {status_error}")
 
             # Apply user corrections (ban a specific bad link, or
             # replace/inject a chapter) before merging. Runs regardless of

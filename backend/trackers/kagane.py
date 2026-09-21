@@ -30,14 +30,23 @@ def _is_expected_special(title):
         'aftermath', 'flashback', 'recap', 'ova', 'ova chapter'
     ])
 
+# "Special Episode 1", "Bonus Chapter 2", "Extra Ep. 3": a side entry that
+# only borrows the episode wording. Its number belongs to the specials, not
+# to the main sequence.
+_SIDE_ENTRY = re.compile(
+    r'\b(?:special|bonus|extra)\s+(?:episode|ep\.?|chapter|ch\.?|chap\.?)\s*\d',
+    re.IGNORECASE
+)
+
 def _extract_season_and_chapter(title):
     """
     Extract season number and chapter number from title.
-    
+
     Returns: (season_number, chapter_number) tuple
     - season_number: int or None (1-based, None = Season 1)
-    - chapter_number: float or None
-    
+    - chapter_number: float or None (also None for a "Special Episode N"
+      style side entry, so it is numbered like any other special)
+
     Examples:
     - "(S2) Episode 3" → (2, 3.0)
     - "Episode 65" → (None, 65.0)
@@ -95,7 +104,13 @@ def _extract_season_and_chapter(title):
     title_clean = re.sub(r'\s*[-:•]\s*', ' ', title_clean)
     title_clean = re.sub(r'\s+', ' ', title_clean)
     title_clean = title_clean.strip()
-    
+
+    # Reading "Special Episode 1" as Episode 1 made the numbering look like it
+    # had restarted, which shifted every real episode after it (Yes Ma'am's
+    # Episode 32, right after "Special Episode 2", came out as 63).
+    if _SIDE_ENTRY.search(title_clean):
+        return (season_number, None)
+
     # Extract chapter number
     match = re.search(
         r'\b(?:episode|ep\.?|e|chapter|ch\.?|chap\.?)\s*(\d+(?:\.\d+)?)\b',
@@ -186,13 +201,19 @@ def get_series_info(series_id, with_gallery=False):
     if chapters:
         print(f"[Kagane] Final chapter range: {chapters[0]['chapter_number']:.1f} - {chapters[-1]['chapter_number']:.1f} ({len(chapters)} total)")
 
-    # Status mapping
-    kagane_status = meta.get('status', '').upper()
+    # Status mapping. Kagane's API currently says Ongoing / Completed /
+    # Hiatus / Abandoned; ENDED and CANCELLED are kept from what this
+    # originally expected, in case either spelling shows up. A finished series
+    # used to fall through to 'plan_to_read' because only ENDED was mapped.
+    kagane_status = (meta.get('status') or '').upper()
     status_map = {
         'ONGOING': 'reading',
+        'COMPLETED': 'completed',
         'ENDED': 'completed',
         'HIATUS': 'on_hold',
-        'CANCELLED': 'dropped'
+        'ABANDONED': 'dropped',
+        'CANCELLED': 'dropped',
+        'CANCELED': 'dropped'
     }
     source_status = status_map.get(kagane_status, 'plan_to_read')
 

@@ -8,6 +8,7 @@ import time
 import uuid
 from queue import Queue, Empty
 from .activity_logger import log_activity, get_series_snapshot, detect_source_type
+from .source_links import clean_source_url
 
 
 from .database import (
@@ -47,7 +48,7 @@ def _add_worker():
 
             try:
                 data = task.data
-                url = data.get('source_url')
+                url = clean_source_url(data.get('source_url'))
                 user_status = data.get('status', 'reading')
 
                 if not url:

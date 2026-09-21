@@ -10,6 +10,7 @@ init_auth(app)
 import re
 from .activity_logger import get_logs, mark_log_undone
 from .database import add_series as db_add_series
+from .source_links import clean_source_url
 import os
 import json
 import csv
@@ -249,10 +250,10 @@ def api_undo_log(log_id):
                 # *** FIX: Check if series already exists before trying to restore ***
                 conn_check = get_db()
                 cursor_check = conn_check.cursor()
-                cursor_check.execute("SELECT id FROM series WHERE source_url = ?", (source['url'],))
+                cursor_check.execute("SELECT id FROM series WHERE source_url = ?", (clean_source_url(source['url']),))
                 existing = cursor_check.fetchone()
                 release_db(conn_check)
-                
+
                 if existing:
                     # Series already exists, skip restoration but mark for check-now
                     print(f"[Undo] Skipping '{old_value.get('title')}' - already exists")
@@ -379,7 +380,7 @@ def api_undo_log(log_id):
                     cursor_check = conn_check.cursor()
                     cursor_check.execute(
                         "SELECT id FROM series_sources WHERE source_url = ?",
-                        (old_value['source_url'],)
+                        (clean_source_url(old_value['source_url']),)
                     )
                     existing = cursor_check.fetchone()
                     release_db(conn_check)
@@ -407,7 +408,7 @@ def api_undo_log(log_id):
                     cursor_check = conn_check.cursor()
                     cursor_check.execute(
                         "SELECT id FROM series_sources WHERE series_id = ? AND source_url = ?",
-                        (series_id, new_value['source_url'])
+                        (series_id, clean_source_url(new_value['source_url']))
                     )
                     row_check = cursor_check.fetchone()
                     release_db(conn_check)
@@ -609,10 +610,10 @@ def api_undo_bulk(bulk_id):
                     # *** FIX: Check if series already exists before trying to restore ***
                     conn_check = get_db()
                     cursor_check = conn_check.cursor()
-                    cursor_check.execute("SELECT id FROM series WHERE source_url = ?", (source['url'],))
+                    cursor_check.execute("SELECT id FROM series WHERE source_url = ?", (clean_source_url(source['url']),))
                     existing = cursor_check.fetchone()
                     release_db(conn_check)
-                    
+
                     if existing:
                         # Series already exists, skip restoration but track for check-now
                         print(f"[Undo Bulk] Skipping '{old_value.get('title')}' - already exists")
@@ -920,11 +921,11 @@ def api_add_source(series_id):
     data = None
     try:
         data = request.get_json()
-        source_url = data.get('source_url')
+        source_url = clean_source_url(data.get('source_url'))
 
         if not source_url:
             return jsonify({'error': 'source_url required'}), 400
-        
+
         # Detect source type
         if 'mangadex.org' in source_url:
             source_type = 'mangadex'
@@ -1011,13 +1012,15 @@ def api_add_source(series_id):
             
             # Get existing series data
             cursor.execute("""
-                SELECT alt_titles, genres, searchable_text, content_rating
+                SELECT alt_titles, genres, searchable_text, content_rating,
+                       title, title_en, title_romaji, title_native
                 FROM series WHERE id = ?
             """, (series_id,))
             row = cursor.fetchone()
 
             if row:
-                existing_alt_titles_json, existing_genres_json, existing_searchable_text, existing_content_rating = row
+                existing_alt_titles_json, existing_genres_json, existing_searchable_text, existing_content_rating = row[:4]
+                series_titles = row[4:8]
                 
                 # Parse existing data
                 try:
@@ -1055,7 +1058,11 @@ def api_add_source(series_id):
                 existing_genres = normalize_tag_list(existing_genres)
                 new_genres = normalize_tag_list(new_genres)
 
-                merged_alt_titles = list(set(existing_alt_titles + new_alt_titles))
+                # A tracker's alt_titles doesn't include the name the source
+                # itself goes by (only MangaDex's does), so that title is
+                # merged in explicitly or the series never learns it.
+                from .title_utils import merge_source_titles
+                merged_alt_titles = merge_source_titles(existing_alt_titles, new_metadata, series_titles)
                 merged_genres = merge_tag_lists(existing_genres, new_genres)
 
                 # Content rating: sources can disagree (e.g. Atsumaru tags a

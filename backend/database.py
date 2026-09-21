@@ -9,6 +9,7 @@ import re
 import unicodedata
 
 from .tag_utils import load_tag_rules, resolve_tag
+from .source_links import clean_source_url
 
 def normalize_for_search(text):
     """Normalize text for robust searching: lowercase, remove punctuation, strip diacritics."""
@@ -57,6 +58,7 @@ def add_source_to_series(series_id, source_url, source_type, is_primary=False, c
     Add a new source to an existing series.
     If is_primary=True, demotes the current primary source.
     """
+    source_url = clean_source_url(source_url)
     conn = get_db()
     cursor = conn.cursor()
 
@@ -1503,6 +1505,7 @@ def init_db():
     migrate_chapter_overrides_ban_by_url()
 
     # Run backfill AFTER releasing DB lock
+    clean_stored_source_urls()
     repair_double_encoded_columns()
     backfill_searchable_text()
     
@@ -1558,9 +1561,10 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
     Add a new series AND create its primary source entry.
     This is the critical fix for Bug #1.
     """
+    source_url = clean_source_url(source_url)
     conn = get_db()
     cursor = conn.cursor()
-    
+
     try:
         # Ensure table has required columns (for backward compatibility)
         cursor.execute("PRAGMA table_info(series)")
@@ -1764,6 +1768,46 @@ def repair_double_encoded_columns():
     if repaired:
         print(f"[Database] Repaired {repaired} double-encoded genres/alt_titles value(s) on restored series")
     return repaired
+
+
+def clean_stored_source_urls():
+    """One-time cleanup of source links saved with a "?tab=art"-style query
+    (or a #fragment) still on them, before add_series / add_source_to_series
+    started stripping it. Rewrites series.source_url and
+    series_sources.source_url in place.
+
+    A row whose cleaned link is already used by another row of the same table
+    is left as it is - source_url is unique, and merging two entries is not
+    something a startup repair should decide. Only rows that actually change
+    are touched, so it is safe to run on every start. Returns how many links
+    were rewritten."""
+    conn = get_db()
+    cursor = conn.cursor()
+    rewritten = 0
+    skipped = 0
+    for table in ('series', 'series_sources'):
+        cursor.execute(
+            f"SELECT id, source_url FROM {table} "
+            "WHERE source_url LIKE '%?%' OR source_url LIKE '%#%' OR source_url != TRIM(source_url)"
+        )
+        for row_id, source_url in cursor.fetchall():
+            cleaned = clean_source_url(source_url)
+            if not cleaned or cleaned == source_url:
+                continue
+            cursor.execute(
+                f"SELECT 1 FROM {table} WHERE source_url = ? AND id != ?", (cleaned, row_id)
+            )
+            if cursor.fetchone():
+                skipped += 1
+                print(f"[Database] Left {table} #{row_id} alone - {cleaned} is already stored on another row")
+                continue
+            cursor.execute(f"UPDATE {table} SET source_url = ? WHERE id = ?", (cleaned, row_id))
+            rewritten += 1
+    release_db(conn)
+    if rewritten:
+        print(f"[Database] Stripped the query string from {rewritten} stored source link(s)"
+              + (f" ({skipped} skipped as duplicates)" if skipped else ""))
+    return rewritten
 
 
 def backfill_searchable_text():

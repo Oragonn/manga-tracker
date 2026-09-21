@@ -4,6 +4,8 @@ import requests
 import time
 from urllib.parse import urlparse
 
+from ..tag_utils import merge_tag_lists
+
 _session = requests.Session()
 _session.headers.update({
     'User-Agent': 'MangaTracker/1.0 (your.email@example.com)'
@@ -43,6 +45,53 @@ def extract_manga_id(url):
         return path_parts[0]
     return None
 
+def collect_titles(attrs):
+    """Every title MangaDex lists for a manga: its main title(s), then the
+    alternates. `altTitles` is a list of one-entry {language: title} objects
+    (e.g. [{"ja": "..."}, {"en": "..."}]) - the same language can appear
+    more than once - so each entry's values are read rather than looking for
+    a "language" / "title" field, which the API doesn't have."""
+    titles = list((attrs.get('title') or {}).values())
+    for entry in attrs.get('altTitles') or []:
+        titles.extend((entry or {}).values())
+    return merge_tag_lists([t.strip() for t in titles if isinstance(t, str) and t.strip()])
+
+def get_titles_for_manga(manga_ids):
+    """{manga_id: [every title]} for many manga at once - up to 100 per
+    request instead of one request (plus a cover lookup) each. Ids MangaDex
+    doesn't return are simply absent; raises if a request fails."""
+    ids = list(dict.fromkeys(manga_ids))
+    found = {}
+    for start in range(0, len(ids), 100):
+        resp = _delayed_get("https://api.mangadex.org/manga", params={
+            'ids[]': ids[start:start + 100],
+            'limit': 100,
+            # without this the endpoint leaves out pornographic titles
+            'contentRating[]': ['safe', 'suggestive', 'erotica', 'pornographic'],
+        })
+        if resp.status_code != 200:
+            raise Exception(f"MangaDex API returned HTTP {resp.status_code} for a batch of {len(ids[start:start + 100])} manga")
+        for item in resp.json()['data']:
+            found[item['id']] = collect_titles(item['attributes'])
+    return found
+
+_STATUS_MAP = {
+    'ongoing': 'reading',
+    'completed': 'completed',
+    'hiatus': 'on_hold',
+    'cancelled': 'dropped'
+}
+
+def get_manga_status(manga_id):
+    """Just a manga's publication status, mapped like get_manga_info() does
+    ('plan_to_read' for one MangaDex reports that isn't recognised) - a single
+    request, for the scheduler to check on every scan without also looking up
+    the cover. Raises on a failed request."""
+    resp = _delayed_get(f"https://api.mangadex.org/manga/{manga_id}")
+    if resp.status_code != 200:
+        raise Exception(f"MangaDex API returned HTTP {resp.status_code} for manga {manga_id}")
+    return _STATUS_MAP.get(resp.json()['data']['attributes']['status'], 'plan_to_read')
+
 def get_manga_info(manga_id):
     try:
         resp = _delayed_get(f"https://api.mangadex.org/manga/{manga_id}")
@@ -51,29 +100,16 @@ def get_manga_info(manga_id):
         data = resp.json()['data']
         attrs = data['attributes']
         
-        main_title = attrs['title'].get('en')
-        alt_titles_dict = {}
-        alt_titles_list = attrs.get('altTitles', [])
-        for entry in alt_titles_list:
-            lang = entry.get('language')
-            text = entry.get('title')
-            if lang and text:
-                alt_titles_dict[lang] = text
-        
-        title = alt_titles_dict.get('en', main_title)
+        # The series keeps MangaDex's main title. (An English alternate title
+        # is deliberately not preferred over it: that would rename series
+        # differently from everything already in the library.)
+        title = attrs['title'].get('en')
         if not title:
             title = next(iter(attrs['title'].values()), "Unknown Manga")
-        
-        all_titles = {**attrs['title'], **alt_titles_dict}
-        
-        status_map = {
-            'ongoing': 'reading',
-            'completed': 'completed',
-            'hiatus': 'on_hold',
-            'cancelled': 'dropped'
-        }
-        raw_status = attrs['status']
-        status = status_map.get(raw_status, 'plan_to_read')
+
+        all_titles = collect_titles(attrs)
+
+        status = _STATUS_MAP.get(attrs['status'], 'plan_to_read')
         
         cover_url = None
         for rel in data['relationships']:

@@ -30,6 +30,26 @@ _PATTERNS = [
 # case-sensitive, so those are left exactly as written.
 _CASE_INSENSITIVE_IDS = {'mangadex', 'kagane'}
 
+_TRACKED_HOST = re.compile(
+    _PREFIX + r'(?:mangadex\.org|kagane\.(?:to|org)|atsu\.moe|asurascans\.com|hivetoons\.org)(?:[/?#]|$)',
+    re.I
+)
+
+
+def clean_source_url(url):
+    """The link to store for a source: surrounding whitespace and any
+    "?query" / "#fragment" dropped when it points at one of the five tracked
+    sites. A link copied from a browser tab carries UI state along with it
+    (MangaDex's ?tab=art / ?tab=chapters, for one) that has no bearing on
+    which series it is, and it made the same series look like a different
+    link. Anything else is only trimmed."""
+    if not isinstance(url, str):
+        return url
+    url = url.strip()
+    if _TRACKED_HOST.match(url):
+        url = re.split(r'[?#]', url, maxsplit=1)[0]
+    return url
+
 
 def parse_source_link(text):
     """(source_type, series_id) if `text` is a link to a series - or one of
