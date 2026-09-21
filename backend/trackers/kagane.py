@@ -218,7 +218,8 @@ def get_series_info(series_id, with_gallery=False):
 
     # What each book is. "numbered" carries its chapter number in the title;
     # "unnumbered" is a plain chapter with only a name ("Untitled", "Bathhouse",
-    # "The Brand (danke-Empire)"); "special" is a side entry that gets an x.01.
+    # "The Brand (danke-Empire)"); "special" is a side entry that gets an x.01;
+    # "oneshot" is the one book of a single-book series (assigned below).
     entries = []
     for book in books_sorted:
         title = book.get('title', 'Untitled')
@@ -251,9 +252,12 @@ def get_series_info(series_id, with_gallery=False):
     for e in entries:
         e['site_no'] = e['chapter_no'] if use_chapter_no else e['position']
 
-    # A series with a single book is a oneshot: nothing to number it against.
-    if len(entries) == 1 and entries[0]['kind'] == 'unnumbered':
-        entries[0]['kind'] = 'special'
+    # A series with a single book that has no chapter number is a oneshot:
+    # nothing to number it against. It is stored the way the other sources
+    # store one (chapter 0, flagged) - as an x.01 it showed up as "Ch.0.01" and
+    # sat beside MangaDex's own oneshot entry as a second, unrelated chapter.
+    if len(entries) == 1 and entries[0]['kind'] != 'numbered':
+        entries[0]['kind'] = 'oneshot'
 
     # When chapter-less books outnumber the titled ones, the numbers that do
     # appear in titles are per-arc ("The Golden Age, Chapter 1") rather than a
@@ -278,6 +282,7 @@ def get_series_info(series_id, with_gallery=False):
     # correct whether or not a given series' numbering happens to reset.
     running_offset = 0.0
     prev_raw = None
+    prev_final = None
     for e in entries:
         if e['kind'] != 'numbered':
             continue
@@ -286,10 +291,18 @@ def get_series_info(series_id, with_gallery=False):
             # Numbering actually went backwards - a genuine reset.
             # Carry the peak reached so far forward as the new base.
             running_offset += prev_raw
+            # A season that restarts at 0 ("[Season 2] Ep. 0") would land on the
+            # last chapter of the season before it ("[Season 1] Ep. 78"), and
+            # the merge by chapter number then drops one of the two and leaves
+            # every later chapter a number too low (Tower of God ended at 650
+            # where Atsu says 651). Start it just past the previous chapter.
+            if running_offset + raw_chapter_num <= prev_final:
+                running_offset = prev_final + 1 - raw_chapter_num
             print(f"[Kagane] Detected a numbering reset before \"{e['title']}\" "
                   f"({raw_chapter_num} after {prev_raw}) - offset now +{running_offset}")
         e['final'] = running_offset + raw_chapter_num
         prev_raw = raw_chapter_num
+        prev_final = e['final']
 
     taken = {e['final'] for e in entries if 'final' in e}
     first_anchor = next(((e['site_no'], e['final']) for e in entries
@@ -308,6 +321,8 @@ def get_series_info(series_id, with_gallery=False):
             final_chapter_num = e['final']
             if e['site_no'] is not None:
                 anchor = (e['site_no'], final_chapter_num)
+        elif e['kind'] == 'oneshot':
+            final_chapter_num = 0.0
         elif e['kind'] == 'unnumbered' and e['site_no'] is not None:
             # The site's numbering doesn't always agree with the titles' (an
             # "Episode 0" prologue is chapter_no 1, so "Episode 1" is 2), so
@@ -343,7 +358,7 @@ def get_series_info(series_id, with_gallery=False):
             'title': title,
             'release_date': book.get('release_date'),
             'chapter_url': chapter_url,
-            'is_oneshot': False
+            'is_oneshot': e['kind'] == 'oneshot'
         })
 
     if from_site_count:
