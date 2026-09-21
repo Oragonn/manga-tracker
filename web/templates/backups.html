@@ -69,6 +69,15 @@
       margin-top: 16px;
     }
     
+    .backup-list-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
     .backup-list-card {
       background: #141b2f;
       border: 1px solid #334155;
@@ -617,7 +626,14 @@
     </div>
 
     <div class="backup-list-card">
-      <h2 style="color: white; margin-bottom: 16px;">🗂️ Available Backups</h2>
+      <div class="backup-list-header">
+        <h2 style="color: white; margin: 0;">🗂️ Available Backups</h2>
+        <button type="button" class="btn-backup" id="upload-backup-btn" onclick="chooseBackupFile()"
+                title="Add a backup made elsewhere - a .db.gz backup or a tracker.db - so it can be restored from here">
+          ⬆️ Upload Backup
+        </button>
+        <input type="file" id="upload-backup-input" accept=".gz,.db,application/gzip,application/x-gzip" hidden />
+      </div>
       <div id="backup-list">
         <p style="color: #94a3b8;">Loading backups...</p>
       </div>
@@ -706,7 +722,7 @@
 </div>
 
 
-<script src="/static/js/backups.js"></script>
+<script src="/static/js/backups.js?v=upload1"></script>
 <script>
 
 // Mobile menu functionality

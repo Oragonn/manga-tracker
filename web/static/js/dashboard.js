@@ -3241,6 +3241,43 @@ function renderSourceHealthList(listId, panelId) {
 // sync - it's still called from here (see createMobileHeader()) to reapply
 // the already-known count as soon as the mobile header's badge element exists.
 
+// A search that found nothing: the server may send back the closest titles
+// (typos, spelling variants). Shown as buttons under "No series found."
+function renderSearchSuggestions(grid, suggestions) {
+	if (!Array.isArray(suggestions) || suggestions.length === 0) return;
+
+	const box = document.createElement('div');
+	box.className = 'search-suggestions';
+	const label = document.createElement('span');
+	label.className = 'search-suggestions-label';
+	label.textContent = 'Did you mean:';
+	box.appendChild(label);
+
+	suggestions.forEach((suggestion) => {
+		const chip = document.createElement('button');
+		chip.type = 'button';
+		chip.className = 'search-suggestion-chip';
+		chip.textContent = suggestion.title;
+		chip.addEventListener('click', () => applySearchSuggestion(suggestion.title));
+		box.appendChild(chip);
+	});
+	// keep the "No series found." line and the suggestions together
+	grid.querySelector(':scope > p')?.classList.add('has-suggestions');
+	grid.appendChild(box);
+}
+
+// Put a suggested title into the search box(es) and search for it. Both the
+// desktop and the mobile box are set - loadPage() reads whichever has text.
+function applySearchSuggestion(title) {
+	const desktopSearch = document.getElementById('search-input');
+	const mobileSearch = document.getElementById('mobile-search-input');
+	if (desktopSearch) desktopSearch.value = title;
+	if (mobileSearch) mobileSearch.value = title;
+	document.querySelectorAll('.search-clear-btn').forEach(btn => btn.classList.add('show'));
+	state.page = 1;
+	loadPage();
+}
+
 // ─── Load Page (Main Logic) ───────────────────────────────────
 // Refreshes one series' card without reloading the whole grid - used after
 // Series Settings Save, which can touch title/cover/status/chapter/tags/
@@ -3378,6 +3415,7 @@ async function loadPage() {
 		
 		if (data.items.length === 0) {
 			seriesGrid.innerHTML = '<p>No series found.</p>';
+			renderSearchSuggestions(seriesGrid, data.suggestions);
 		} else {
 			// Render cards with chapters included, with slight stagger for visual polish
 			data.items.forEach((series, index) => {

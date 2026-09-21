@@ -6,26 +6,30 @@ from datetime import datetime, timezone, timedelta  # ADDED: timedelta
 from threading import Lock
 import glob
 import re
-import unicodedata
 
 from .tag_utils import load_tag_rules, resolve_tag
 from .source_links import clean_source_url
+from .search_utils import build_searchable_text
 
-def normalize_for_search(text):
-    """Normalize text for robust searching: lowercase, remove punctuation, strip diacritics."""
-    if not text:
-        return ""
-    # Lowercase
-    text = text.lower()
-    # Remove common punctuation that doesn't affect meaning
-    for char in "''.-_":
-        text = text.replace(char, "")
-    # Remove diacritics (é → e, ñ → n, etc.)
-    text = unicodedata.normalize('NFD', text)
-    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
-    # Collapse whitespace (though less needed now)
-    text = ''.join(text.split())
-    return text
+# Bump when the format of series.searchable_text changes; init_db rebuilds
+# every row once whenever the stored version differs.
+SEARCH_TEXT_VERSION = '3'
+
+def series_search_titles(title, title_en, title_romaji, title_native, alt_titles):
+    """Every title of a series in the order build_searchable_text() wants
+    them (main title first). alt_titles may be a JSON string, a list, a dict
+    of {language: title}, or a lone string, depending on which source wrote
+    it and how old the row is."""
+    if isinstance(alt_titles, str):
+        try:
+            alt_titles = json.loads(alt_titles)
+        except ValueError:
+            alt_titles = [alt_titles]
+    if isinstance(alt_titles, dict):
+        alt_titles = list(alt_titles.values())
+    elif not isinstance(alt_titles, list):
+        alt_titles = [str(alt_titles)] if alt_titles else []
+    return [title, title_en, title_romaji, title_native, *alt_titles]
 
 DB_PATH = "data/tracker.db"
 _db_lock = Lock()
@@ -1507,8 +1511,9 @@ def init_db():
     # Run backfill AFTER releasing DB lock
     clean_stored_source_urls()
     repair_double_encoded_columns()
+    rebuild_searchable_text_if_needed()
     backfill_searchable_text()
-    
+
     # ✅ INITIALIZE STATS HISTORY TABLE
     init_stats_history_table()
 
@@ -1581,20 +1586,9 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
         genres_json = json.dumps(genres, ensure_ascii=False) if genres else None
         
         # Build searchable text from all title fields
-        all_titles = [title, title_en, title_romaji, title_native]
-        if alt_titles:
-            if isinstance(alt_titles, dict):
-                all_titles.extend(alt_titles.values())
-            elif isinstance(alt_titles, list):
-                all_titles.extend(alt_titles)
-            else:
-                all_titles.append(str(alt_titles))
-
-        searchable_parts = []
-        for t in all_titles:
-            if t and isinstance(t, str):
-                searchable_parts.append(t)
-        searchable_text = normalize_for_search(" ".join(searchable_parts))
+        searchable_text = build_searchable_text(
+            series_search_titles(title, title_en, title_romaji, title_native, alt_titles)
+        )
 
         # Build column list and values dynamically
         cols = [
@@ -1810,37 +1804,53 @@ def clean_stored_source_urls():
     return rewritten
 
 
-def backfill_searchable_text():
-    """Populate searchable_text for existing series (run once)."""
+def backfill_searchable_text(rebuild_all=False):
+    """Fill in searchable_text for series that have none - or, with
+    rebuild_all, rewrite it for every series. Returns how many rows were
+    written."""
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, title, title_en, title_romaji, title_native, alt_titles FROM series WHERE searchable_text IS NULL OR searchable_text = ''")
+    where = "" if rebuild_all else "WHERE searchable_text IS NULL OR searchable_text = ''"
+    cursor.execute(f"SELECT id, title, title_en, title_romaji, title_native, alt_titles FROM series {where}")
     rows = cursor.fetchall()
     for row in rows:
         series_id, title, title_en, title_romaji, title_native, alt_titles_json = row
         try:
             alt_titles = json.loads(alt_titles_json) if alt_titles_json else None
-        except:
-            alt_titles = None
+        except ValueError:
+            alt_titles = None  # unreadable - leave those out rather than index the junk
 
-        all_titles = [title, title_en, title_romaji, title_native]
-        if alt_titles:
-            if isinstance(alt_titles, dict):
-                all_titles.extend(alt_titles.values())
-            elif isinstance(alt_titles, list):
-                all_titles.extend(alt_titles)
-            else:
-                all_titles.append(str(alt_titles))
-
-        searchable_parts = []
-        for t in all_titles:
-            if t and isinstance(t, str):
-                searchable_parts.append(t)
-        searchable_text = normalize_for_search(" ".join(searchable_parts))
-
+        searchable_text = build_searchable_text(
+            series_search_titles(title, title_en, title_romaji, title_native, alt_titles)
+        )
         cursor.execute("UPDATE series SET searchable_text = ? WHERE id = ?", (searchable_text, series_id))
     conn.commit()
     release_db(conn)
+    return len(rows)
+
+
+def rebuild_searchable_text_if_needed():
+    """Rewrite every series' searchable_text once per SEARCH_TEXT_VERSION -
+    i.e. the first start after the way titles are normalised and stored
+    changed - so rows written by an older version don't linger beside new
+    ones. Returns how many rows were rewritten (0 once it's up to date)."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM meta WHERE key = 'search_text_version'")
+    row = cursor.fetchone()
+    release_db(conn)
+    if row and row[0] == SEARCH_TEXT_VERSION:
+        return 0
+
+    rewritten = backfill_searchable_text(rebuild_all=True)
+    conn = get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('search_text_version', ?)",
+        (SEARCH_TEXT_VERSION,)
+    )
+    release_db(conn)
+    print(f"[Database] Rebuilt the search text of {rewritten} series")
+    return rewritten
 
 def get_unread_reading_count():
     conn = get_db()

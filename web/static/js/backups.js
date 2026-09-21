@@ -203,6 +203,47 @@ function downloadBackup(filename) {
   window.location.href = `/api/backups/download/${filename}`;
 }
 
+function chooseBackupFile() {
+  document.getElementById('upload-backup-input')?.click();
+}
+
+// Send a backup made elsewhere (a .db.gz, or a raw tracker.db) to the server,
+// which checks it's an intact database before adding it to the list.
+async function uploadBackup(file) {
+  const btn = document.getElementById('upload-backup-btn');
+  const idleLabel = '⬆️ Upload Backup';
+  btn.disabled = true;
+  btn.textContent = '⏳ Uploading...';
+
+  try {
+    const form = new FormData();
+    form.append('backup', file);
+    const res = await fetch('/api/backups/upload', { method: 'POST', body: form });
+
+    // A proxy in front of the app can answer with an HTML error page
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* not JSON */ }
+
+    if (res.ok && data.success) {
+      showNotification(`Backup uploaded (${data.series_count} series): ${data.filename}`, 'backup');
+      await loadBackups();
+    } else {
+      showNotification('Upload failed: ' + (data.error || res.statusText || 'unknown error'), 'error');
+    }
+  } catch (err) {
+    showNotification('Upload failed: ' + err.message, 'error');
+  } finally {
+    btn.textContent = idleLabel;
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('upload-backup-input')?.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // so picking the same file again still fires 'change'
+  if (file) uploadBackup(file);
+});
+
 async function loadSeriesBackups() {
   try {
     const res = await fetch('/api/backups/series-csv');

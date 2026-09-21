@@ -765,6 +765,33 @@ def _is_safe_db_backup_filename(filename):
     return bool(re.fullmatch(r'tracker_backup_\d{8}_\d{6}\.db\.gz', filename)
                 or re.fullmatch(r'safety_before_restore_\d+\.db\.gz', filename))
 
+# Upload a backup made elsewhere (a .db.gz downloaded from here or another
+# install, or a raw tracker.db) so it shows up in the list and can be restored.
+@app.route('/api/backups/upload', methods=['POST'])
+def api_upload_backup():
+    from .backup_manager import BackupImportError
+    try:
+        from . import api
+        if not hasattr(api, 'manga_scheduler'):
+            return jsonify({'error': 'Backup manager not available'}), 500
+        manager = api.manga_scheduler.backup_manager
+
+        file = request.files.get('backup')
+        if not file or not file.filename:
+            return jsonify({'error': 'No file provided'}), 400
+        # Refuse an obviously oversized body before reading any of it
+        # (import_backup enforces the same cap on what it actually receives).
+        if request.content_length and request.content_length > manager.MAX_IMPORT_BYTES + 1024 * 1024:
+            return jsonify({'error': 'That file is too large to be a backup.'}), 413
+
+        result = manager.import_backup(file.stream, file.filename)
+        return jsonify({'success': True, **result})
+    except BackupImportError as e:
+        return jsonify({'error': str(e)}), e.status
+    except Exception as e:
+        print(f"[Backup] Upload failed: {e}")
+        return jsonify({'error': 'Upload failed'}), 500
+
 # Download backup
 @app.route('/api/backups/download/<filename>')
 def api_download_backup(filename):
@@ -1116,8 +1143,8 @@ def api_add_source(series_id):
                     all_titles = [t for t in all_titles if t and isinstance(t, str)]
                     
                     # Normalize and deduplicate
-                    from .database import normalize_for_search
-                    searchable_text = normalize_for_search(" ".join(all_titles))
+                    from .search_utils import build_searchable_text
+                    searchable_text = build_searchable_text(all_titles)
                     
                     # Update database with merged data
                     cursor.execute("""

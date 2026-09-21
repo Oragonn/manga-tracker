@@ -1,12 +1,36 @@
 import os
+import re
 import shutil
+import sqlite3
 import time
 import gzip
+import uuid
+import zlib
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+
+class BackupImportError(Exception):
+    """An uploaded file can't be used as a backup. The message is meant to be
+    shown to the user; `status` is the HTTP status to answer with."""
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.status = status
+
+
 class BackupManager:
+    # Uploaded backups: the largest upload, and the largest database it may
+    # unpack to, in bytes. Real backups are a few MB.
+    MAX_IMPORT_BYTES = 1024 * 1024 * 1024
+
+    _GZIP_MAGIC = b'\x1f\x8b'
+    _SQLITE_MAGIC = b'SQLite format 3\x00'
+    # Enough to tell a Manga Tracker database from any other SQLite file.
+    _IMPORT_REQUIRED_TABLES = ('series', 'series_sources', 'chapters')
+    _BACKUP_NAME = re.compile(r'tracker_backup_\d{8}_\d{6}\.db\.gz')
+
     def __init__(self, db_path="data/tracker.db", backup_dir="backups",
                  backup_interval_hours=1, retention_days=7, max_size_mb=2048):
         """
@@ -198,6 +222,135 @@ class BackupManager:
             print(f"[Backup] Failed to get stats: {e}")
             return {'count': 0, 'total_size_mb': 0, 'backups': []}
     
+    def _save_upload(self, stream, path):
+        """Write an uploaded stream to `path`, refusing an empty or oversized one."""
+        total = 0
+        with open(path, 'wb') as out:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > self.MAX_IMPORT_BYTES:
+                    raise BackupImportError("That file is too large to be a backup.", 413)
+                out.write(chunk)
+        if total == 0:
+            raise BackupImportError("The file is empty.")
+
+    def _gunzip_capped(self, src, dst):
+        """Decompress `src` into `dst`, refusing one that unpacks past the size
+        cap (a small file can decompress to something enormous)."""
+        try:
+            with gzip.open(src, 'rb') as f_in, open(dst, 'wb') as f_out:
+                total = 0
+                while True:
+                    chunk = f_in.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > self.MAX_IMPORT_BYTES:
+                        raise BackupImportError("That backup is too large once unpacked.", 413)
+                    f_out.write(chunk)
+        except (OSError, EOFError, zlib.error) as e:
+            # BadGzipFile is an OSError; EOFError means the file was cut short
+            raise BackupImportError("The file is damaged or incomplete (it won't unpack).") from e
+
+    def _check_database(self, path):
+        """Confirm `path` is an intact Manga Tracker database and return how
+        many series it holds. Opened read-only and immutable, so nothing is
+        written next to it."""
+        conn = None
+        try:
+            conn = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro&immutable=1', uri=True)
+            if conn.execute("PRAGMA quick_check").fetchone()[0] != 'ok':
+                raise BackupImportError("The database inside is damaged (it failed an integrity check).")
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            missing = [t for t in self._IMPORT_REQUIRED_TABLES if t not in tables]
+            if missing:
+                raise BackupImportError(
+                    f"That isn't a Manga Tracker database (no '{missing[0]}' table)."
+                )
+            return conn.execute("SELECT COUNT(*) FROM series").fetchone()[0]
+        except sqlite3.DatabaseError as e:
+            raise BackupImportError("The file isn't a readable database.") from e
+        finally:
+            if conn is not None:
+                conn.close()
+
+    def import_backup(self, stream, original_filename=None):
+        """
+        Add a backup made elsewhere (a .db.gz downloaded from this or another
+        install, or a raw tracker.db) to the backup list, where it can be
+        downloaded and restored like any other. Nothing is stored unless the
+        file unpacks to an intact Manga Tracker database.
+
+        A file still named like one of ours keeps that name (so downloading a
+        backup and uploading it again is a no-op round trip); anything else
+        gets a fresh timestamped name.
+
+        Returns {'filename', 'size_mb', 'series_count'}; raises
+        BackupImportError for a file that can't be used.
+        """
+        os.makedirs(self.backup_dir, exist_ok=True)
+        token = uuid.uuid4().hex
+        upload_path = os.path.join(self.backup_dir, f".upload_{token}.tmp")
+        db_path = os.path.join(self.backup_dir, f".upload_{token}.db.tmp")
+        gz_path = os.path.join(self.backup_dir, f".upload_{token}.gz.tmp")
+        try:
+            self._save_upload(stream, upload_path)
+            with open(upload_path, 'rb') as f:
+                head = f.read(len(self._SQLITE_MAGIC))
+
+            if head.startswith(self._GZIP_MAGIC):
+                self._gunzip_capped(upload_path, db_path)
+                with open(db_path, 'rb') as f:
+                    if f.read(len(self._SQLITE_MAGIC)) != self._SQLITE_MAGIC:
+                        raise BackupImportError("The archive doesn't contain a database.")
+                ready_gz = upload_path  # already a .gz: keep exactly what was uploaded
+            elif head == self._SQLITE_MAGIC:
+                os.replace(upload_path, db_path)
+                ready_gz = None
+            else:
+                raise BackupImportError(
+                    "That isn't a backup - upload a .db.gz backup or a tracker.db database."
+                )
+
+            series_count = self._check_database(db_path)
+
+            name = os.path.basename(original_filename or '')
+            if self._BACKUP_NAME.fullmatch(name):
+                final_name = name
+                if os.path.exists(os.path.join(self.backup_dir, final_name)):
+                    raise BackupImportError(f"A backup named {final_name} is already in the list.", 409)
+            else:
+                stamp = datetime.now(timezone.utc)
+                while os.path.exists(os.path.join(self.backup_dir, f"tracker_backup_{stamp:%Y%m%d_%H%M%S}.db.gz")):
+                    stamp += timedelta(seconds=1)
+                final_name = f"tracker_backup_{stamp:%Y%m%d_%H%M%S}.db.gz"
+
+            if ready_gz is None:
+                with open(db_path, 'rb') as f_in, gzip.open(gz_path, 'wb', compresslevel=6) as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+                ready_gz = gz_path
+
+            final_path = os.path.join(self.backup_dir, final_name)
+            os.replace(ready_gz, final_path)
+            # Retention counts from when the file arrived here, so an old
+            # backup isn't swept away by the next cleanup.
+            os.utime(final_path)
+
+            size_mb = os.path.getsize(final_path) / (1024 * 1024)
+            print(f"[Backup] Imported: {final_name} ({size_mb:.2f} MB, {series_count} series)")
+            self.enforce_size_limit()
+            return {'filename': final_name, 'size_mb': size_mb, 'series_count': series_count}
+        finally:
+            for leftover in (upload_path, db_path, gz_path):
+                try:
+                    if os.path.exists(leftover):
+                        os.remove(leftover)
+                except OSError:
+                    pass
+
     def restore_backup(self, backup_filename):
         """
         Restore database from a backup file.

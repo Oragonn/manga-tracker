@@ -1060,7 +1060,7 @@ def api_add_status(task_id):
 
 @app.route('/api/series')
 def api_series():
-    from .database import get_db, release_db, normalize_for_search
+    from .database import get_db, release_db
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 50, type=int)
     status_filter = request.args.get('status', 'reading').strip()
@@ -1192,8 +1192,12 @@ def api_series():
             params.extend(tag_id_list)
 
     # Search filter
+    search_rank_sql = None
+    search_suggestions = []
     if search_query:
         from .source_links import parse_source_link, find_series_ids
+        from .search_utils import search_series, suggest_series
+        text_words = []
         for word in search_query.split():
             # A pasted source link matches the series that has that source
             # attached - there's no title text in a URL to match against.
@@ -1206,11 +1210,37 @@ def api_series():
                 else:
                     where_parts.append("1 = 0")
                 continue
+            text_words.append(word)
 
-            norm_word = normalize_for_search(word)
-            if norm_word:
-                where_parts.append("searchable_text LIKE ?")
-                params.append(f"%{norm_word}%")
+        if text_words:
+            cursor.execute("SELECT id, title, searchable_text FROM series")
+            search_rows = cursor.fetchall()
+            matches = search_series(search_rows, ' '.join(text_words))
+            if matches is not None:
+                if not matches:
+                    # Nothing matched: offer the closest titles, but only among
+                    # series that pass the other active filters, so picking one
+                    # can't lead to another empty screen.
+                    where_so_far = "WHERE " + " AND ".join(where_parts) if where_parts else ""
+                    cursor.execute(f"SELECT id FROM series {where_so_far}", params)
+                    allowed_ids = {row[0] for row in cursor.fetchall()}
+                    titles_by_id = {row[0]: row[1] for row in search_rows}
+                    search_suggestions = [
+                        {'id': series_id, 'title': titles_by_id[series_id]}
+                        for series_id in suggest_series(search_rows, ' '.join(text_words), allowed_ids)
+                    ]
+                    where_parts.append("1 = 0")
+                else:
+                    # ids and tiers are ints from search_series, so they're
+                    # written into the SQL directly rather than as thousands
+                    # of bound parameters
+                    where_parts.append(f"id IN ({','.join(str(int(i)) for i in matches)})")
+                    if len(set(matches.values())) > 1:
+                        # best matches first; the chosen sort still orders
+                        # the series within each level
+                        search_rank_sql = "CASE id " + " ".join(
+                            f"WHEN {int(i)} THEN {int(tier)}" for i, tier in matches.items()
+                        ) + " ELSE 99 END"
 
     where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
 
@@ -1242,6 +1272,9 @@ def api_series():
         # desc = most unread first, asc = least unread first
         inverted_dir = 'asc' if effective_dir == 'desc' else 'desc'
         order_by = f"ORDER BY (COALESCE(latest_chapter, 0) - current_chapter) {inverted_dir.upper()}"
+
+    if search_rank_sql:
+        order_by = order_by.replace("ORDER BY", f"ORDER BY {search_rank_sql},", 1)
 
     count_query = f"SELECT COUNT(*) FROM series {where_clause}"
     cursor.execute(count_query, params)
@@ -1323,11 +1356,14 @@ def api_series():
     release_db(conn)
 
     total_pages = (total + per_page - 1) // per_page
-    return jsonify({
+    response = {
         'items': items,
         'total_pages': total_pages,
         'current_page': page
-    })
+    }
+    if search_suggestions:
+        response['suggestions'] = search_suggestions
+    return jsonify(response)
 
 @app.route('/api/genres')
 def api_genres():
