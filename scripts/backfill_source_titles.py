@@ -10,10 +10,12 @@ kept those out of the library:
     Kagane never learned what Kagane calls it.
 
 Either way a series couldn't be found by a title its source uses. This
-re-fetches every MangaDex source (in batches of 100, so it's a few dozen
-requests) and every non-primary Atsumaru, Kagane, AsuraScans and HiveToons
-source (a primary source's title is the series' own title), and merges each
-title into the series' alt titles and search text.
+re-fetches every source in the library - MangaDex in batches of 100, so that
+part is a few dozen requests, and Atsumaru, Kagane, AsuraScans and HiveToons
+one by one - and merges each title into the series' alt titles and search
+text. Primary sources are included too: a source's title only equals the
+series' own title while it is still the one the series was added with, and the
+primary can have been switched (or the original one removed) since.
 
 Additive only -- nothing is removed, and a source that fails to fetch is
 skipped without touching its series.
@@ -40,8 +42,8 @@ from backend.database import init_db, get_db, release_db, normalize_for_search
 from backend.tag_utils import normalize_tag_list
 from backend.title_utils import merge_source_titles
 
-# Fetched one at a time; a primary source of these is skipped (see above).
-SECONDARY_SOURCE_TYPES = ('atsu', 'kagane', 'asura', 'hive')
+# Fetched one at a time (MangaDex is batched separately, below).
+SINGLE_FETCH_SOURCE_TYPES = ('atsu', 'kagane', 'asura', 'hive')
 
 
 def fetch_info(source_type, source_url):
@@ -73,16 +75,15 @@ def main():
 
     conn = get_db()
     cursor = conn.cursor()
-    placeholders = ','.join('?' * len(SECONDARY_SOURCE_TYPES))
+    placeholders = ','.join('?' * len(SINGLE_FETCH_SOURCE_TYPES))
     cursor.execute(f"""
         SELECT s.id, s.title, s.title_en, s.title_romaji, s.title_native, s.alt_titles,
                ss.source_type, ss.source_url
         FROM series s
         JOIN series_sources ss ON ss.series_id = s.id
-        WHERE ss.source_type = 'mangadex'
-           OR (ss.is_primary = 0 AND ss.source_type IN ({placeholders}))
+        WHERE ss.source_type = 'mangadex' OR ss.source_type IN ({placeholders})
         ORDER BY s.id
-    """, SECONDARY_SOURCE_TYPES)
+    """, SINGLE_FETCH_SOURCE_TYPES)
     rows = cursor.fetchall()
     release_db(conn)
 
@@ -99,8 +100,7 @@ def main():
     if args.limit:
         series_ids = series_ids[:args.limit]
 
-    print(f"Found {len(series)} series with a MangaDex source or a non-primary "
-          f"Atsumaru/Kagane/AsuraScans/HiveToons one"
+    print(f"Found {len(series)} series with a MangaDex/Atsumaru/Kagane/AsuraScans/HiveToons source"
           f"{f' (processing the first {len(series_ids)})' if args.limit else ''}."
           f"{' DRY RUN - nothing will be written.' if args.dry_run else ''}\n")
 
