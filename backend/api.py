@@ -110,9 +110,10 @@ def _add_worker():
                 is_atsu = url.startswith("https://atsu.moe/manga/") or url.startswith("https://atsu.moe/read/")
                 is_asura = "asurascans.com/comics/" in url
                 is_hive = "hivetoons.org/series/" in url
+                is_flame = "flamecomics.xyz/series/" in url
 
-                if not (is_mangadex or is_kagane or is_atsu or is_asura or is_hive):
-                    result = {'error': 'Only MangaDex, Kagane, Atsumaru, AsuraScans, or HiveToons series URLs are supported'}
+                if not (is_mangadex or is_kagane or is_atsu or is_asura or is_hive or is_flame):
+                    result = {'error': 'Only MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, or Flame Comics series URLs are supported'}
                     task_processed = True
                     continue
 
@@ -980,6 +981,163 @@ def _add_worker():
                                             'status': user_status,
                                             'cover_url': cover_url,
                                             'source_type': hive_info.get('source_type', 'other')
+                                        }
+                                    )
+                                except Exception as log_err:
+                                    pass
+                                # Update stats
+                                try:
+                                    from .database import update_current_period_stats
+                                    update_current_period_stats()
+                                except Exception as stats_err:
+                                    pass
+                                task_processed = True
+                            except PossibleDuplicate as dup:
+                                result = dup.result
+                                task_processed = True
+                            except sqlite3.IntegrityError as e:
+                                error_str = str(e).lower()
+                                if "source_url" in error_str or "unique" in error_str:
+                                    # Race condition: fetch existing series
+                                    conn_dup = get_db()
+                                    cursor_dup = conn_dup.cursor()
+                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                    existing = cursor_dup.fetchone()
+                                    release_db(conn_dup)
+
+                                    if existing:
+                                        series_id, existing_title = existing
+                                        error_msg = f"Duplicate series: '{existing_title}' is already in your tracker"
+
+                                        # Log to logs/ folder
+                                        try:
+                                            from .error_logger import log_error
+                                            log_error(url, error_msg, series_title=existing_title)
+                                        except Exception as log_err:
+                                            import traceback
+                                            traceback.print_exc()
+
+                                        result = {'id': series_id, 'title': existing_title, 'success': True, 'duplicate': True}
+                                    else:
+                                        error_msg = 'This series is already in your tracker (unable to retrieve details)'
+
+                                        # Log to logs/ folder
+                                        try:
+                                            from .error_logger import log_error
+                                            log_error(url, error_msg, series_title="Unknown Series")
+                                        except Exception as log_err:
+                                            pass
+                                        result = {'error': error_msg}
+                                    task_processed = True
+                                else:
+                                    result = {'error': 'Database integrity error.'}
+                                    task_processed = True
+                            except Exception as e:
+                                error_msg = str(e) or f'{type(e).__name__} (no message)'
+                                try:
+                                    from .error_logger import log_error
+                                    log_error(url, error_msg, series_title=title)
+                                except Exception:
+                                    pass
+                                try:
+                                    from .failed_sources_logger import log_failed_source
+                                    log_failed_source(title, url)
+                                except Exception:
+                                    pass
+                                result = {'error': error_msg}
+                                task_processed = True
+
+                elif is_flame:
+                    from .trackers.flamecomics import extract_series_id, get_series_info
+                    flame_id = extract_series_id(url)
+                    if not flame_id:
+                        result = {'error': 'Invalid Flame Comics URL'}
+                        task_processed = True
+                    else:
+                        flame_info = get_series_info(flame_id)
+                        if not flame_info:
+                            result = {'error': 'Failed to fetch Flame Comics series data'}
+                            task_processed = True
+                        else:
+                            title = flame_info['title']
+                            cover_url = flame_info['cover_url']
+                            alt_titles = flame_info.get('alt_titles') or []
+                            chapters_to_save = flame_info['chapters']
+                            _chapters_source_type = 'flame'
+
+                            try:
+                                _check_for_duplicate_titles(data, url, series_search_titles(title, None, None, None, alt_titles))
+                                series_id = add_series(
+                                    title=title,
+                                    source_url=url,
+                                    status=user_status,
+                                    cover_url=cover_url,
+                                    banner_url=None,
+                                    anilist_id=None,
+                                    title_en=None,
+                                    title_romaji=None,
+                                    title_native=None,
+                                    source_status=flame_info['status'],
+                                    alt_titles=alt_titles,
+                                    genres=flame_info.get('genres', []),
+                                    content_rating=flame_info.get('content_rating', 'unknown'),
+                                    source_type=flame_info.get('source_type', 'other')
+                                )
+
+                                conn = get_db()
+                                cursor = conn.cursor()
+                                cursor.execute("DELETE FROM chapters WHERE series_id = ?", (series_id,))
+                                for ch in chapters_to_save:
+                                    cursor.execute("""
+                                        INSERT INTO chapters (
+                                            series_id, volume, raw_chapter, chapter_number,
+                                            release_date, chapter_url, is_oneshot, source_type
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                    """, (
+                                        series_id,
+                                        None,
+                                        str(ch['chapter_number']),
+                                        ch['chapter_number'],
+                                        ch['release_date'],
+                                        ch['chapter_url'],
+                                        int(ch.get('is_oneshot', False)),
+                                        _chapters_source_type
+                                    ))
+                                if chapters_to_save:
+                                    latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
+                                    # min(), not max(): a source can list the same chapter number
+                                    # more than once (different translator groups on Atsumaru/
+                                    # MangaDex), and the earliest posting is the true release date -
+                                    # a later repost of an already-out chapter shouldn't make it
+                                    # look freshly dropped.
+                                    latest_release = min(
+                                        (ch['release_date'] for ch in chapters_to_save if ch['chapter_number'] == latest_ch and ch['release_date']),
+                                        default=''
+                                    )
+                                    cursor.execute("""
+                                        UPDATE series
+                                        SET latest_chapter = ?, latest_release = ?, total_chapters = ?
+                                        WHERE id = ?
+                                    """, (latest_ch, latest_release, len(chapters_to_save), series_id))
+                                release_db(conn)
+                                result = {'id': series_id, 'success': True}
+
+                                # Logging
+                                try:
+                                    log_activity(
+                                        action_type='added',
+                                        series_id=series_id,
+                                        series_title=title,
+                                        new_value={
+                                            'title': title,
+                                            'sources': [{
+                                                'url': url,
+                                                'type': 'Flame Comics',
+                                                'is_primary': True
+                                            }],
+                                            'status': user_status,
+                                            'cover_url': cover_url,
+                                            'source_type': flame_info.get('source_type', 'other')
                                         }
                                     )
                                 except Exception as log_err:

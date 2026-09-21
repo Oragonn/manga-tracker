@@ -964,6 +964,8 @@ def api_add_source(series_id):
             source_type = 'asura'
         elif 'hivetoons.org' in source_url:
             source_type = 'hive'
+        elif 'flamecomics.xyz' in source_url:
+            source_type = 'flame'
         else:
             source_type = 'unknown'
 
@@ -1005,6 +1007,11 @@ def api_add_source(series_id):
             hive_id = extract_series_id(source_url)
             if hive_id:
                 new_metadata = get_series_info(hive_id)
+        elif source_type == 'flame':
+            from .trackers.flamecomics import extract_series_id, get_series_info
+            flame_id = extract_series_id(source_url)
+            if flame_id:
+                new_metadata = get_series_info(flame_id)
 
         # Add source to database
         from .database import add_source_to_series, get_db, release_db
@@ -1097,18 +1104,19 @@ def api_add_source(series_id):
                 # attached source ranks highest in SOURCE_RATING_PRIORITY —
                 # MangaDex's rating wins over Kagane's, which wins over
                 # Atsumaru's, which wins over HiveToons', which wins over
-                # AsuraScans' (AsuraScans has no content-rating system at
-                # all and always reports 'safe', so it must never be able to
-                # override anything; HiveToons only has a best-effort
-                # "Adult" genre tag, which is weaker than a real rating
-                # system but still strictly more informative than Asura's
-                # blanket 'safe' — giving the two of them the SAME priority
-                # would make the merge order-dependent: whichever gets
-                # attached second could never override the first even when
-                # its rating is the more meaningful one). Only replace the
-                # stored rating if the source just added outranks every
-                # source already on the series.
-                SOURCE_RATING_PRIORITY = {'mangadex': 4, 'kagane': 3, 'atsu': 2, 'hive': 1, 'asura': 0}
+                # Flame Comics', which wins over AsuraScans' (AsuraScans has
+                # no content-rating system at all and always reports 'safe',
+                # so it must never be able to override anything; HiveToons
+                # and Flame Comics only have best-effort tag checks ("Adult"
+                # genre / "Mature" and "Ecchi" tags), which are weaker than
+                # a real rating system but still strictly more informative
+                # than Asura's blanket 'safe' — giving any two of them the
+                # SAME priority would make the merge order-dependent:
+                # whichever gets attached second could never override the
+                # first even when its rating is the more meaningful one).
+                # Only replace the stored rating if the source just added
+                # outranks every source already on the series.
+                SOURCE_RATING_PRIORITY = {'mangadex': 5, 'kagane': 4, 'atsu': 3, 'hive': 2, 'flame': 1, 'asura': 0}
                 cursor.execute(
                     "SELECT source_type FROM series_sources WHERE series_id = ? AND id != ?",
                     (series_id, source_id)

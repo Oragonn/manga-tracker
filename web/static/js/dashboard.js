@@ -172,7 +172,7 @@ const TYPE_LABELS_FOR_BOOKMARKS = { manga: 'Manga', manhwa: 'Manhwa', manhua: 'M
 const PUB_STATUS_LABELS_FOR_BOOKMARKS = {
 	reading: 'Reading', completed: 'Completed', on_hold: 'On Hold', dropped: 'Dropped', plan_to_read: 'Plan to Read'
 };
-const READABLE_ON_LABELS_FOR_BOOKMARKS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons' };
+const READABLE_ON_LABELS_FOR_BOOKMARKS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics' };
 
 function captureCurrentFilterState() {
 	return {
@@ -1315,6 +1315,7 @@ function renderSources(sources) {
 			'atsu': 'Atsumaru',
 			'asura': 'AsuraScans',
 			'hive': 'HiveToons',
+			'flame': 'Flame Comics',
 			'unknown': 'Unknown'
 		}[source.source_type.toLowerCase()] || source.source_type;
 
@@ -1505,8 +1506,8 @@ async function addNewSource() {
 	}
 
 	// Validate URL — NOTE: fixed extra spaces in comparison
-	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/')) {
-		showNotification('Only MangaDex, Kagane, Atsumaru, AsuraScans, and HiveToons sources are supported', 'error');
+	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/')) {
+		showNotification('Only MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, and Flame Comics sources are supported', 'error');
 		return;
 	}
 
@@ -1555,7 +1556,7 @@ async function addNewSource() {
 // ─── Series Settings modal: Source selector (Kenmei-style dropdown,
 // plus add/remove/set-primary which Kenmei doesn't need to support) ──
 const SOURCE_TYPE_LABELS = {
-	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', unknown: 'Unknown'
+	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', unknown: 'Unknown'
 };
 
 function renderSourceSelector(sources) {
@@ -3149,7 +3150,7 @@ function renderPagination(current, total, status, sort) {
 let sourceHealthList = [];
 let sourceHealthCount = 0;
 const SOURCE_HEALTH_TYPE_LABELS = {
-	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', unknown: 'Unknown'
+	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', unknown: 'Unknown'
 };
 
 async function updateSourceHealth() {
@@ -3793,7 +3794,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		'kagane': 'Kagane',
 		'atsu': 'Atsumaru',
 		'asura': 'AsuraScans',
-		'hive': 'HiveToons'
+		'hive': 'HiveToons',
+		'flame': 'Flame Comics'
 	}, 'Readable On');
 
 	// Genre (Tags) - NOW WITH CONTENT RATING INSIDE THE SAME DROPDOWN
@@ -4359,7 +4361,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	const sourceTypeLabel = {
 		mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru',
-		asura: 'AsuraScans', hive: 'HiveToons', unknown: 'Unknown'
+		asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', unknown: 'Unknown'
 	};
 
 	async function renderCoverSourceList() {
@@ -5908,6 +5910,7 @@ function createFilterDrawer() {
               <label><input type="checkbox" value="atsu"> Atsumaru</label>
               <label><input type="checkbox" value="asura"> AsuraScans</label>
               <label><input type="checkbox" value="hive"> HiveToons</label>
+              <label><input type="checkbox" value="flame"> Flame Comics</label>
               <button class="btn-select-all">Select All</button>
               <button class="btn-select-none">Clear</button>
             </div>
@@ -6256,7 +6259,8 @@ function createFilterDrawer() {
     'kagane': 'Kagane',
     'atsu': 'Atsumaru',
     'asura': 'AsuraScans',
-    'hive': 'HiveToons'
+    'hive': 'HiveToons',
+    'flame': 'Flame Comics'
   }, 'Readable On');
 }
 
@@ -7574,9 +7578,10 @@ function renderMobileSources(sources) {
       'atsu': 'Atsumaru',
       'asura': 'AsuraScans',
       'hive': 'HiveToons',
+      'flame': 'Flame Comics',
       'unknown': 'Unknown'
     }[source.source_type.toLowerCase()] || source.source_type;
-    
+
     const isPrimary = source.id === mobilePendingSourceChanges.primarySourceId;
     
     return `
@@ -7812,7 +7817,7 @@ async function addMobileNewSource() {
     return;
   }
   
-  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/')) {
+  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/')) {
     showNotification('This source is not supported', 'error');
     return;
   }

@@ -1635,6 +1635,8 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
             detected_source_type = 'asura'
         elif 'hivetoons.org' in source_url:
             detected_source_type = 'hive'
+        elif 'flamecomics.xyz' in source_url:
+            detected_source_type = 'flame'
         else:
             detected_source_type = 'unknown'
         

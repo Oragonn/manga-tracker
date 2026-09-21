@@ -1,7 +1,7 @@
 # backend/source_links.py
 #
 # Recognises a pasted source link (a series page, or a chapter-reader URL, on
-# any of the five tracked sites) and finds the tracked series that has it
+# any of the six tracked sites) and finds the tracked series that has it
 # attached, so the dashboard search box can take a link instead of a title.
 #
 # Deliberately doesn't import backend.trackers.*: kagane.py pulls in
@@ -24,6 +24,7 @@ _PATTERNS = [
     ('atsu', re.compile(_PREFIX + r'atsu\.moe/(?:manga|read)/([A-Za-z0-9_-]+)', re.I)),
     ('asura', re.compile(_PREFIX + r'asurascans\.com/comics/([A-Za-z0-9-]+)', re.I)),
     ('hive', re.compile(_PREFIX + r'hivetoons\.org/series/([A-Za-z0-9-]+)', re.I)),
+    ('flame', re.compile(_PREFIX + r'flamecomics\.xyz/series/(\d+)', re.I)),
 ]
 
 # Ids that are UUIDs compare case-insensitively; Atsumaru's short ids are
@@ -31,14 +32,14 @@ _PATTERNS = [
 _CASE_INSENSITIVE_IDS = {'mangadex', 'kagane'}
 
 _TRACKED_HOST = re.compile(
-    _PREFIX + r'(?:mangadex\.org|kagane\.(?:to|org)|atsu\.moe|asurascans\.com|hivetoons\.org)(?:[/?#]|$)',
+    _PREFIX + r'(?:mangadex\.org|kagane\.(?:to|org)|atsu\.moe|asurascans\.com|hivetoons\.org|flamecomics\.xyz)(?:[/?#]|$)',
     re.I
 )
 
 
 def clean_source_url(url):
     """The link to store for a source: surrounding whitespace and any
-    "?query" / "#fragment" dropped when it points at one of the five tracked
+    "?query" / "#fragment" dropped when it points at one of the six tracked
     sites. A link copied from a browser tab carries UI state along with it
     (MangaDex's ?tab=art / ?tab=chapters, for one) that has no bearing on
     which series it is, and it made the same series look like a different

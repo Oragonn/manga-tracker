@@ -56,6 +56,8 @@ def detect_source_type(url):
         return 'AsuraScans'
     elif 'hivetoons.org' in url:
         return 'HiveToons'
+    elif 'flamecomics.xyz' in url:
+        return 'Flame Comics'
     return 'Unknown'
 
 def log_activity(action_type, series_id=None, series_title=None, old_value=None, new_value=None,
