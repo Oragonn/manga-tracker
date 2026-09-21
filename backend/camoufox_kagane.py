@@ -329,6 +329,10 @@ class KaganeBrowserClient:
                 'id': b.get('book_id'),
                 'title': b.get('title') or 'Untitled',
                 'number_sort': b.get('sort_no', 0),
+                # sort_no is just the book's position in the list; chapter_no is
+                # the chapter number Kagane itself shows ("3.5", "36") and is
+                # what an untitled book has to be numbered from.
+                'chapter_no': b.get('chapter_no'),
                 'release_date': b.get('published_on'),
             })
 
