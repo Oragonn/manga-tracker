@@ -118,8 +118,13 @@ def _delayed_get(url, **kwargs):
 def extract_series_id(url):
     """Extract the HiveToons series slug from a URL like
     https://hivetoons.org/series/eleceed (also matches a chapter URL:
-    .../series/<slug>/chapter-<n>)."""
-    match = re.search(r'hivetoons\.org/series/([a-zA-Z0-9-]+)', url)
+    .../series/<slug>/chapter-<n>). Slugs are normally alphanumeric-and-
+    hyphen, but HiveToons doesn't always strip punctuation from the title
+    when generating one (e.g. "Ready Action!" -> ready-action!), so this
+    takes the whole path segment rather than a fixed character class -
+    trimming "!" as if it were sentence punctuation truncated the slug and
+    made every request for that series 404."""
+    match = re.search(r'hivetoons\.org/series/([^/\s?#]+)', url)
     return match.group(1) if match else None
 
 

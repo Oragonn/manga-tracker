@@ -1370,22 +1370,27 @@ def api_series():
                 where_parts.append("genres NOT LIKE ?")
                 params.append(f'%"{n}"%')
     
-    # Process ratings
+    # Process ratings. Held apart from where_parts like status_where, below --
+    # ratings default to Mature/Explicit excluded (not an explicit user
+    # choice), so a search hidden by it alone still gets diagnosed via
+    # hidden_matches the same way one hidden by status alone does.
+    rating_where = []
+    rating_params = []
     if rating_list and len(rating_list) == len(rating_modes):
         include_ratings = [rating_list[i] for i in range(len(rating_list)) if rating_modes[i] == 'include']
         exclude_ratings = [rating_list[i] for i in range(len(rating_list)) if rating_modes[i] == 'exclude']
-        
+
         # Include ratings - series can have ANY of these (OR logic)
         if include_ratings:
             placeholders = ','.join(['?'] * len(include_ratings))
-            where_parts.append(f"content_rating IN ({placeholders})")
-            params.extend(include_ratings)
-        
+            rating_where.append(f"content_rating IN ({placeholders})")
+            rating_params.extend(include_ratings)
+
         # Exclude ratings - series must NOT have ANY of these
         if exclude_ratings:
             placeholders = ','.join(['?'] * len(exclude_ratings))
-            where_parts.append(f"content_rating NOT IN ({placeholders})")
-            params.extend(exclude_ratings)
+            rating_where.append(f"content_rating NOT IN ({placeholders})")
+            rating_params.extend(exclude_ratings)
 
     # Publication Status filter (multi-select)
     pub_status_filter = request.args.get('pub_status', '').strip()
@@ -1452,8 +1457,8 @@ def api_series():
                     # Nothing matched: offer the closest titles, but only among
                     # series that pass the other active filters, so picking one
                     # can't lead to another empty screen.
-                    where_so_far = "WHERE " + " AND ".join(where_parts + status_where) if where_parts or status_where else ""
-                    cursor.execute(f"SELECT id FROM series {where_so_far}", params + status_params)
+                    where_so_far = "WHERE " + " AND ".join(where_parts + status_where + rating_where) if where_parts or status_where or rating_where else ""
+                    cursor.execute(f"SELECT id FROM series {where_so_far}", params + status_params + rating_params)
                     allowed_ids = {row[0] for row in cursor.fetchall()}
                     titles_by_id = {row[0]: row[1] for row in search_rows}
                     search_suggestions = [
@@ -1473,20 +1478,33 @@ def api_series():
                             f"WHEN {int(i)} THEN {int(tier)}" for i, tier in matches.items()
                         ) + " ELSE 99 END"
 
-    # Matches the status filter alone hides: the search itself and every other
-    # filter are satisfied, the series just has another status. Counted per
-    # status so the dashboard can offer to search them.
-    hidden_matches = {}
-    if status_where and len(where_parts) > filter_clause_count:
+    # Matches that only fail on status and/or the rating filter (which is
+    # usually not a choice made for this search -- Mature/Explicit are
+    # excluded by default): the search itself and every other active filter
+    # (type, genre, pub_status, readable_on, custom tags) are satisfied.
+    # Grouped by (status, content_rating) rather than status alone, because
+    # a series can be hidden by *both* at once (wrong status AND an excluded
+    # rating) -- checking status in isolation would find nothing for it and
+    # the dashboard would give no explanation at all, which is exactly what
+    # was happening for a Plan to Read series tagged Mature.
+    hidden_matches = []
+    if (status_where or rating_where) and len(where_parts) > filter_clause_count:
+        status_ok = "status = ?" if status_where else "1=1"
+        rating_ok = "(" + " AND ".join(rating_where) + ")" if rating_where else "1=1"
         cursor.execute(
-            f"SELECT status, COUNT(*) FROM series WHERE {' AND '.join(where_parts)} "
-            "AND status != ? GROUP BY status",
-            params + [status_filter]
+            f"SELECT status, content_rating, COUNT(*) FROM series WHERE {' AND '.join(where_parts)} "
+            f"AND NOT ({status_ok} AND {rating_ok}) GROUP BY status, content_rating",
+            params + ([status_filter] if status_where else []) + rating_params
         )
-        hidden_matches = {status: count for status, count in cursor.fetchall() if status}
+        hidden_matches = [
+            {'status': status, 'rating': rating, 'count': count}
+            for status, rating, count in cursor.fetchall() if status and count
+        ]
 
     where_parts += status_where
     params += status_params
+    where_parts += rating_where
+    params += rating_params
     where_clause = "WHERE " + " AND ".join(where_parts) if where_parts else ""
 
     # ADD available_chapters sorting logic

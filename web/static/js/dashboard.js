@@ -3267,29 +3267,75 @@ function renderSearchSuggestions(grid, suggestions) {
 	grid.appendChild(box);
 }
 
-// A search that matched series the Status filter is hiding ("3 more in
-// Completed, 1 in On Hold. Search all statuses?"). hidden is the server's
-// {status: count}. With no results it sits under "No series found."; with
-// some, above the cards.
+// A search that matched series the Status and/or (usually default)
+// Mature/Explicit rating filter is hiding ("3 more in Completed, 1 in Plan
+// to Read (Mature). Search all statuses?"). hidden is the server's list of
+// {status, rating, count} combos -- grouped by both together because a
+// series can be hidden by a status mismatch AND an excluded rating at the
+// same time (a Plan to Read series tagged Mature, with the default status
+// filter and the default rating exclusion both active, matches neither
+// dimension alone -- checking status in isolation found nothing for it,
+// which is why this used to show no hint at all). With no results this
+// sits under "No series found."; with some, above the cards.
 function renderHiddenMatches(grid, hidden, hasResults) {
-	const entries = Object.entries(hidden || {})
-		.filter(([, count]) => count > 0)
-		.sort((a, b) => b[1] - a[1]);
-	if (entries.length === 0) return;
+	const includeRatings = state.rating.filter(r => r.mode === 'include').map(r => r.name);
+	const excludeRatings = state.rating.filter(r => r.mode === 'exclude').map(r => r.name);
+	const isRatingHiding = (rating) => {
+		if (!rating) return false;
+		if (includeRatings.length > 0) return !includeRatings.includes(rating);
+		return excludeRatings.includes(rating);
+	};
+
+	const rows = (hidden || [])
+		.slice()
+		.sort((a, b) => b.count - a.count)
+		.filter(r => r.count > 0)
+		.map(({ status, rating, count }) => ({
+			count,
+			// null out whichever dimension isn't actually why it's hidden,
+			// per the CURRENT client-side filter state (the response may be
+			// a beat stale if the filters changed right as it arrived)
+			status: (state.status !== 'all' && status !== state.status) ? status : null,
+			rating: isRatingHiding(rating) ? rating : null
+		}))
+		.filter(r => r.status || r.rating);
+	if (rows.length === 0) return;
+
+	const statusChanged = rows.some(r => r.status);
+	const ratingsToShow = [...new Set(rows.filter(r => r.rating).map(r => r.rating))];
+
+	let firstStatusShown = false;
+	const parts = rows.map(({ status, rating, count }) => {
+		const bits = [];
+		if (status) {
+			const more = (!firstStatusShown && hasResults) ? 'more ' : '';
+			firstStatusShown = true;
+			bits.push(`${more}in ${STATUS_LABELS_FOR_BOOKMARKS[status] || status}`);
+		}
+		if (rating) bits.push(`tagged ${CONTENT_RATING_LABELS[rating] || rating}`);
+		return `${count} ${bits.join(', ')}`;
+	});
 
 	const box = document.createElement('div');
 	box.className = 'search-hidden-matches' + (hasResults ? '' : ' no-results');
 	const text = document.createElement('span');
-	const parts = entries.map(([status, count], i) =>
-		`${count} ${i === 0 && hasResults ? 'more ' : ''}in ${STATUS_LABELS_FOR_BOOKMARKS[status] || status}`);
 	text.textContent = parts.join(', ') + '.';
 	box.appendChild(text);
 
 	const button = document.createElement('button');
 	button.type = 'button';
 	button.className = 'search-suggestion-chip';
-	button.textContent = 'Search all statuses';
-	button.addEventListener('click', searchAllStatuses);
+	if (ratingsToShow.length > 0) {
+		// A plain status switch is one click via the Status dropdown's own
+		// "All" option (searchAllStatuses), but dropping a rating exclusion
+		// has no such single control to reuse, so this drives both through
+		// applyFilterBookmarkState directly.
+		button.textContent = 'Show anyway';
+		button.addEventListener('click', () => showHiddenMatches(statusChanged, ratingsToShow));
+	} else {
+		button.textContent = 'Search all statuses';
+		button.addEventListener('click', searchAllStatuses);
+	}
 	box.appendChild(button);
 
 	if (hasResults) {
@@ -3298,6 +3344,21 @@ function renderHiddenMatches(grid, hidden, hasResults) {
 		grid.querySelector(':scope > p')?.classList.add('has-suggestions');
 		grid.appendChild(box);
 	}
+}
+
+// "Show anyway" from renderHiddenMatches: switches to All Statuses and/or
+// drops the given ratings' exclude entries (same effect as unchecking them
+// down to neutral in the Tags dropdown), keeping the search text and every
+// other active filter as-is.
+function showHiddenMatches(includeAllStatuses, ratingsToInclude) {
+	const fs = captureCurrentFilterState();
+	if (includeAllStatuses) fs.status = 'all';
+	if (ratingsToInclude.length > 0) {
+		fs.rating = fs.rating.filter(r => !ratingsToInclude.includes(r.name));
+	}
+	applyFilterBookmarkState(fs);
+	state.page = 1;
+	loadPage();
 }
 
 // Same as picking "All Statuses" in the Status dropdown (which keeps the
