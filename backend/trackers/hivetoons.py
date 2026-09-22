@@ -21,6 +21,75 @@ SITE_BASE = "https://hivetoons.org"
 
 _ISLAND_RE = re.compile(r'<astro-island\b[^>]*\bprops="([^"]*)"', re.IGNORECASE)
 
+# HiveToons moved off Astro (no more <astro-island> at all) to a different
+# SSR framework that streams its page data as a React-Flight-style sequence
+# of `$R[n]={...}` object literals - not valid JSON (unquoted keys, !0/!1
+# for booleans, void 0 for undefined, and $R[n] back-references instead of
+# repeating a value). Rather than write a general deserializer for that
+# format, these pick the handful of fields actually used straight out of
+# the raw script text - the same "read what's needed off the page" approach
+# _find_series_payload took for the old Astro islands.
+_CHAPTER_RE = re.compile(
+    r'\{id:(\d+),slug:"([^"]*)",number:(-?\d+(?:\.\d+)?),title:"([^"]*)",'
+    r'chapterStatus:"([^"]*)",featuredImage:[^,]*,createdAt:"([^"]*)",'
+    r'updatedAt:"[^"]*",becameFreeAt:[^,]*,isPermanentlyLocked:(![01]),'
+    r'price:(\d+),isLockedByCoins:(![01]),isShortLinkLocked:(![01]),isLocked:(![01])'
+)
+_POST_TITLE_RE = re.compile(r'postTitle:"((?:[^"\\]|\\.)*)"')
+_FEATURED_IMAGE_RE = re.compile(r'(?<!CL)featuredImage:"((?:[^"\\]|\\.)*)"')
+_ALT_TITLES_RE = re.compile(r'alternativeTitles:"((?:[^"\\]|\\.)*)"')
+_SERIES_TYPE_RE = re.compile(r'seriesType:"([^"]*)"')
+_SERIES_STATUS_RE = re.compile(r'seriesStatus:"([^"]*)"')
+_GENRES_BLOCK_RE = re.compile(r'genres:\$R\[\d+\]=\[(.*?)\],team:', re.S)
+_GENRE_NAME_RE = re.compile(r'name:"([^"]*)"')
+
+
+def _js_bool(token):
+    return token == '!0'
+
+
+def _find_series_payload_v2(page_html):
+    """Parser for HiveToons' current (post-Astro) page format - see the
+    regexes above. Returns the same shape _find_series_payload used to
+    (post/initialChap), or None if the page doesn't look like a series
+    page at all (so the caller can raise its usual "no parseable data")."""
+    title_match = _POST_TITLE_RE.search(page_html)
+    if not title_match:
+        return None
+
+    image_match = _FEATURED_IMAGE_RE.search(page_html)
+    alt_match = _ALT_TITLES_RE.search(page_html)
+    type_match = _SERIES_TYPE_RE.search(page_html)
+    status_match = _SERIES_STATUS_RE.search(page_html)
+
+    genres = []
+    genres_block = _GENRES_BLOCK_RE.search(page_html)
+    if genres_block:
+        genres = [{'name': n} for n in _GENRE_NAME_RE.findall(genres_block.group(1))]
+
+    chapters = []
+    for (cid, slug, number, ch_title, status, created_at,
+         perm_locked, price, locked_by_coins, short_link_locked, is_locked) in _CHAPTER_RE.findall(page_html):
+        chapters.append({
+            'slug': slug,
+            'number': number,
+            'title': ch_title,
+            'createdAt': created_at,
+            'isAccessible': not _js_bool(is_locked),
+        })
+
+    return {
+        'post': {
+            'postTitle': html.unescape(title_match.group(1)),
+            'featuredImage': html.unescape(image_match.group(1)) if image_match else None,
+            'alternativeTitles': html.unescape(alt_match.group(1)) if alt_match else '',
+            'seriesType': type_match.group(1) if type_match else '',
+            'seriesStatus': status_match.group(1) if status_match else '',
+            'genres': genres,
+        },
+        'initialChap': chapters,
+    }
+
 
 def _delayed_get(url, **kwargs):
     global _last_call
@@ -108,7 +177,7 @@ def get_series_info(slug):
         if resp.status_code != 200:
             raise Exception(f"HiveToons returned HTTP {resp.status_code} for series {slug}")
 
-        payload = _find_series_payload(resp.text)
+        payload = _find_series_payload(resp.text) or _find_series_payload_v2(resp.text)
         if not payload:
             raise Exception(f"HiveToons page for {slug} had no parseable series data")
 
