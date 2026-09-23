@@ -3,260 +3,150 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Error Log</title>
+  <title>Errors - Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <link rel="stylesheet" href="/static/css/style.css" />
   <meta name="csrf-token" content="{{ csrf_token() }}" />
-  <!-- ADDED: Notification system -->
   <script src="/static/js/notifications.js"></script>
-    <script>
-    // Tracks whichever date's errors are currently shown, so the download
-    // button (which gets rebuilt/detached whenever the log content re-renders)
-    // always points at the right file. Read via event delegation below.
-    let currentLogDate = "{{ current_date }}";
-
-    function contentHeaderHTML(title) {
-      return `
-        <div class="content-header">
-          <h2>${title}</h2>
-          <button type="button" id="download-log-btn" class="btn-download-log" title="Download this day's error log">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
-            </svg>
-            Download
-          </button>
-        </div>
-      `;
-    }
-
-    // Only linkify real http(s) URLs - source_url is sometimes a synthetic
-    // value like "series:123" (e.g. the scheduler's unhandled-scan-error
-    // path), which isn't a clickable link and shouldn't be rendered as one.
-    function isSafeUrl(url) {
-      return typeof url === 'string' && /^https?:\/\//i.test(url);
-    }
-
-    function renderErrorUrl(url) {
-      const safeText = escapeHtml(url || '');
-      return isSafeUrl(url)
-        ? `<a href="${safeText}" target="_blank" rel="noopener">${safeText}</a>`
-        : safeText;
-    }
-
-    // Turns any http(s) URL found inside already-escaped HTML text into a
-    // clickable link - error messages often embed the URL that failed (e.g.
-    // "Stuck on Cloudflare challenge page after 25s at https://..."), not
-    // just the dedicated source_url field. Must run on already-escaped text
-    // (never raw), and trims trailing sentence punctuation off the link so
-    // "...at https://example.com." doesn't pull the period into the href.
-    function linkify(escapedText) {
-      return escapedText.replace(/https?:\/\/[^\s<>"']+/g, (match) => {
-        const trailing = match.match(/[.,;:!?)]+$/);
-        const url = trailing ? match.slice(0, -trailing[0].length) : match;
-        const suffix = trailing ? trailing[0] : '';
-        return `<a href="${url}" target="_blank" rel="noopener">${url}</a>${suffix}`;
-      });
-    }
-
-    // Shared by every place this page (re-)renders an error entry client-side
-    // (sidebar date click, desktop/mobile refresh) - also escapes every field,
-    // which none of those call sites were doing before.
-    function renderErrorEntryHTML(err) {
-      return `
-        <div class="error-time">
-          ${escapeHtml(err.display_time)}
-          ${err.is_new ? '<span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>' : ''}
-        </div>
-        <div class="error-title">${escapeHtml(err.series_title)}</div>
-        <div class="error-url">${renderErrorUrl(err.source_url)}</div>
-        <div class="error-message">${linkify(escapeHtml(err.error))}</div>
-      `;
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      initNotifications();
-    // Delegated so it keeps working after the sidebar/mobile handlers
-    // below blow away and rebuild #download-log-btn via innerHTML.
-    document.addEventListener('click', (e) => {
-      if (e.target.closest('#download-log-btn')) {
-        window.location.href = `/api/errors/${currentLogDate}/download`;
-      }
-    });
-    // Server-rendered error messages (initial page load) aren't linkified by
-    // Jinja - .innerHTML on an already-escaped text node gives back the same
-    // safe-escaped string linkify() expects, so this is safe to run as-is.
-    document.querySelectorAll('.error-message').forEach(el => {
-      el.innerHTML = linkify(el.innerHTML);
-    });
-    // Handle date link clicks
-    document.querySelectorAll('.sidebar a[href^="/logs/"]').forEach(link => {
-        link.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const dateStr = link.href.split('/').pop();
-        
-        // Update active link
-        document.querySelectorAll('.sidebar a').forEach(el => {
-            el.style.fontWeight = 'normal';
-            el.style.color = '#94a3b8';
-        });
-        link.style.fontWeight = '600';
-        link.style.color = '#678ec9';
-
-        // Fetch errors
-        try {
-            const res = await fetch(`/api/errors/${dateStr}`);
-            const data = await res.json();
-            if (res.ok && data.errors) {
-            // Render errors
-            const container = document.querySelector('.main-content');
-            if (container) {
-                currentLogDate = dateStr;
-                let html = contentHeaderHTML(`Errors — ${dateStr.split('-').reverse().join('/')}`);
-                if (data.errors.length > 0) {
-                html += data.errors.map(err => `
-                    <div class="error-entry">${renderErrorEntryHTML(err)}</div>
-                `).join('');
-                } else {
-                html += '<p>No errors found for this date.</p>';
-                }
-                container.innerHTML = html;
-            }
-            }
-        } catch (e) {
-            console.error('Failed to load log:', e);
-        }
-        });
-    });
-    });
-    </script>
   <style>
-    .errors-layout {
-      display: flex;
-      max-width: 1185px;
-      margin: 20px auto;
+    .errors-container {
+      max-width: 1000px;
+      margin: 30px auto;
       padding: 0 16px;
-      gap: 24px;
     }
-    .sidebar {
-      width: 180px;
-      flex-shrink: 0;
+
+    .errors-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
     }
-    .sidebar a {
-      display: block;
-      padding: 8px 12px;
-      color: #94a3b8;
-      text-decoration: none;
-      border-radius: 6px;
-      margin-bottom: 4px;
+
+    .errors-header h1 {
+      font-size: 28px;
+      color: white;
+      margin: 0;
     }
-    .sidebar a:hover {
-      background: #1a2436;
-      color: #cbd5e1;
+
+    .errors-controls {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      align-items: center;
     }
-    .sidebar .back-link {
-      font-weight: 600;
-      color: #678ec9;
-      margin-bottom: 16px;
-      padding-top: 4px;
+
+    #date-select {
+      min-width: 150px;
     }
-    .main-content {
-      flex: 1;
+
+    #download-log-btn {
+      min-width: 150px;
     }
 
     .error-entry {
-      background: #1a2436;
+      background: #141b2f;
       border: 1px solid #334155;
-      border-radius: 8px;
-      padding: 12px;
+      border-radius: 12px;
+      padding: 16px;
       margin-bottom: 12px;
-      /* ADDED: Prevent horizontal overflow on mobile */
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
       max-width: 100%;
       overflow: hidden;
-      word-wrap: break-word;
     }
-    .error-time { color: #878F9C; font-size: 13px; }
-    .error-title { 
-      font-weight: bold; 
-      color: #e53e3e;
-      /* ADDED: Break long titles */
+
+    .error-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
+
+    .error-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .error-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+
+    .error-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: white;
       word-break: break-word;
       overflow-wrap: break-word;
     }
-    .error-url {
-      color: #678ec9;
-      word-break: break-all;
-      /* ADDED: Ensure URLs don't overflow */
-      overflow-wrap: anywhere;
-      max-width: 100%;
+
+    .error-new-badge {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #22c55e;
+      background: rgba(34, 197, 94, 0.15);
+      padding: 2px 8px;
+      border-radius: 999px;
     }
-    .error-url a {
-      color: inherit;
-      text-decoration: underline;
-    }
-    .error-url a:hover {
-      color: #8fb3e8;
-    }
+
     .error-message {
-      color: #f56565;
-      margin-top: 6px;
+      color: #f87171;
+      font-size: 14px;
+      margin-bottom: 6px;
       white-space: pre-wrap;
-      /* ADDED: Force text wrapping for long error messages */
       word-break: break-word;
       overflow-wrap: break-word;
       max-width: 100%;
     }
+
     .error-message a {
       color: inherit;
       text-decoration: underline;
     }
+
     .error-message a:hover {
       color: #ff8080;
     }
 
-    h2 {
-      color: white;
-      margin-bottom: 16px;
-    }
-
-    .content-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .content-header h2 {
-      margin-bottom: 0;
-    }
-
-    .btn-download-log {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      border-radius: 6px;
-      border: 1px solid #334155;
-      background: #1a2436;
-      color: #cbd5e1;
-      cursor: pointer;
+    .error-url {
+      color: #678ec9;
       font-size: 13px;
-      white-space: nowrap;
-      transition: background 0.2s;
-      margin-bottom: 16px;
-    }
-    .btn-download-log:hover {
-      background: #2d3f5f;
-    }
-    .btn-download-log:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+      margin-bottom: 6px;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+      max-width: 100%;
     }
 
-    /* Style for "no errors" message (desktop and mobile) */
-    .main-content > p.no-errors-message,
-    .main-content > p:not([class]) {
-      color: #94a3b8;
+    .error-url a {
+      color: inherit;
+      text-decoration: underline;
+    }
+
+    .error-url a:hover {
+      color: #8fb3e8;
+    }
+
+    .error-time {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .no-errors {
       text-align: center;
-      padding: 40px 20px;
+      padding: 60px 20px;
+      color: #64748b;
     }
 
     .mobile-menu-overlay,
@@ -264,88 +154,56 @@
       display: none;
     }
 
-
     /* Mobile styles */
     @media (max-width: 768px) {
-      body {
-        padding: 0 !important;
+      .errors-header {
+        display: none; /* Mobile header (injected) shows the title instead */
       }
 
-      .errors-layout {
-        flex-direction: column;
-        margin: 0;
-        padding: 0;
-        gap: 0;
-      }
-
-      /* Hide sidebar on mobile */
-      .sidebar {
-        display: none;
-      }
-
-      /* Main content takes full width */
-      .main-content {
-        padding: 12px;
-      }
-
-      .main-content h2 {
-        font-size: 18px;
-        margin-bottom: 12px;
-        display: none; /* Hide since we'll use mobile header */
-      }
-
-      .content-header {
-        justify-content: flex-end;
-        margin-bottom: 4px;
-      }
-
-      /* Date selector for mobile */
-      .mobile-date-selector {
-        display: block;
-        width: 100%;
-        padding: 12px;
-        background: #141b2f;
-        border: 1px solid #334155;
-        border-radius: 8px;
-        color: white;
-        font-size: 14px;
+      .errors-controls {
         margin-bottom: 16px;
-        cursor: pointer;
       }
 
-      /* Compact error entries */
+      #date-select {
+        flex: 1;
+        min-width: 0;
+      }
+
+      #download-log-btn {
+        min-width: 0;
+      }
+
       .error-entry {
-        padding: 10px;
-        margin-bottom: 10px;
+        padding: 12px;
+        gap: 12px;
         border-radius: 8px;
       }
 
-      .error-time {
-        font-size: 11px;
-        margin-bottom: 4px;
+      .error-icon {
+        width: 32px;
+        height: 32px;
+      }
+
+      .error-icon svg {
+        width: 16px;
+        height: 16px;
       }
 
       .error-title {
         font-size: 14px;
-        margin-bottom: 4px;
+      }
+
+      .error-message {
+        font-size: 13px;
+        line-height: 1.4;
       }
 
       .error-url {
         font-size: 11px;
-        margin-bottom: 6px;
-        word-break: break-all;
       }
 
-      .error-message {
-        font-size: 12px;
-        line-height: 1.4;
-      }
-
-      /* Style for "no errors" message */
-      .main-content > p {
-        color: #94a3b8 !important;
-        text-align: center;
-        padding: 40px 20px;
+      .error-time {
+        font-size: 11px;
       }
 
       .mobile-menu-overlay {
@@ -360,13 +218,13 @@
         visibility: hidden;
         transition: opacity 0.3s ease, visibility 0.3s ease;
       }
-      
+
       .mobile-menu-overlay.active {
         display: block;
         opacity: 1;
         visibility: visible;
       }
-      
+
       .mobile-menu {
         position: fixed;
         top: 0;
@@ -378,22 +236,22 @@
         transition: right 0.3s ease;
         display: block;
       }
-      
+
       .mobile-menu.active {
         right: 0;
       }
-      
+
       /* FAB Container */
       .fab-container {
         position: fixed;
-        bottom: 16px;
+        bottom: calc(16px + env(safe-area-inset-bottom));
         right: 16px;
         display: flex;
         flex-direction: column;
         gap: 8px;
         z-index: 999;
       }
-      
+
       .fab-secondary {
         width: 38px;
         height: 38px;
@@ -411,17 +269,17 @@
         visibility: hidden;
         transform: translateY(10px);
       }
-      
+
       .fab-secondary.show {
         opacity: 1;
         visibility: visible;
         transform: translateY(0);
       }
-      
+
       .fab-secondary:active {
         transform: scale(0.95);
       }
-      
+
       .fab-primary {
         width: 50px;
         height: 50px;
@@ -436,42 +294,30 @@
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         transition: transform 0.2s ease;
       }
-      
+
       .fab-primary:active {
         transform: scale(0.95);
       }
-      
-      /* ADDED: Disabled state */
+
       .fab-primary:disabled {
         opacity: 0.6;
         cursor: not-allowed;
       }
-      
+
       .fab-primary svg,
       .fab-secondary svg {
         flex-shrink: 0;
       }
-      
-      /* Rotation animation for refresh */
+
       @keyframes spin {
-        from {
-          transform: rotate(360deg);
-        }
-        to {
-          transform: rotate(0deg);
-        }
+        from { transform: rotate(360deg); }
+        to { transform: rotate(0deg); }
       }
-      
+
       .fab-primary.refreshing svg {
         animation: spin 0.6s linear;
       }
-      
-      /* Safe area support */
-      .fab-container {
-        bottom: calc(16px + env(safe-area-inset-bottom));
-      }
     }
-
   </style>
 </head>
 <body>
@@ -535,70 +381,67 @@
   </div>
 </div>
 
-  <div class="errors-layout">
-    <div class="sidebar">
-      <h3 style="color: white; font-size: 16px; margin: 12px 0 8px;">Log Files</h3>
-      {% for date_str, label in log_dates %}
-        <a href="/logs/{{ date_str }}" style="font-size:14px;"
-           {% if date_str == current_date %}style="font-weight:600;color:#678ec9;"{% endif %}>
-          {{ label }}
-        </a>
-      {% endfor %}
-    </div>
+<div class="errors-container">
+  <div class="errors-header">
+    <h1>Errors</h1>
+  </div>
 
-  <div class="main-content">
-      <!-- Mobile date selector -->
-      <select class="mobile-date-selector" id="mobile-date-selector" style="display: none;">
-        {% for date_str, label in log_dates %}
-          <option value="{{ date_str }}" {% if date_str == current_date %}selected{% endif %}>
-            {{ label }}
-          </option>
-        {% endfor %}
-      </select>
-      
-      <div class="content-header">
-        <h2>Recent Errors</h2>
-        <button type="button" id="download-log-btn" class="btn-download-log" title="Download this day's error log">
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
-          </svg>
-          Download
-        </button>
-      </div>
-      {% if errors %}
-        {% for err in errors %}
-          <div class="error-entry">
-            <div class="error-time">
-              {{ err.display_time }}
-              {% if err.is_new %}
-                <span style="color:#00ff77; margin-left:6px; font-weight:bold;">New</span>
-              {% endif %}
-            </div>
-            <div class="error-title">{{ err.series_title }}</div>
-            <div class="error-url">
-              {% if err.source_url and (err.source_url.startswith('http://') or err.source_url.startswith('https://')) %}
-                <a href="{{ err.source_url }}" target="_blank" rel="noopener">{{ err.source_url }}</a>
-              {% else %}
-                {{ err.source_url }}
-              {% endif %}
+  <div class="errors-controls">
+    <select id="date-select" class="control-input">
+      {% for date_str, label in log_dates %}
+        <option value="{{ date_str }}" {% if date_str == current_date %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button type="button" id="download-log-btn" class="control-button" title="Download this day's error log">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:16px;height:16px;">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+      </svg>
+      Download
+    </button>
+  </div>
+
+  <div id="error-list">
+    {% if errors %}
+      {% for err in errors %}
+        <div class="error-entry">
+          <div class="error-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m2.202 18.47 7.962-14.465c.738-1.34 2.934-1.34 3.672 0l7.962 14.465c.646 1.173-.338 2.53-1.835 2.53H4.037c-1.497 0-2.481-1.357-1.835-2.53M12 9v4m0 4.02V17"/>
+            </svg>
+          </div>
+          <div class="error-content">
+            <div class="error-top">
+              <span class="error-title">{{ err.series_title }}</span>
+              {% if err.is_new %}<span class="error-new-badge">New</span>{% endif %}
             </div>
             <div class="error-message">{{ err.error }}</div>
+            {% if err.source_url %}
+              <div class="error-url">
+                {% if err.source_url.startswith('http://') or err.source_url.startswith('https://') %}
+                  <a href="{{ err.source_url }}" target="_blank" rel="noopener">{{ err.source_url }}</a>
+                {% else %}
+                  {{ err.source_url }}
+                {% endif %}
+              </div>
+            {% endif %}
+            <div class="error-time">{{ err.display_time }}</div>
           </div>
-        {% endfor %}
-      {% else %}
-        <p class="no-errors-message">No errors found for this date.</p>
-      {% endif %}
-    </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="no-errors">No errors found for this date.</div>
+    {% endif %}
   </div>
+</div>
 
 <!-- Mobile FAB Buttons -->
 <div class="fab-container" id="fab-container" style="display: none;">
-  <button class="fab-secondary" id="fab-secondary">
-    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+  <button class="fab-secondary" id="fab-back-to-top">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
+      <polyline points="18 15 12 9 6 15"></polyline>
     </svg>
   </button>
-  <button class="fab-primary" id="fab-primary">
+  <button class="fab-primary" id="fab-refresh">
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
       <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
     </svg>
@@ -606,7 +449,90 @@
 </div>
 
 <script>
+// Only the initial, server-rendered date (today) carries real is_new flags -
+// the API always reports is_new: false for a picked date since that's
+// necessarily a historical lookup, not "since your last visit".
+const ERROR_ICON_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2.202 18.47 7.962-14.465c.738-1.34 2.934-1.34 3.672 0l7.962 14.465c.646 1.173-.338 2.53-1.835 2.53H4.037c-1.497 0-2.481-1.357-1.835-2.53M12 9v4m0 4.02V17"/></svg>';
 
+// Only linkify real http(s) URLs - source_url is sometimes a synthetic
+// value like "series:123" (e.g. the scheduler's unhandled-scan-error path),
+// which isn't a clickable link and shouldn't be rendered as one.
+function isSafeUrl(url) {
+  return typeof url === 'string' && /^https?:\/\//i.test(url);
+}
+
+function renderErrorUrl(url) {
+  const safeText = escapeHtml(url);
+  return isSafeUrl(url)
+    ? `<a href="${safeText}" target="_blank" rel="noopener">${safeText}</a>`
+    : safeText;
+}
+
+// Turns any http(s) URL found inside already-escaped HTML text into a
+// clickable link - error messages often embed the URL that failed, not just
+// the dedicated source_url field. Must run on already-escaped text (never
+// raw), and trims trailing sentence punctuation off the link so
+// "...at https://example.com." doesn't pull the period into the href.
+function linkify(escapedText) {
+  return escapedText.replace(/https?:\/\/[^\s<>"']+/g, (match) => {
+    const trailing = match.match(/[.,;:!?)]+$/);
+    const url = trailing ? match.slice(0, -trailing[0].length) : match;
+    const suffix = trailing ? trailing[0] : '';
+    return `<a href="${url}" target="_blank" rel="noopener">${url}</a>${suffix}`;
+  });
+}
+
+function renderErrorEntryHTML(err) {
+  const urlHtml = err.source_url ? `<div class="error-url">${renderErrorUrl(err.source_url)}</div>` : '';
+  return `
+    <div class="error-icon">${ERROR_ICON_SVG}</div>
+    <div class="error-content">
+      <div class="error-top">
+        <span class="error-title">${escapeHtml(err.series_title)}</span>
+        ${err.is_new ? '<span class="error-new-badge">New</span>' : ''}
+      </div>
+      <div class="error-message">${linkify(escapeHtml(err.error))}</div>
+      ${urlHtml}
+      <div class="error-time">${escapeHtml(err.display_time)}</div>
+    </div>
+  `;
+}
+
+async function loadErrorsForDate(dateStr) {
+  const list = document.getElementById('error-list');
+  try {
+    const res = await fetch(`/api/errors/${dateStr}`);
+    const data = await res.json();
+    if (!res.ok || !data.errors) throw new Error('Bad response');
+
+    if (data.errors.length > 0) {
+      list.innerHTML = data.errors.map(err => `<div class="error-entry">${renderErrorEntryHTML(err)}</div>`).join('');
+    } else {
+      list.innerHTML = '<div class="no-errors">No errors found for this date.</div>';
+    }
+  } catch (e) {
+    console.error('Failed to load errors:', e);
+    list.innerHTML = '<div class="no-errors">Failed to load errors for this date.</div>';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initNotifications();
+
+  // Server-rendered error messages (initial page load) aren't linkified by
+  // Jinja - .innerHTML on an already-escaped text node gives back the same
+  // safe-escaped string linkify() expects, so this is safe to run as-is.
+  document.querySelectorAll('#error-list .error-message').forEach(el => {
+    el.innerHTML = linkify(el.innerHTML);
+  });
+
+  const dateSelect = document.getElementById('date-select');
+  dateSelect?.addEventListener('change', () => loadErrorsForDate(dateSelect.value));
+
+  document.getElementById('download-log-btn')?.addEventListener('click', () => {
+    if (dateSelect) window.location.href = `/api/errors/${dateSelect.value}/download`;
+  });
+});
 
 // Mobile menu functionality
 (function() {
@@ -615,12 +541,10 @@
   }
 
   if (isMobile()) {
-    console.log('[Mobile] Initializing mobile UI for Errors...');
-    
     // Create mobile header if on mobile
     const header = document.querySelector('.header-full');
     const navContainer = header?.querySelector('.nav-container');
-    
+
     if (navContainer) {
       navContainer.innerHTML = `
         <div class="mobile-header">
@@ -637,69 +561,11 @@
         </div>
       `;
     }
-    
-// Show mobile date selector
-    const mobileSelector = document.getElementById('mobile-date-selector');
-    if (mobileSelector) {
-      mobileSelector.style.display = 'block';
-      
-      // Handle date change with proper event delegation
-      async function handleDateChange(e) {
-        const dateStr = e.target.value;
-        currentLogDate = dateStr;
-
-        try {
-          const res = await fetch(`/api/errors/${dateStr}`);
-          const data = await res.json();
-          
-          if (res.ok && data.errors) {
-            // Find the errors container (everything after the selector)
-            const mainContent = document.querySelector('.main-content');
-            const selector = document.getElementById('mobile-date-selector');
-            
-            if (mainContent && selector) {
-              const h2 = mainContent.querySelector('h2'); // Keep the h2 on desktop
-              
-              // FIXED: Remove ALL error entries and ALL <p> tags
-              mainContent.querySelectorAll('.error-entry').forEach(el => el.remove());
-              mainContent.querySelectorAll('p').forEach(el => {
-                // Only remove if it's a direct child of main-content (not inside error-entry)
-                if (el.parentElement === mainContent) {
-                  el.remove();
-                }
-              });
-              
-              // Add new errors after the selector
-              if (data.errors.length > 0) {
-                data.errors.forEach(err => {
-                  const errorDiv = document.createElement('div');
-                  errorDiv.className = 'error-entry';
-                  errorDiv.innerHTML = renderErrorEntryHTML(err);
-                  mainContent.appendChild(errorDiv);
-                });
-              } else {
-                const noErrors = document.createElement('p');
-                noErrors.className = 'no-errors-message'; // ADDED: Class for easier targeting
-                noErrors.style.cssText = 'color: #94a3b8; text-align: center; padding: 40px 20px;';
-                noErrors.textContent = 'No errors found for this date.';
-                mainContent.appendChild(noErrors);
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Failed to load errors:', e);
-        }
-      }
-      
-      mobileSelector.addEventListener('change', handleDateChange);
-    }
 
     // Mobile menu state
-    let menuOpen = false;
     let scrollY = 0;
-    
+
     function openMobileMenu() {
-      menuOpen = true;
       scrollY = window.scrollY;
       document.getElementById('mobile-menu-overlay')?.classList.add('active');
       document.getElementById('mobile-menu')?.classList.add('active');
@@ -708,9 +574,8 @@
       document.body.style.width = '100%';
       document.body.style.top = `-${scrollY}px`;
     }
-    
+
     function closeMobileMenu() {
-      menuOpen = false;
       document.getElementById('mobile-menu-overlay')?.classList.remove('active');
       document.getElementById('mobile-menu')?.classList.remove('active');
       document.body.style.overflow = '';
@@ -719,180 +584,59 @@
       document.body.style.top = '';
       window.scrollTo(0, scrollY);
     }
-    
-    // Event listeners
+
     document.getElementById('mobile-menu-btn')?.addEventListener('click', openMobileMenu);
     document.getElementById('mobile-menu-overlay')?.addEventListener('click', closeMobileMenu);
     document.getElementById('mobile-menu-close')?.addEventListener('click', closeMobileMenu);
-    
+
     // Show FAB container on mobile
     const fabContainer = document.getElementById('fab-container');
     if (fabContainer) {
       fabContainer.style.display = 'flex';
     }
-    
-    // NEW: Dashboard-style FAB behavior
-    const fabSecondary = document.getElementById('fab-secondary');
-    const fabPrimary = document.getElementById('fab-primary');
-    
-    // Secondary FAB: Refresh at top, Back to top when scrolled
-    if (fabSecondary) {
-      fabSecondary.addEventListener('click', async () => {
-        if (window.scrollY > 300) {
-          // Back to top behavior
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        } else {
-          // Refresh errors at top
-          if (fabSecondary.disabled || fabSecondary.classList.contains('refreshing')) return;
-          
-          fabSecondary.disabled = true;
-          fabSecondary.classList.add('refreshing');
-          
-          // Reload the current date's errors
-          const selector = document.getElementById('mobile-date-selector');
-          const currentDate = selector ? selector.value : null;
 
-          if (currentDate) {
-            try {
-              const res = await fetch(`/api/errors/${currentDate}`);
-              const data = await res.json();
-              
-              if (res.ok && data.errors) {
-                const mainContent = document.querySelector('.main-content');
-                const selectorEl = document.getElementById('mobile-date-selector');
-                const h2 = mainContent.querySelector('h2'); // Keep the h2 on desktop
-                
-                // FIXED: Remove ALL error entries and ALL <p> tags (except in error entries)
-                mainContent.querySelectorAll('.error-entry').forEach(el => el.remove());
-                mainContent.querySelectorAll('p').forEach(el => {
-                  // Only remove if it's a direct child of main-content (not inside error-entry)
-                  if (el.parentElement === mainContent) {
-                    el.remove();
-                  }
-                });
-                
-                if (data.errors.length > 0) {
-                  data.errors.forEach(err => {
-                    const errorDiv = document.createElement('div');
-                    errorDiv.className = 'error-entry';
-                    errorDiv.innerHTML = renderErrorEntryHTML(err);
-                    mainContent.appendChild(errorDiv);
-                  });
-                } else {
-                  const noErrors = document.createElement('p');
-                  noErrors.className = 'no-errors-message';
-                  noErrors.textContent = 'No errors found for this date.';
-                  mainContent.appendChild(noErrors);
-                }
-              }
-            } catch (err) {
-              console.error('Failed to refresh errors:', err);
-            }
-          }
-          
-          setTimeout(() => {
-            fabSecondary.classList.remove('refreshing');
-            fabSecondary.disabled = false;
-          }, 600);
-        }
-      });
-    }
-    
-    // Primary FAB: Refresh (visible on errors page)
-    if (fabPrimary) {
-      fabPrimary.style.display = 'flex'; // CHANGED: Show the primary FAB
-      
-      fabPrimary.addEventListener('click', async () => {
-        if (fabPrimary.disabled || fabPrimary.classList.contains('refreshing')) return;
-        
-        fabPrimary.disabled = true;
-        fabPrimary.classList.add('refreshing');
-        
-        // Reload the current date's errors
-        const selector = document.getElementById('mobile-date-selector');
-        const currentDate = selector ? selector.value : null;
-        
-        if (currentDate) {
-          try {
-            const res = await fetch(`/api/errors/${currentDate}`);
-            const data = await res.json();
-            
-            if (res.ok && data.errors) {
-              const mainContent = document.querySelector('.main-content');
-              // FIXED: Remove ALL error entries and ALL <p> tags
-              mainContent.querySelectorAll('.error-entry').forEach(el => el.remove());
-              mainContent.querySelectorAll('p').forEach(el => {
-                // Only remove if it's a direct child of main-content (not inside error-entry)
-                if (el.parentElement === mainContent) {
-                  el.remove();
-                }
-              });
-              
-              if (data.errors.length > 0) {
-                data.errors.forEach(err => {
-                  const errorDiv = document.createElement('div');
-                  errorDiv.className = 'error-entry';
-                  errorDiv.innerHTML = renderErrorEntryHTML(err);
-                  mainContent.appendChild(errorDiv);
-                });
-              } else {
-                const noErrors = document.createElement('p');
-                noErrors.style.cssText = 'color: #94a3b8; text-align: center; padding: 40px 20px;';
-                noErrors.textContent = 'No errors found for this date.';
-                mainContent.appendChild(noErrors);
-              }
-            }
-          } catch (err) {
-            console.error('Failed to refresh errors:', err);
-          }
-        }
-        
+    // Refresh FAB: reloads the currently selected date
+    const fabRefresh = document.getElementById('fab-refresh');
+    if (fabRefresh) {
+      fabRefresh.addEventListener('click', async () => {
+        if (fabRefresh.disabled || fabRefresh.classList.contains('refreshing')) return;
+
+        fabRefresh.disabled = true;
+        fabRefresh.classList.remove('refreshing');
+        void fabRefresh.offsetWidth; // Restart the animation
+        fabRefresh.classList.add('refreshing');
+
+        const dateSelect = document.getElementById('date-select');
+        await loadErrorsForDate(dateSelect ? dateSelect.value : '{{ current_date }}');
+
         setTimeout(() => {
-          fabPrimary.classList.remove('refreshing');
-          fabPrimary.disabled = false;
+          fabRefresh.classList.remove('refreshing');
+          fabRefresh.disabled = false;
         }, 600);
       });
     }
-    
-    // Update FAB icon based on scroll position
-    function updateFABIcon() {
-      if (!fabSecondary) return;
-      
-      if (window.scrollY > 300) {
-        // Show back to top icon
-        fabSecondary.innerHTML = `
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
-            <polyline points="18 15 12 9 6 15"></polyline>
-          </svg>
-        `;
-        fabSecondary.classList.add('show');
-      } else {
-        // Show refresh icon
-        fabSecondary.innerHTML = `
-          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:20px;height:20px;">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-          </svg>
-        `;
-        fabSecondary.classList.remove('show');
-      }
+
+    // Back-to-top FAB
+    const fabBackToTop = document.getElementById('fab-back-to-top');
+    if (fabBackToTop) {
+      fabBackToTop.addEventListener('click', () => {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+
+      window.addEventListener('scroll', () => {
+        if (window.scrollY > 300) {
+          fabBackToTop.classList.add('show');
+        } else {
+          fabBackToTop.classList.remove('show');
+        }
+      }, { passive: true });
     }
-    
-    // Listen for scroll events
-    let lastScrollY = 0;
-    window.addEventListener('scroll', () => {
-      const currentScrollY = window.scrollY;
-      updateFABIcon();
-      lastScrollY = currentScrollY;
-    }, { passive: true });
-    
-    // Initialize FAB state on load
-    updateFABIcon();
   }
 })();
 </script>
 
 <button id="back-to-top" title="Back to top">
-    <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+  <svg class="icon-chevron-up" viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
     <polyline points="18 15 12 9 6 15"></polyline>
   </svg>
 </button>

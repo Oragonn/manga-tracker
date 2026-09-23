@@ -1777,6 +1777,49 @@ def api_remove_series_custom_tag(series_id, tag_id):
         return jsonify({'success': True})
     return jsonify({'error': 'Failed to detach tag'}), 500
 
+# Quick-capture "Save for Later" scratch list - a title or link the user
+# wants to look at later, unrelated to the tracked series table.
+@app.route('/api/later')
+def api_get_later_items():
+    from .database import get_later_items
+    return jsonify({'items': get_later_items()})
+
+
+@app.route('/api/later', methods=['POST'])
+def api_create_later_item():
+    from .database import create_later_item
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    url = (data.get('url') or '').strip()
+    if not title and not url:
+        return jsonify({'error': 'A title or link is required'}), 400
+    new_id = create_later_item(title or None, url or None)
+    if new_id is None:
+        return jsonify({'error': 'Failed to save item'}), 500
+    return jsonify({'id': new_id}), 201
+
+
+@app.route('/api/later/<int:item_id>', methods=['DELETE'])
+def api_delete_later_item(item_id):
+    from .database import delete_later_item
+    if delete_later_item(item_id):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Item not found'}), 404
+
+
+@app.route('/api/later/<int:item_id>', methods=['PATCH'])
+def api_update_later_item(item_id):
+    from .database import update_later_item
+    data = request.get_json() or {}
+    title = (data.get('title') or '').strip()
+    url = (data.get('url') or '').strip()
+    if not title and not url:
+        return jsonify({'error': 'A title or link is required'}), 400
+    if not update_later_item(item_id, title or None, url or None):
+        return jsonify({'error': 'Item not found'}), 404
+    return jsonify({'success': True})
+
+
 # Saved filter/sort combinations the dashboard's bookmark dropdown
 # switches between - "Default" (is_builtin) is seeded in init_db() and
 # protected from rename/delete at the database layer.
@@ -2097,23 +2140,29 @@ def api_check_now(series_id):
 @app.route('/api/series/<int:series_id>', methods=['DELETE'])
 def api_delete_series(series_id):
     from .activity_logger import get_series_snapshot
+    from .database import get_progress_history_for_stats
     snapshot = get_series_snapshot(series_id)
-    
+    # Captured before delete_series() runs - it clears series_id off these
+    # rows (ON DELETE SET NULL), so undoing this deletion later couldn't
+    # find them any other way.
+    progress_history = get_progress_history_for_stats(series_id)
+
     bulk_id = request.args.get('bulk_id')
     is_bulk = bulk_id is not None
-    
+
     try:
         # *** Use new delete_series function ***
         from .database import delete_series
         success = delete_series(series_id)
-        
+
         if not success:
             return jsonify({'error': 'Series not found or delete failed'}), 404
-        
+
         # Log after successful delete
         if snapshot:
             try:
                 from .activity_logger import log_activity
+                snapshot['_progress_history'] = progress_history
                 log_activity(
                     action_type='deleted',
                     series_id=None,
@@ -2227,6 +2276,7 @@ def save_completed_period_stats():
                 SELECT old_value, new_value
                 FROM activity_log
                 WHERE action_type = 'progress'
+                AND can_undo = 1
                 AND timestamp >= ? AND timestamp <= ?
             """, (yesterday.isoformat(), yesterday_end.isoformat()))
             
@@ -2267,6 +2317,7 @@ def save_completed_period_stats():
                     SELECT old_value, new_value
                     FROM activity_log
                     WHERE action_type = 'progress'
+                    AND can_undo = 1
                     AND timestamp >= ? AND timestamp <= ?
                 """, (last_week_start.isoformat(), last_week_end.isoformat()))
                 
@@ -2306,6 +2357,7 @@ def save_completed_period_stats():
                     SELECT old_value, new_value
                     FROM activity_log
                     WHERE action_type = 'progress'
+                    AND can_undo = 1
                     AND timestamp >= ? AND timestamp <= ?
                 """, (last_month_start.isoformat(), last_month_end.isoformat()))
                 
@@ -2376,7 +2428,8 @@ def stats_page():
 @app.route('/api/stats')
 def api_get_stats():
     """
-    Get comprehensive statistics about the tracker.
+    Everything the Stats page shows: library totals, the breakdowns behind its
+    donut charts, a 30-day reading/release history and a few ranked lists.
     """
     try:
         # Save completed period stats before calculating current stats
@@ -2386,245 +2439,331 @@ def api_get_stats():
             print(f"[Stats] Failed to save period stats (continuing anyway): {save_err}")
             import traceback
             traceback.print_exc()
-        
-        from datetime import datetime, timezone, timedelta
+
+        from datetime import date, timedelta
         from .database import get_db, release_db
-        
-        conn = get_db()
-        cursor = conn.cursor()
-        
-        # === CORE STATS ===
-        
-        # Total series
-        cursor.execute("SELECT COUNT(*) FROM series")
-        total_series = cursor.fetchone()[0]
-        
-        # Total series with last chapter read (caught up)
-        cursor.execute("""
-            SELECT COUNT(*) FROM series 
-            WHERE current_chapter >= COALESCE(latest_chapter, 0) 
-            AND current_chapter != -1
-        """)
-        caught_up = cursor.fetchone()[0]
-        
-        # Total series started but not finished
-        cursor.execute("""
-            SELECT COUNT(*) FROM series 
-            WHERE current_chapter != -1 
-            AND current_chapter < COALESCE(latest_chapter, 0)
-        """)
-        started_not_finished = cursor.fetchone()[0]
-        
-        # Total chapters (sum of all latest_chapter across all series)
-        cursor.execute("SELECT COALESCE(SUM(latest_chapter), 0) FROM series WHERE latest_chapter IS NOT NULL")
-        total_chapters = int(cursor.fetchone()[0])
-        
-        # Total chapters read (sum of current_chapter where not -1)
-        cursor.execute("""
-            SELECT COALESCE(SUM(current_chapter), 0) FROM series 
-            WHERE current_chapter != -1
-        """)
-        total_chapters_read = int(cursor.fetchone()[0])
-        
-        # === CONTENT TYPE BREAKDOWN ===
-        cursor.execute("""
-            SELECT 
-                source_type,
-                COUNT(*) as count
-            FROM series
-            GROUP BY source_type
-        """)
-        content_type_breakdown = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        # === READING STATUS BREAKDOWN ===
-        cursor.execute("""
-            SELECT 
-                status,
-                COUNT(*) as count
-            FROM series
-            GROUP BY status
-        """)
-        status_breakdown = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        # === ADDITIONAL STATS ===
-        
-        # Average chapters per series (for started series)
-        cursor.execute("SELECT COUNT(*) FROM series WHERE current_chapter != -1")
-        series_started_count = cursor.fetchone()[0]
-        avg_chapters_per_series = round(total_chapters_read / series_started_count, 1) if series_started_count > 0 else 0
-        
-        # Completion rate
-        cursor.execute("SELECT COUNT(*) FROM series WHERE status = 'completed'")
-        completed_count = cursor.fetchone()[0]
-        completion_rate = round((completed_count / total_series * 100), 1) if total_series > 0 else 0
-        
-        # Most read content type
-        most_read_type = max(content_type_breakdown.items(), key=lambda x: x[1])[0] if content_type_breakdown else 'N/A'
-        
-        # CHANGED: Read from stats_history instead of recalculating
-        now = datetime.now(timezone.utc)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_str = today_start.date().isoformat()
-        
-        cursor.execute("""
-            SELECT series_added, chapters_read 
-            FROM stats_history 
-            WHERE period_type = 'day' AND period_start = ?
-        """, (today_str,))
-        today_stats = cursor.fetchone()
-        
-        if today_stats:
-            series_added_today = today_stats[0]
-            chapters_read_today = today_stats[1]
-        else:
-            # Fallback: calculate if not in stats_history yet (use DATE comparison)
-            cursor.execute("""
-                SELECT COUNT(*) FROM series 
-                WHERE DATE(created_at) = DATE(?)
-            """, (now.isoformat(),))
-            series_added_today = cursor.fetchone()[0] or 0
-            chapters_read_today = 0
-        
-        # Series added this week/month/year (CALENDAR PERIODS)
-        now = datetime.now(timezone.utc)
-        
-        # CHANGED: Read from stats_history instead of recalculating
-        week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        
-        week_str = week_start.date().isoformat()
-        month_str = month_start.date().isoformat()
-        year_str = year_start.date().isoformat()
-        
-        # Get week stats
-        cursor.execute("""
-            SELECT series_added, chapters_read 
-            FROM stats_history 
-            WHERE period_type = 'week' AND period_start = ?
-        """, (week_str,))
-        week_stats = cursor.fetchone()
-        series_added_week = week_stats[0] if week_stats else 0
-        chapters_read_week = week_stats[1] if week_stats else 0
-        
-        # Get month stats
-        cursor.execute("""
-            SELECT series_added, chapters_read 
-            FROM stats_history 
-            WHERE period_type = 'month' AND period_start = ?
-        """, (month_str,))
-        month_stats = cursor.fetchone()
-        series_added_month = month_stats[0] if month_stats else 0
-        chapters_read_month = month_stats[1] if month_stats else 0
-        
-        # Get year stats
-        cursor.execute("""
-            SELECT series_added, chapters_read 
-            FROM stats_history 
-            WHERE period_type = 'year' AND period_start = ?
-        """, (year_str,))
-        year_stats = cursor.fetchone()
-        series_added_year = year_stats[0] if year_stats else 0
-        chapters_read_year = year_stats[1] if year_stats else 0
-        
-        # Series per source
-        cursor.execute("""
-            SELECT 
-                source_type,
-                COUNT(DISTINCT series_id) as count
-            FROM series_sources
-            GROUP BY source_type
-        """)
-        series_per_source = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        # Most used source
-        most_used_source = max(series_per_source.items(), key=lambda x: x[1])[0] if series_per_source else 'N/A'
-        
-        # Series with multiple sources
-        cursor.execute("""
-            SELECT COUNT(*) FROM (
-                SELECT series_id FROM series_sources
-                GROUP BY series_id
-                HAVING COUNT(*) > 1
-            )
-        """)
-        multi_source_count = cursor.fetchone()[0]
-        
-        # Average unread chapters (across reading series)
-        cursor.execute("""
-            SELECT AVG(COALESCE(latest_chapter, 0) - current_chapter)
-            FROM series
-            WHERE status = 'reading' 
-            AND current_chapter != -1
-            AND latest_chapter > current_chapter
-        """)
-        avg_unread = cursor.fetchone()[0]
-        avg_unread_chapters = round(avg_unread, 1) if avg_unread else 0
-        
-        # Total unread chapters
-        cursor.execute("""
-            SELECT SUM(COALESCE(latest_chapter, 0) - current_chapter)
-            FROM series
-            WHERE current_chapter != -1
-            AND latest_chapter > current_chapter
-        """)
-        total_unread = cursor.fetchone()[0]
-        total_unread_chapters = int(total_unread) if total_unread else 0
-        
-        # Content rating breakdown
-        cursor.execute("""
-            SELECT 
-                content_rating,
-                COUNT(*) as count
-            FROM series
-            GROUP BY content_rating
-        """)
-        rating_breakdown = {row[0]: row[1] for row in cursor.fetchall()}
-        
-        # Most common genre (counted with Fixes > Tag's merges/bans applied)
         from .tag_utils import load_tag_rules, count_tags
-        cursor.execute("SELECT genres FROM series WHERE genres IS NOT NULL AND genres != ''")
-        genre_rows = [row[0] for row in cursor.fetchall()]
-        tag_rules = load_tag_rules(cursor)
 
-        release_db(conn)
+        HISTORY_DAYS = 30
+        BULK_DAY_CHAPTERS = 500
+        today = datetime.now(timezone.utc).date()
+        history_start = today - timedelta(days=HISTORY_DAYS - 1)
 
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+
+            # === LIBRARY ===
+            cursor.execute("""
+                SELECT
+                    COUNT(*),
+                    COALESCE(SUM(CASE WHEN current_chapter != -1 THEN current_chapter END), 0),
+                    COALESCE(SUM(latest_chapter), 0),
+                    SUM(CASE WHEN current_chapter = -1 THEN 1 ELSE 0 END)
+                FROM series
+            """)
+            total_series, chapters_read, chapters_available, not_started = cursor.fetchone()
+
+            # Reading list: caught up vs behind, and the chapters waiting
+            cursor.execute("""
+                SELECT
+                    COUNT(*),
+                    SUM(CASE WHEN current_chapter != -1
+                             AND current_chapter >= COALESCE(latest_chapter, 0) THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN latest_chapter > current_chapter THEN 1 ELSE 0 END),
+                    COALESCE(SUM(CASE WHEN latest_chapter > current_chapter
+                                      THEN latest_chapter - MAX(current_chapter, 0) END), 0)
+                FROM series
+                WHERE status = 'reading'
+            """)
+            reading_count, caught_up, behind, reading_backlog = cursor.fetchone()
+
+            # === BREAKDOWNS ===
+            def breakdown(column):
+                cursor.execute(f"SELECT COALESCE({column}, 'unknown'), COUNT(*) FROM series GROUP BY 1")
+                return {row[0]: row[1] for row in cursor.fetchall()}
+
+            status_breakdown = breakdown('status')
+            type_breakdown = breakdown('source_type')
+            rating_breakdown = breakdown('content_rating')
+            publication_breakdown = breakdown('source_status')
+
+            cursor.execute("""
+                SELECT COALESCE(source_type, 'other'), status, COUNT(*)
+                FROM series GROUP BY 1, 2
+            """)
+            type_by_status = {}
+            for content_type, status, count in cursor.fetchall():
+                type_by_status.setdefault(content_type, {})[status] = count
+
+            # === SOURCES ===
+            cursor.execute("""
+                SELECT source_type, COUNT(DISTINCT series_id)
+                FROM series_sources GROUP BY source_type
+            """)
+            series_per_source = {row[0]: row[1] for row in cursor.fetchall()}
+            cursor.execute("""
+                SELECT COUNT(*) FROM (
+                    SELECT series_id FROM series_sources
+                    GROUP BY series_id HAVING COUNT(*) > 1
+                )
+            """)
+            multi_source_count = cursor.fetchone()[0]
+
+            # === READING ACTIVITY ===
+            # Every row: one per day/month/year, so the table stays small
+            # (cleanup_old_stats() is never called)
+            cursor.execute("""
+                SELECT period_type, period_start, chapters_read, series_added
+                FROM stats_history
+                WHERE period_type IN ('day', 'month', 'year')
+            """)
+            day_reads = {}
+            month_rows = {}
+            year_rows = {}
+            day_added = {}
+            month_added_rows = {}
+            year_added_rows = {}
+            for period_type, period_start, read, added in cursor.fetchall():
+                read = max(read or 0, 0)
+                added = max(added or 0, 0)
+                if period_type == 'day':
+                    day_reads[period_start] = read
+                    day_added[period_start] = added
+                elif period_type == 'month':
+                    month_rows[period_start[:7]] = read
+                    month_added_rows[period_start[:7]] = added
+                else:
+                    year_rows[period_start[:4]] = read
+                    year_added_rows[period_start[:4]] = added
+
+            # === NEW RELEASES (series on the reading list) ===
+            cursor.execute("""
+                SELECT DATE(c.release_date), COUNT(DISTINCT c.series_id || ':' || c.chapter_number)
+                FROM chapters c
+                JOIN series s ON s.id = c.series_id
+                WHERE s.status = 'reading'
+                  AND c.release_date IS NOT NULL
+                  AND DATE(c.release_date) >= ?
+                GROUP BY 1
+            """, (history_start.isoformat(),))
+            day_releases = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Reading series that have gone quiet (no release in 90+ days)
+            cursor.execute("""
+                SELECT id, title, source_url, source_status, current_chapter, latest_chapter,
+                       latest_release, CAST(julianday('now') - julianday(latest_release) AS INTEGER)
+                FROM series
+                WHERE status = 'reading'
+                  AND latest_release IS NOT NULL
+                  AND julianday('now') - julianday(latest_release) > 90
+                ORDER BY julianday(latest_release)
+            """)
+            quiet_series = [
+                {'id': r[0], 'title': r[1], 'url': r[2], 'publication': r[3] or 'unknown',
+                 'current': r[4], 'latest': r[5], 'latest_release': r[6], 'days': r[7]}
+                for r in cursor.fetchall()
+            ]
+
+            # === RANKED LISTS ===
+            cursor.execute("""
+                SELECT id, title, MAX(current_chapter, 0), latest_chapter,
+                       latest_chapter - MAX(current_chapter, 0) AS unread
+                FROM series
+                WHERE status = 'reading' AND latest_chapter > current_chapter
+                ORDER BY unread DESC
+                LIMIT 8
+            """)
+            biggest_backlogs = [
+                {'id': r[0], 'title': r[1], 'current': r[2], 'latest': r[3], 'unread': round(r[4], 1)}
+                for r in cursor.fetchall()
+            ]
+
+            cursor.execute("""
+                SELECT id, title, current_chapter, latest_chapter, status
+                FROM series
+                WHERE current_chapter > 0
+                ORDER BY current_chapter DESC
+                LIMIT 8
+            """)
+            most_read = [
+                {'id': r[0], 'title': r[1], 'current': r[2], 'latest': r[3], 'status': r[4]}
+                for r in cursor.fetchall()
+            ]
+
+            cursor.execute("SELECT genres FROM series WHERE genres IS NOT NULL AND genres != ''")
+            genre_rows = [row[0] for row in cursor.fetchall()]
+            tag_rules = load_tag_rules(cursor)
+        finally:
+            release_db(conn)
+
+        # Counted with Fixes > Tag's merges/bans applied
         tag_counts = count_tags(genre_rows, tag_rules)
-        most_common_genre = max(tag_counts, key=lambda t: t['count'])['tag'] if tag_counts else 'N/A'
-        
-        # === RETURN STATS ===
+        top_genres = sorted(tag_counts, key=lambda t: (-t['count'], t['tag']))[:15]
+
+        # A Kenmei import or a bulk progress edit logs every series going from
+        # "not started" to its chapter, so that day's "chapters read" is in the
+        # thousands. Those days are flagged and left out of the reading totals.
+        bulk_days = {d for d, read in day_reads.items() if read > BULK_DAY_CHAPTERS}
+
+        def is_read_day(d):
+            return day_reads.get(d, 0) > 0 and d not in bulk_days
+
+        def read_since(start):
+            return sum(r for d, r in day_reads.items() if d >= start and d not in bulk_days)
+
+        # Month totals come from the daily rows (without bulk days) when the
+        # month has any, else from its stored row (months from before daily
+        # rows were kept). A year is the sum of its months, else its stored row.
+        month_from_days = {}
+        for d, read in day_reads.items():
+            month_from_days.setdefault(d[:7], 0)
+            if d not in bulk_days:
+                month_from_days[d[:7]] += read
+
+        def month_read(month):
+            if month in month_from_days:
+                return month_from_days[month]
+            return month_rows.get(month, 0)
+
+        def year_read(year):
+            months = {m for m in [*month_from_days, *month_rows] if m.startswith(year)}
+            if months:
+                return sum(month_read(m) for m in months)
+            return year_rows.get(year, 0)
+
+        # Same rollup as reads, for series added - no bulk-day concept here,
+        # a big import day is a real spike, not noise to exclude
+        month_added_from_days = {}
+        for d, added in day_added.items():
+            month_added_from_days.setdefault(d[:7], 0)
+            month_added_from_days[d[:7]] += added
+
+        def month_added(month):
+            if month in month_added_from_days:
+                return month_added_from_days[month]
+            return month_added_rows.get(month, 0)
+
+        def year_added(year):
+            months = {m for m in [*month_added_from_days, *month_added_rows] if m.startswith(year)}
+            if months:
+                return sum(month_added(m) for m in months)
+            return year_added_rows.get(year, 0)
+
+        history_days = [(history_start + timedelta(days=i)).isoformat() for i in range(HISTORY_DAYS)]
+        daily_reads = [
+            {'date': d, 'chapters': round(day_reads.get(d, 0), 1), 'bulk': d in bulk_days}
+            for d in history_days
+        ]
+        daily_releases = [{'date': d, 'chapters': day_releases.get(d, 0)} for d in history_days]
+        real_reads = [d for d in daily_reads if not d['bulk']]
+
+        # Heatmap + month chart, one set per calendar year (Monday-first weeks,
+        # Jan 1 to Dec 31 - or today for the current year) so the History
+        # section can switch years client-side without another request.
+        # Shared by both the "chapters read" and "series added" views.
+        def year_calendar(y, day_values, bulk_set):
+            y_int = int(y)
+            start = date(y_int, 1, 1) - timedelta(days=date(y_int, 1, 1).weekday())
+            end = today if y_int == today.year else date(y_int, 12, 31)
+            cal = []
+            day = start
+            while day <= end:
+                d = day.isoformat()
+                cal.append({'date': d, 'chapters': round(day_values.get(d, 0), 1), 'bulk': d in bulk_set})
+                day += timedelta(days=1)
+            return cal
+
+        def year_months(y, month_value_fn):
+            return [
+                {'month': f'{y}-{m:02d}', 'chapters': round(month_value_fn(f'{y}-{m:02d}'), 1)}
+                for m in range(1, 13)
+            ]
+
+        all_years = sorted({
+            k[:4] for k in [*day_reads, *month_rows, *year_rows, *day_added, *month_added_rows, *year_added_rows]
+        }, reverse=True)
+        years = [
+            {
+                'year': y,
+                'chapters': round(year_read(y), 1),
+                'active_days': sum(1 for d in day_reads if d.startswith(y) and is_read_day(d)),
+                'months': year_months(y, month_read),
+                'calendar': year_calendar(y, day_reads, bulk_days),
+                'series_added': round(year_added(y)),
+                'added_active_days': sum(1 for d in day_added if d.startswith(y) and day_added.get(d, 0) > 0),
+                'added_months': year_months(y, month_added),
+                'added_calendar': year_calendar(y, day_added, set()),
+            }
+            for y in all_years
+        ]
+
+        # Streaks over every daily row. No reads yet today doesn't break the
+        # current streak - the day isn't over. A bulk day neither counts nor
+        # breaks one.
+        current_streak = 0
+        day = today if is_read_day(today.isoformat()) else today - timedelta(days=1)
+        while is_read_day(day.isoformat()) or day.isoformat() in bulk_days:
+            current_streak += is_read_day(day.isoformat())
+            day -= timedelta(days=1)
+        best_streak = run = 0
+        if day_reads:
+            day = date.fromisoformat(min(day_reads))
+            while day <= today:
+                d = day.isoformat()
+                if is_read_day(d):
+                    run += 1
+                    best_streak = max(best_streak, run)
+                elif d not in bulk_days:
+                    run = 0
+                day += timedelta(days=1)
+
+        best_day = max(real_reads, key=lambda d: d['chapters'], default=None)
+        read_30d = sum(d['chapters'] for d in real_reads)
+
         return jsonify({
-            'core': {
+            'library': {
                 'total_series': total_series,
-                'caught_up': caught_up,
-                'started_not_finished': started_not_finished,
-                'total_chapters': total_chapters,
-                'total_chapters_read': total_chapters_read
+                'chapters_read': int(chapters_read),
+                'chapters_available': int(chapters_available),
+                'not_started': not_started or 0,
+                'reading': reading_count or 0,
+                'caught_up': caught_up or 0,
+                'behind': behind or 0,
+                'reading_backlog': int(reading_backlog or 0),
+                'quiet_reading': len(quiet_series),
+                'multi_source': multi_source_count,
             },
-            'content_type': content_type_breakdown,
-            'status': status_breakdown,
-            'additional': {
-                'avg_chapters_per_series': avg_chapters_per_series,
-                'completion_rate': completion_rate,
-                'most_read_type': most_read_type,
-                'series_added_today': series_added_today,
-                'chapters_read_today': chapters_read_today,
-                'series_added_week': series_added_week,
-                'series_added_month': series_added_month,
-                'series_added_year': series_added_year,
-                'chapters_read_week': chapters_read_week,
-                'chapters_read_month': chapters_read_month,
-                'chapters_read_year': chapters_read_year,
-                'series_per_source': series_per_source,
-                'most_used_source': most_used_source,
-                'multi_source_count': multi_source_count,
-                'avg_unread_chapters': avg_unread_chapters,
-                'total_unread_chapters': total_unread_chapters,
-                'most_common_genre': most_common_genre
+            'breakdowns': {
+                'status': status_breakdown,
+                'type': type_breakdown,
+                'rating': rating_breakdown,
+                'publication': publication_breakdown,
             },
-            'rating_breakdown': rating_breakdown
+            'type_by_status': type_by_status,
+            'sources': series_per_source,
+            'activity': {
+                'today': 0 if today.isoformat() in bulk_days else round(day_reads.get(today.isoformat(), 0), 1),
+                'week': round(read_since((today - timedelta(days=today.weekday())).isoformat()), 1),
+                'month': round(month_read(today.strftime('%Y-%m')), 1),
+                'year': round(year_read(str(today.year)), 1),
+                'bulk_days': sum(1 for d in daily_reads if d['bulk']),
+                'daily_reads': daily_reads,
+                'daily_releases': daily_releases,
+                'current_streak': current_streak,
+                'best_streak': best_streak,
+                'active_days': sum(1 for d in real_reads if d['chapters'] > 0),
+                'avg_per_day': round(read_30d / max(len(real_reads), 1), 1),
+                'best_day': best_day if best_day and best_day['chapters'] > 0 else None,
+                'releases_30d': sum(d['chapters'] for d in daily_releases),
+                'years': years,
+            },
+            'top_genres': top_genres,
+            'biggest_backlogs': biggest_backlogs,
+            'most_read': most_read,
+            'quiet_series': quiet_series,
         })
-        
+
     except Exception as e:
         print(f"[Stats API] Error: {e}")
         import traceback

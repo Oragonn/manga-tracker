@@ -165,135 +165,879 @@
     }
 
     .stats-section {
-      margin-bottom: 32px;
+      margin-bottom: 36px;
     }
 
     .section-title {
-      font-size: 18px;
+      font-size: 13px;
       font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
       color: #94a3b8;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
-    .stats-grid {
+    .section-title svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .card {
+      background: #141b2f;
+      border: 1px solid #263248;
+      border-radius: 14px;
+      padding: 20px;
+      min-width: 0;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #e2e8f0;
+      margin: 0 0 4px;
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: #64748b;
+      margin: 0 0 18px;
+    }
+
+    /* === KPI tiles === */
+    .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
       gap: 16px;
     }
 
-    .stats-grid.hero {
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    .kpi {
+      position: relative;
+      overflow: hidden;
+      background: linear-gradient(145deg, #1a2338 0%, #141b2f 70%);
+      border-color: #334155;
     }
 
-    .stat-card {
-      background: #141b2f;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 20px;
-      transition: transform 0.2s, box-shadow 0.2s;
+    .kpi::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: var(--accent, #678ec9);
     }
 
-    .stat-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-    }
-
-    .stat-card.hero {
-      background: linear-gradient(135deg, #1e293b 0%, #141b2f 100%);
-      border-color: #475569;
-    }
-
-    .stat-label {
+    .kpi-label {
       font-size: 13px;
       color: #94a3b8;
-      margin-bottom: 8px;
+      margin-bottom: 10px;
+    }
+
+    .kpi-value {
+      font-size: 38px;
+      font-weight: 700;
+      color: #f8fafc;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+    }
+
+    .kpi-value small {
+      font-size: 18px;
+      font-weight: 600;
+      color: #64748b;
+      margin-left: 4px;
+    }
+
+    .kpi-sub {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 10px;
+    }
+
+    .kpi-sub strong {
+      color: #cbd5e1;
+      font-weight: 600;
+    }
+
+    .meter {
+      height: 6px;
+      background: #0f1626;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    .meter-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--accent, #678ec9);
+    }
+
+    /* === Small activity tiles === */
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .mini {
+      padding: 14px 16px;
+    }
+
+    .mini-label {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 6px;
+    }
+
+    .mini-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #f8fafc;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mini-value small {
+      font-size: 13px;
+      font-weight: 500;
+      color: #64748b;
+      margin-left: 3px;
+    }
+
+    /* === Layout grids === */
+    .chart-row {
+      display: grid;
+      grid-template-columns: 3fr 2fr;
+      gap: 16px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px;
+    }
+
+    .donut-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .chart-row {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* === Column chart (per day) === */
+    .col-chart {
+      position: relative;
+      height: 180px;
+      margin-left: 34px;
+    }
+
+    .col-grid-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      border-top: 1px solid #1e293b;
+    }
+
+    .col-grid-line span {
+      position: absolute;
+      right: calc(100% + 8px);
+      top: -7px;
+      font-size: 11px;
+      color: #64748b;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .col-bars {
+      position: absolute;
+      inset: 0;
       display: flex;
+      align-items: flex-end;
+      gap: 2px;
+    }
+
+    .col {
+      flex: 1;
+      height: 100%;
+      display: flex;
+      align-items: flex-end;
+      cursor: default;
+    }
+
+    .col-bar {
+      width: 100%;
+      min-height: 0;
+      border-radius: 4px 4px 0 0;
+      background: var(--bar, #678ec9);
+      transition: filter 0.15s;
+    }
+
+    .col:hover .col-bar {
+      filter: brightness(1.3);
+    }
+
+    .col-bar.bulk {
+      background: repeating-linear-gradient(135deg, #475569 0 4px, #334155 4px 8px);
+    }
+
+    .col-bar.today {
+      box-shadow: inset 0 0 0 1px #cbd5e1;
+    }
+
+    .col-axis {
+      display: flex;
+      margin: 8px 0 0 34px;
+      gap: 2px;
+    }
+
+    .col-axis span {
+      flex: 1;
+      font-size: 11px;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: visible;
+    }
+
+    .chart-note {
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .swatch.bulk {
+      background: repeating-linear-gradient(135deg, #475569 0 3px, #334155 3px 6px);
+    }
+
+    /* === Donuts === */
+    .donut-wrap {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .donut {
+      position: relative;
+      width: 132px;
+      height: 132px;
+      flex-shrink: 0;
+    }
+
+    .donut svg {
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+
+    .donut-seg {
+      transition: stroke-width 0.15s;
+      cursor: default;
+    }
+
+    .donut-seg:hover {
+      stroke-width: 20;
+    }
+
+    .donut-center {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .donut-center strong {
+      font-size: 22px;
+      color: #f8fafc;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .donut-center span {
+      font-size: 11px;
+      color: #64748b;
+    }
+
+    .legend {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      flex: 1;
+      max-width: 260px;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .legend li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: #cbd5e1;
+      border-radius: 6px;
+      padding: 2px 4px;
+      margin: -2px -4px;
+    }
+
+    .legend li.hl {
+      background: #1e293b;
+    }
+
+    .legend .name {
+      flex: 1;
+      min-width: 60px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .legend .num {
+      color: #f8fafc;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .legend .pct {
+      color: #64748b;
+      font-size: 12px;
+      width: 36px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* === Horizontal bars === */
+    .hbar {
+      display: grid;
+      grid-template-columns: minmax(90px, 150px) 1fr auto;
+      align-items: center;
+      gap: 12px;
+      padding: 5px 0;
+      font-size: 13px;
+    }
+
+    .hbar-label {
+      color: #cbd5e1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .hbar-track {
+      height: 10px;
+      border-radius: 0 4px 4px 0;
+      overflow: hidden;
+    }
+
+    .hbar-fill {
+      height: 100%;
+      border-radius: 0 4px 4px 0;
+      background: var(--bar, #678ec9);
+    }
+
+    .hbar:hover .hbar-fill {
+      filter: brightness(1.3);
+    }
+
+    .hbar-value {
+      color: #f8fafc;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* === Stacked (status by type) === */
+    .stack-row {
+      display: grid;
+      grid-template-columns: 70px 1fr 44px;
+      align-items: center;
+      gap: 12px;
+      padding: 7px 0;
+      font-size: 13px;
+    }
+
+    .stack {
+      display: flex;
+      gap: 2px;
+      height: 18px;
+    }
+
+    .stack-seg {
+      height: 100%;
+      min-width: 2px;
+    }
+
+    .stack-seg:first-child {
+      border-radius: 4px 0 0 4px;
+    }
+
+    .stack-seg:last-child {
+      border-radius: 0 4px 4px 0;
+    }
+
+    .stack-seg:only-child {
+      border-radius: 4px;
+    }
+
+    .stack-seg:hover {
+      filter: brightness(1.3);
+    }
+
+    .inline-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 16px;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 12px;
+    }
+
+    .inline-legend span {
+      display: inline-flex;
       align-items: center;
       gap: 6px;
     }
 
-    .stat-value {
-      font-size: 36px;
-      font-weight: 700;
-      color: white;
-      line-height: 1;
+    /* === Ranked lists === */
+    .rank-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
     }
 
-    .stat-card.hero .stat-value {
-      font-size: 48px;
-      background: linear-gradient(135deg, #678ec9 0%, #94a3b8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-
-    .stat-subtext {
-      font-size: 12px;
-      color: #64748b;
-      margin-top: 4px;
-    }
-
-    .chart-container {
-      background: #141b2f;
-      border: 1px solid #334155;
-      border-radius: 12px;
-      padding: 24px;
-      min-height: 300px;
-    }
-
-    .chart-grid {
+    .rank-list li {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-      gap: 16px;
+      grid-template-columns: 22px 1fr auto;
+      gap: 4px 10px;
+      align-items: center;
+      padding: 9px 0;
+      border-top: 1px solid #1e293b;
+      font-size: 13px;
     }
 
-    .breakdown-item {
+    .rank-list li:first-child {
+      border-top: none;
+    }
+
+    .rank-n {
+      color: #475569;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .rank-title {
+      color: #e2e8f0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+
+    .rank-title:hover {
+      color: #93b4e6;
+      text-decoration: underline;
+    }
+
+    .rank-value {
+      color: #f8fafc;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+    }
+
+    .rank-value small {
+      color: #64748b;
+      font-weight: 400;
+    }
+
+    .rank-meter {
+      grid-column: 2 / 4;
+      height: 4px;
+      background: #0f1626;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .rank-meter div {
+      height: 100%;
+      background: var(--bar, #678ec9);
+      border-radius: 2px;
+    }
+
+    .empty-note {
+      color: #64748b;
+      font-size: 13px;
+      padding: 12px 0;
+    }
+
+    /* === Heatmap === */
+    .heatmap-scroll {
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .heatmap {
+      display: grid;
+      grid-template-columns: 30px repeat(var(--weeks), minmax(11px, 1fr));
+      grid-template-rows: 16px repeat(7, auto);
+      gap: 3px;
+      min-width: calc(30px + var(--weeks) * 14px);
+      max-width: calc(30px + var(--weeks) * 22px);
+    }
+
+    .heatmap-month {
+      grid-row: 1;
+      font-size: 11px;
+      color: #64748b;
+      white-space: nowrap;
+    }
+
+    .heatmap-day {
+      grid-column: 1;
+      font-size: 11px;
+      color: #64748b;
+      line-height: 1;
+      align-self: center;
+    }
+
+    .heat-cell {
+      aspect-ratio: 1;
+      border-radius: 3px;
+      background: var(--heat-0);
+    }
+
+    .heat-cell:hover {
+      outline: 1px solid #cbd5e1;
+      outline-offset: -1px;
+    }
+
+    .heat-cell.l1 { background: var(--heat-1); }
+    .heat-cell.l2 { background: var(--heat-2); }
+    .heat-cell.l3 { background: var(--heat-3); }
+    .heat-cell.l4 { background: var(--heat-4); }
+
+    .heat-cell.bulk {
+      background: repeating-linear-gradient(135deg, #475569 0 2px, #334155 2px 4px);
+    }
+
+    .heat-cell.future {
+      background: transparent;
+    }
+
+    .stats-container {
+      --heat-0: #1a2436;
+      --heat-1: #1f3a63;
+      --heat-2: #2d5796;
+      --heat-3: #4a7fc9;
+      --heat-4: #9cc0f5;
+    }
+
+    .heatmap-legend {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 4px;
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 12px;
+    }
+
+    .heatmap-legend .heat-cell {
+      width: 11px;
+      aspect-ratio: auto;
+      height: 11px;
+    }
+
+    .heatmap-legend .gap {
+      width: 12px;
+    }
+
+    /* === Months chart === */
+    .col-axis.months span {
+      text-align: center;
+      overflow: hidden;
+      text-overflow: clip;
+    }
+
+    /* === History mode toggle === */
+    .segmented {
+      display: inline-flex;
+      gap: 4px;
+      padding: 3px;
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      margin-bottom: 14px;
+    }
+
+    .seg-btn {
+      padding: 6px 14px;
+      border: none;
+      border-radius: 6px;
+      background: none;
+      color: #94a3b8;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+
+    .seg-btn:hover {
+      color: #cbd5e1;
+    }
+
+    .seg-btn.active {
+      background: #1e293b;
+      color: #f8fafc;
+    }
+
+    /* === Years === */
+    .year-row {
+      display: grid;
+      grid-template-columns: 48px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      width: 100%;
+      padding: 10px 8px;
+      margin: 0 -8px;
+      border: none;
+      border-top: 1px solid #1e293b;
+      border-radius: 6px;
+      background: none;
+      font: inherit;
+      font-size: 13px;
+      color: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .year-row:first-child {
+      border-top: none;
+    }
+
+    .year-row:hover {
+      background: #1e293b;
+    }
+
+    .year-row.selected {
+      background: color-mix(in srgb, var(--bar, #678ec9) 14%, transparent);
+    }
+
+    .year-row.selected .year-label {
+      color: var(--bar, #678ec9);
+    }
+
+    .year-label {
+      color: #e2e8f0;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .year-value {
+      text-align: right;
+      color: #f8fafc;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .year-value small {
+      display: block;
+      color: #64748b;
+      font-weight: 400;
+      font-size: 11px;
+    }
+
+    /* === Quiet-series note + modal === */
+    .note-link {
+      background: none;
+      border: none;
+      padding: 6px 8px;
+      margin-left: -8px;
+      margin-bottom: -6px;
+      border-radius: 6px;
+      font: inherit;
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+      width: calc(100% + 16px);
+    }
+
+    .note-link:hover {
+      background: #1e293b;
+      color: #cbd5e1;
+    }
+
+    .note-chevron {
+      width: 14px;
+      height: 14px;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    .quiet-modal-content {
+      max-width: 560px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+    }
+
+    .quiet-modal-header {
       display: flex;
       justify-content: space-between;
-      align-items: center;
-      padding: 12px;
-      background: #1a2436;
-      border-radius: 8px;
-      margin-bottom: 8px;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 20px 20px 14px;
+      border-bottom: 1px solid #263248;
     }
 
-    .breakdown-label {
-      font-size: 14px;
-      color: #cbd5e1;
+    .quiet-modal-content h3 {
+      margin: 0 0 4px;
+      font-size: 17px;
+      color: #f8fafc;
+    }
+
+    .quiet-modal-header p {
+      margin: 0;
+      font-size: 12px;
+      color: #64748b;
+    }
+
+    .quiet-modal-close {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 6px;
+      display: flex;
+    }
+
+    .quiet-modal-close:hover {
+      background: #1e293b;
+      color: #f8fafc;
+    }
+
+    .quiet-modal-close svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .quiet-list {
+      list-style: none;
+      margin: 0;
+      padding: 4px 20px 12px;
+      overflow-y: auto;
+    }
+
+    .quiet-list li {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
+      padding: 10px 0;
+      border-top: 1px solid #1e293b;
     }
 
-    .breakdown-value {
-      font-size: 16px;
-      font-weight: 600;
-      color: white;
+    .quiet-list li:first-child {
+      border-top: none;
     }
 
-    .breakdown-bar {
-      height: 6px;
-      background: #1a2436;
-      border-radius: 3px;
+    .quiet-main {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .quiet-title {
+      display: block;
+      color: #e2e8f0;
+      font-size: 14px;
+      text-decoration: none;
       overflow: hidden;
-      margin-top: 6px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
-    .breakdown-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #678ec9, #94a3b8);
-      border-radius: 3px;
-      transition: width 0.3s ease;
+    .quiet-title:hover {
+      color: #93b4e6;
+      text-decoration: underline;
     }
 
-    .color-dot {
-      width: 12px;
-      height: 12px;
+    .quiet-meta {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: #64748b;
+      margin-top: 3px;
+    }
+
+    .quiet-pub {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: #94a3b8;
+    }
+
+    .quiet-pub::before {
+      content: '';
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
-      display: inline-block;
+      background: var(--dot);
+    }
+
+    .quiet-age {
+      font-size: 12px;
+      color: #cbd5e1;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* === Tooltip === */
+    #chart-tooltip {
+      position: fixed;
+      z-index: 1000;
+      pointer-events: none;
+      background: #0b1120;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #cbd5e1;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      max-width: 260px;
+      opacity: 0;
+      transition: opacity 0.1s;
+    }
+
+    #chart-tooltip.show {
+      opacity: 1;
+    }
+
+    #chart-tooltip strong {
+      display: block;
+      color: #f8fafc;
+      font-size: 13px;
+      margin-bottom: 2px;
     }
 
     .loading-text {
@@ -324,6 +1068,65 @@
     .refresh-btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    @media (max-width: 768px) {
+      .stats-container {
+        margin-top: 16px;
+      }
+
+      .card {
+        padding: 16px;
+      }
+
+      .kpi-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .kpi-value {
+        font-size: 28px;
+      }
+
+      .kpi-value small {
+        font-size: 14px;
+      }
+
+      .mini-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+      }
+
+      .mini {
+        padding: 10px 12px;
+      }
+
+      .mini-value {
+        font-size: 18px;
+      }
+
+      .two-col,
+      .donut-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .col-chart {
+        height: 150px;
+      }
+
+      .hbar {
+        grid-template-columns: 100px 1fr auto;
+      }
+    }
+
+    @media (max-width: 400px) {
+      .kpi-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .mini-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
     }
   </style>
 </head>
@@ -405,6 +1208,21 @@
 </div>
 
 <!-- Mobile FAB Buttons -->
+<div id="quiet-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="quiet-modal-title">
+  <div class="modal-content quiet-modal-content">
+    <div class="quiet-modal-header">
+      <div>
+        <h3 id="quiet-modal-title">No release in 90+ days</h3>
+        <p id="quiet-modal-count"></p>
+      </div>
+      <button type="button" class="quiet-modal-close" id="quiet-modal-close" aria-label="Close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <ul class="quiet-list" id="quiet-modal-list"></ul>
+  </div>
+</div>
+
 <div class="fab-container" id="fab-container" style="display: none;">
   <button class="fab-secondary" id="fab-back-to-top">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;">
@@ -432,7 +1250,8 @@ const COLOR_MAP = {
   safe: '#22c55e',
   mild: '#eab308',
   mature: '#f97316',
-  explicit: '#ef4444'
+  explicit: '#ef4444',
+  unknown: '#475569'
 };
 
 const LABEL_MAP = {
@@ -449,6 +1268,7 @@ const LABEL_MAP = {
   mild: 'Suggestive',
   mature: 'Mature',
   explicit: 'Explicit',
+  unknown: 'Unknown',
   mangadex: 'MangaDex',
   kagane: 'Kagane',
   atsu: 'Atsumaru',
@@ -457,241 +1277,687 @@ const LABEL_MAP = {
   flame: 'Flame Comics'
 };
 
+// source_status holds the publication status mapped onto the reading-status
+// values (hiatus -> on_hold, cancelled -> dropped), so it gets its own words.
+const PUBLICATION_LABELS = {
+  reading: 'Ongoing',
+  completed: 'Finished',
+  on_hold: 'Hiatus',
+  dropped: 'Cancelled',
+  plan_to_read: 'Upcoming',
+  unknown: 'Unknown'
+};
+
+// Fixed display order per breakdown, so a colour and position always mean the
+// same thing no matter which slice is biggest.
+const ORDER = {
+  status: ['reading', 'plan_to_read', 'on_hold', 'completed', 'dropped'],
+  type: ['manga', 'manhwa', 'manhua', 'other'],
+  rating: ['safe', 'mild', 'mature', 'explicit'],
+  publication: ['reading', 'completed', 'on_hold', 'dropped', 'plan_to_read']
+};
+
+const READ_COLOR = '#678ec9';
+const RELEASE_COLOR = '#10b981';
+
 // Stats values that come from the data (a scraped tag name, an unexpected
-// type or status value) are inserted as HTML below, so they're escaped.
+// type or status value, a series title) are inserted as HTML below, so
+// they're escaped.
 const label = value => escapeHtml(LABEL_MAP[value] || value);
+const fmt = n => Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
+const pct = (part, whole) => whole > 0 ? Math.round((part / whole) * 100) : 0;
+const pctText = (part, whole) => part > 0 && pct(part, whole) === 0 ? '<1%' : `${pct(part, whole)}%`;
+const attr = value => escapeHtml(String(value)).replace(/"/g, '&quot;');
+
+function shortDate(iso, withWeekday = false) {
+  const d = new Date(iso + 'T00:00:00Z');
+  return d.toLocaleDateString(undefined, {
+    timeZone: 'UTC', month: 'short', day: 'numeric', ...(withWeekday ? { weekday: 'short' } : {})
+  });
+}
+
+function sectionTitle(icon, text) {
+  return `
+    <div class="section-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${icon}</svg>
+      ${text}
+    </div>`;
+}
+
+const ICONS = {
+  overview: '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  activity: '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+  library: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>',
+  tags: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
+  history: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>'
+};
 
 async function loadStats() {
   try {
     const res = await fetch('/api/stats');
     if (!res.ok) throw new Error('Failed to load stats');
-    
+
     const stats = await res.json();
     renderStats(stats);
   } catch (err) {
     console.error('Failed to load stats:', err);
-    document.getElementById('stats-content').innerHTML = 
+    document.getElementById('stats-content').innerHTML =
       '<div class="loading-text">Error loading statistics. Please try again.</div>';
   }
 }
 
 function renderStats(stats) {
-  const container = document.getElementById('stats-content');
-  
+  currentStats = stats;
+  const lib = stats.library;
+  const act = stats.activity;
+  const readPct = pct(lib.chapters_read, lib.chapters_available);
+  const caughtPct = pct(lib.caught_up, lib.reading);
+
   let html = '';
-  
-  // === ROW 1: BIG NUMBERS (HERO STATS) ===
+
+  // === OVERVIEW ===
   html += `
     <div class="stats-section">
-      <div class="section-title">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M3 3v18h18"/>
-          <path d="M18 17V9"/>
-          <path d="M13 17V5"/>
-          <path d="M8 17v-3"/>
-        </svg>
-        Overview
-      </div>
-      <div class="stats-grid hero">
-        <div class="stat-card hero">
-          <div class="stat-label">Total Series</div>
-          <div class="stat-value">${stats.core.total_series.toLocaleString()}</div>
+      ${sectionTitle(ICONS.overview, 'Overview')}
+      <div class="kpi-grid">
+        <div class="card kpi" style="--accent: #678ec9;">
+          <div class="kpi-label">Series tracked</div>
+          <div class="kpi-value">${fmt(lib.total_series)}</div>
+          <div class="kpi-sub"><strong>${fmt(lib.reading)}</strong> reading · <strong>${fmt(lib.not_started)}</strong> not started</div>
         </div>
-        <div class="stat-card hero">
-          <div class="stat-label">Total Chapters</div>
-          <div class="stat-value">${stats.core.total_chapters.toLocaleString()}</div>
+        <div class="card kpi" style="--accent: #3b82f6;">
+          <div class="kpi-label">Chapters read</div>
+          <div class="kpi-value">${fmt(lib.chapters_read)}</div>
+          <div class="meter" data-tip="<strong>${readPct}% of all tracked chapters</strong>${fmt(lib.chapters_read)} of ${fmt(lib.chapters_available)}"><div class="meter-fill" style="width: ${readPct}%;"></div></div>
+          <div class="kpi-sub"><strong>${readPct}%</strong> of ${fmt(lib.chapters_available)} available</div>
         </div>
-        <div class="stat-card hero">
-          <div class="stat-label">Chapters Read</div>
-          <div class="stat-value">${stats.core.total_chapters_read.toLocaleString()}</div>
+        <div class="card kpi" style="--accent: #22c55e;">
+          <div class="kpi-label">Caught up</div>
+          <div class="kpi-value">${fmt(lib.caught_up)}<small>/ ${fmt(lib.reading)}</small></div>
+          <div class="meter" style="--accent: #22c55e;"><div class="meter-fill" style="width: ${caughtPct}%;"></div></div>
+          <div class="kpi-sub"><strong>${caughtPct}%</strong> of your reading list</div>
         </div>
-        <div class="stat-card hero">
-          <div class="stat-label">Completion Rate</div>
-          <div class="stat-value">${stats.additional.completion_rate}%</div>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  // === ROW 2: READING PROGRESS ===
-  html += `
-    <div class="stats-section">
-      <div class="section-title">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
-          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
-        </svg>
-        Reading Progress
-      </div>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">Series Caught Up</div>
-          <div class="stat-value">${stats.core.caught_up}</div>
-          <div class="stat-subtext">No new chapters to read</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">In Progress</div>
-          <div class="stat-value">${stats.core.started_not_finished}</div>
-          <div class="stat-subtext">Started but not caught up</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Total Unread</div>
-          <div class="stat-value">${stats.additional.total_unread_chapters.toLocaleString()}</div>
-          <div class="stat-subtext">Chapters waiting to be read</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Avg Unread per Series</div>
-          <div class="stat-value">${stats.additional.avg_unread_chapters}</div>
-          <div class="stat-subtext">For reading series</div>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  // === ROW 3: CONTENT BREAKDOWN (PIE CHARTS) ===
-  html += `
-    <div class="stats-section">
-      <div class="section-title">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21.21 15.89A10 10 0 1 1 8 2.83"/>
-          <path d="M22 12A10 10 0 0 0 12 2v10z"/>
-        </svg>
-        Distribution
-      </div>
-      <div class="chart-grid">
-        ${renderBreakdown('Content Type', stats.content_type, stats.core.total_series)}
-        ${renderBreakdown('Reading Status', stats.status, stats.core.total_series)}
-        ${renderBreakdown('Content Rating', stats.rating_breakdown, stats.core.total_series)}
-      </div>
-    </div>
-  `;
-  
-  // === ROW 4: TIME-BASED ACTIVITY ===
-  html += `
-    <div class="stats-section">
-      <div class="section-title">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M12 6v6l4 2"/>
-        </svg>
-        Activity
-      </div>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">Series Added (Today)</div>
-          <div class="stat-value">${stats.additional.series_added_today}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Series Added (Week)</div>
-          <div class="stat-value">${stats.additional.series_added_week}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Series Added (Month)</div>
-          <div class="stat-value">${stats.additional.series_added_month}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Series Added (Year)</div>
-          <div class="stat-value">${stats.additional.series_added_year}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Chapters Read (Today)</div>
-          <div class="stat-value">${stats.additional.chapters_read_today}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Chapters Read (Week)</div>
-          <div class="stat-value">${stats.additional.chapters_read_week}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Chapters Read (Month)</div>
-          <div class="stat-value">${stats.additional.chapters_read_month}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Chapters Read (Year)</div>
-          <div class="stat-value">${stats.additional.chapters_read_year}</div>
+        <div class="card kpi" style="--accent: #f59e0b;">
+          <div class="kpi-label">Unread backlog</div>
+          <div class="kpi-value">${fmt(lib.reading_backlog)}<small>ch</small></div>
+          <div class="kpi-sub">across <strong>${fmt(lib.behind)}</strong> series you're behind on</div>
         </div>
       </div>
     </div>
   `;
 
-  // === ROW 5: SOURCES & PREFERENCES ===
+  // === READING ACTIVITY ===
   html += `
     <div class="stats-section">
-      <div class="section-title">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-        </svg>
-        Preferences & Sources
+      ${sectionTitle(ICONS.activity, 'Reading activity')}
+      <div class="mini-grid">
+        ${miniTile('Today', act.today, 'ch')}
+        ${miniTile('This week', act.week, 'ch')}
+        ${miniTile('This month', act.month, 'ch')}
+        ${miniTile('This year', act.year, 'ch')}
+        ${miniTile('Current streak', act.current_streak, act.current_streak === 1 ? 'day' : 'days')}
+        ${miniTile('Best streak', act.best_streak, act.best_streak === 1 ? 'day' : 'days')}
       </div>
-      <div class="stats-grid">
-        ${Object.entries(stats.additional.series_per_source).map(([source, count]) => `
-          <div class="stat-card">
-            <div class="stat-label">${label(source)} Series</div>
-            <div class="stat-value">${count}</div>
-          </div>
-        `).join('')}
-        <div class="stat-card">
-          <div class="stat-label">Most Used Source</div>
-          <div class="stat-value" style="font-size: 24px;">${label(stats.additional.most_used_source)}</div>
+      <div class="chart-row">
+        <div class="card">
+          <h3 class="card-title">Chapters read per day</h3>
+          <p class="card-subtitle">Last 30 days · ${fmt(act.avg_per_day)} a day on average · read on ${act.active_days} days${act.best_day ? ` · best: ${fmt(act.best_day.chapters)} on ${shortDate(act.best_day.date)}` : ''}</p>
+          ${columnChart(act.daily_reads, READ_COLOR, 'read')}
+          ${act.bulk_days ? `
+            <div class="chart-note"><span class="swatch bulk"></span>
+              ${act.bulk_days} bulk-update day${act.bulk_days === 1 ? '' : 's'} (an import or mass progress edit), cut off and left out of the totals
+            </div>` : ''}
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Multi-Source Series</div>
-          <div class="stat-value">${stats.additional.multi_source_count}</div>
-          <div class="stat-subtext">Tracked on multiple sites</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Most Common Genre</div>
-          <div class="stat-value" style="font-size: 20px;">${escapeHtml(stats.additional.most_common_genre)}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Avg Chapters per Series</div>
-          <div class="stat-value">${stats.additional.avg_chapters_per_series}</div>
-          <div class="stat-subtext">For started series</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Most Read Type</div>
-          <div class="stat-value" style="font-size: 24px;">${label(stats.additional.most_read_type)}</div>
+        <div class="card">
+          <h3 class="card-title">New chapters released</h3>
+          <p class="card-subtitle">For series you're reading · ${fmt(act.releases_30d)} in the last 30 days</p>
+          ${columnChart(act.daily_releases, RELEASE_COLOR, 'released')}
+          ${lib.quiet_reading ? `
+            <button type="button" class="chart-note note-link" id="btn-quiet-series">
+              <span class="swatch" style="background: #475569;"></span>
+              <span>${fmt(lib.quiet_reading)} series on your reading list haven't had a release in 90+ days</span>
+              <svg class="note-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>` : ''}
         </div>
       </div>
     </div>
   `;
-  
-  container.innerHTML = html;
+
+  // === LIBRARY BREAKDOWN ===
+  html += `
+    <div class="stats-section">
+      ${sectionTitle(ICONS.library, 'Library breakdown')}
+      <div class="donut-grid">
+        ${donutCard('Reading status', stats.breakdowns.status, ORDER.status, 'series')}
+        ${donutCard('Content type', stats.breakdowns.type, ORDER.type, 'series')}
+        ${donutCard('Content rating', stats.breakdowns.rating, ORDER.rating, 'series')}
+        ${donutCard('Publication status', stats.breakdowns.publication, ORDER.publication, 'series', PUBLICATION_LABELS)}
+      </div>
+      <div class="card" style="margin-top: 16px;">
+        <h3 class="card-title">Reading status by type</h3>
+        <p class="card-subtitle">How each kind of series is split across your lists</p>
+        ${statusByType(stats.type_by_status)}
+      </div>
+    </div>
+  `;
+
+  // === HISTORY (heatmap, months, years) ===
+  const years = act.years || [];
+  const currentYearStr = String(new Date().getFullYear());
+  if (!years.some(y => y.year === selectedYear)) {
+    selectedYear = years.some(y => y.year === currentYearStr) ? currentYearStr : (years[0]?.year || null);
+  }
+  html += `
+    <div class="stats-section">
+      ${sectionTitle(ICONS.history, 'Reading history')}
+      <div class="segmented" id="history-mode-toggle">
+        <button type="button" class="seg-btn${historyMode === 'reads' ? ' active' : ''}" data-mode="reads">Chapters read</button>
+        <button type="button" class="seg-btn${historyMode === 'added' ? ' active' : ''}" data-mode="added">Series added</button>
+      </div>
+      <div id="history-body">
+        ${historyBody(years, years.find(y => y.year === selectedYear), historyMode)}
+      </div>
+    </div>
+  `;
+
+  // === GENRES & SOURCES ===
+  const totalSeries = lib.total_series;
+  html += `
+    <div class="stats-section">
+      ${sectionTitle(ICONS.tags, 'Genres & sources')}
+      <div class="two-col">
+        <div class="card">
+          <h3 class="card-title">Top genres & tags</h3>
+          <p class="card-subtitle">Share of your ${fmt(totalSeries)} series carrying each tag</p>
+          ${stats.top_genres.length
+            ? hbars(stats.top_genres.map(g => ({ key: g.tag, name: escapeHtml(g.tag), value: g.count })), totalSeries, READ_COLOR)
+            : '<div class="empty-note">No tags yet</div>'}
+        </div>
+        <div class="card">
+          <h3 class="card-title">Sources</h3>
+          <p class="card-subtitle">Series linked to each site · ${fmt(lib.multi_source)} are tracked on more than one</p>
+          ${hbars(
+            Object.entries(stats.sources)
+              .sort((a, b) => b[1] - a[1])
+              .map(([key, value]) => ({ key, name: label(key), value })),
+            totalSeries, '#8b5cf6')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  // === RANKED LISTS ===
+  html += `
+    <div class="stats-section">
+      ${sectionTitle(ICONS.list, 'Series')}
+      <div class="two-col">
+        <div class="card">
+          <h3 class="card-title">Biggest backlogs</h3>
+          <p class="card-subtitle">Reading-list series with the most chapters waiting</p>
+          ${rankList(stats.biggest_backlogs, s => ({
+            value: `${fmt(s.unread)} <small>unread</small>`,
+            fill: pct(s.current, s.latest),
+            tip: `<strong>${escapeHtml(s.title)}</strong>Chapter ${fmt(s.current)} of ${fmt(s.latest)}`,
+            color: '#f59e0b'
+          }), 'Nothing waiting - you\'re caught up on everything')}
+        </div>
+        <div class="card">
+          <h3 class="card-title">Longest reads</h3>
+          <p class="card-subtitle">The series you've read the most chapters of</p>
+          ${rankList(stats.most_read, s => ({
+            value: `${fmt(s.current)} <small>ch</small>`,
+            fill: pct(s.current, stats.most_read[0].current),
+            tip: `<strong>${escapeHtml(s.title)}</strong>${label(s.status)} · chapter ${fmt(s.current)}${s.latest ? ` of ${fmt(s.latest)}` : ''}`,
+            color: READ_COLOR
+          }), 'No progress recorded yet')}
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('stats-content').innerHTML = html;
+  document.querySelectorAll('.heatmap-scroll').forEach(el => { el.scrollLeft = el.scrollWidth; });
+  quietSeries = stats.quiet_series || [];
+  document.getElementById('btn-quiet-series')?.addEventListener('click', openQuietModal);
 }
 
-function renderBreakdown(title, data, total) {
-  const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
-  
+let quietSeries = [];
+let currentStats = null;
+let selectedYear = null;
+let historyMode = 'reads';
+
+// What the History section's heatmap/month chart/year list read off a year
+// entry, and how they label it, for each of the two toggled views
+const HISTORY_METRICS = {
+  reads: {
+    color: READ_COLOR,
+    unit: 'ch',
+    noun: 'chapters read',
+    dailyTitle: 'Daily activity',
+    monthTitle: 'Chapters read per month',
+    yearNoun: 'Chapters read',
+    hasBulk: true,
+    get: y => ({ total: y.chapters, activeDays: y.active_days, months: y.months, calendar: y.calendar }),
+    label: n => `${fmt(n)} chapter${n === 1 ? '' : 's'} read`,
+    zero: 'Nothing read',
+  },
+  added: {
+    color: '#8b5cf6',
+    unit: 'series',
+    noun: 'series added',
+    dailyTitle: 'Series added',
+    monthTitle: 'Series added per month',
+    yearNoun: 'Series added',
+    hasBulk: false,
+    get: y => ({ total: y.series_added, activeDays: y.added_active_days, months: y.added_months, calendar: y.added_calendar }),
+    label: n => `${fmt(n)} series added`,
+    zero: 'No series added',
+  },
+};
+
+// Re-renders just the heatmap + month chart + year list, without refetching
+// stats - for a clicked year or a switch between "chapters read"/"series added"
+function selectYear(year) {
+  selectedYear = year;
+  refreshHistoryBody();
+}
+
+function setHistoryMode(mode) {
+  historyMode = mode;
+  document.querySelectorAll('#history-mode-toggle .seg-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
+  refreshHistoryBody();
+}
+
+function refreshHistoryBody() {
+  const body = document.getElementById('history-body');
+  if (!body) return;
+  const years = currentStats?.activity?.years || [];
+  body.innerHTML = historyBody(years, years.find(y => y.year === selectedYear), historyMode);
+  body.querySelectorAll('.heatmap-scroll').forEach(el => { el.scrollLeft = el.scrollWidth; });
+}
+
+function historyBody(years, yearData, mode) {
+  const metric = HISTORY_METRICS[mode] || HISTORY_METRICS.reads;
+  const data = yearData ? metric.get(yearData) : null;
   return `
-    <div class="chart-container">
-      <h3 style="color: white; font-size: 16px; margin-bottom: 16px;">${title}</h3>
-      ${entries.map(([key, value]) => {
-        const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-        const text = label(key);
-        const color = COLOR_MAP[key] || '#678ec9';
-        
-        return `
-        <div style="margin-bottom: 12px;">
-          <div class="breakdown-item">
-            <div class="breakdown-label">
-              <span class="color-dot" style="background: ${color};"></span>
-              ${text}
-            </div>
-            <div class="breakdown-value">${value} (${percentage}%)</div>
-          </div>
-          <div class="breakdown-bar">
-            <div class="breakdown-fill" style="width: ${percentage}%; background: ${color};"></div>
+    <div class="card">
+      <h3 class="card-title">${metric.dailyTitle}</h3>
+      <p class="card-subtitle">${data
+        ? `${fmt(data.total)} ${metric.noun} on ${fmt(data.activeDays)} days in ${yearData.year}`
+        : 'Nothing recorded yet'}</p>
+      ${heatmap(data ? data.calendar : [], metric)}
+    </div>
+    <div class="chart-row" style="margin-top: 16px;">
+      <div class="card">
+        <h3 class="card-title">${metric.monthTitle}</h3>
+        <p class="card-subtitle">${data ? `${yearData.year}${bestMonthText(data.months)}` : 'Nothing recorded yet'}</p>
+        ${monthChart(data ? data.months : [], metric)}
+      </div>
+      <div class="card">
+        <h3 class="card-title">By year</h3>
+        <p class="card-subtitle">${metric.yearNoun} each year you've tracked · click one to explore it</p>
+        ${yearList(years, yearData?.year, metric)}
+      </div>
+    </div>`;
+}
+
+function timeAgo(days) {
+  if (days < 60) return `${days} days ago`;
+  if (days < 730) return `${Math.round(days / 30.4)} months ago`;
+  return `${(days / 365).toFixed(1).replace(/\.0$/, '')} years ago`;
+}
+
+function openQuietModal() {
+  const modal = document.getElementById('quiet-modal');
+  document.getElementById('quiet-modal-count').textContent =
+    `${quietSeries.length} series · oldest release first`;
+  document.getElementById('quiet-modal-list').innerHTML = quietSeries.map(s => {
+    const pub = PUBLICATION_LABELS[s.publication] || s.publication;
+    const progress = s.current >= 0
+      ? `Ch. ${fmt(s.current)}${s.latest ? ` / ${fmt(s.latest)}` : ''}`
+      : `Not started${s.latest ? ` · ${fmt(s.latest)} ch` : ''}`;
+    return `
+      <li>
+        <div class="quiet-main">
+          <a class="quiet-title" href="${dashboardSearchUrl(s.title)}" title="Find it on the Dashboard">${escapeHtml(s.title)}</a>
+          <div class="quiet-meta">
+            <span class="quiet-pub" style="--dot: ${COLOR_MAP[s.publication] || '#475569'};">${escapeHtml(pub)}</span>
+            <span>${escapeHtml(progress)}</span>
           </div>
         </div>
-        `;
-      }).join('')}
+        <div class="quiet-age" title="${attr(new Date(s.latest_release).toLocaleDateString())}">${timeAgo(s.days)}</div>
+      </li>`;
+  }).join('');
+  modal.classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('quiet-modal-close').focus();
+}
+
+function closeQuietModal() {
+  document.getElementById('quiet-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+const MONTH_FMT = (iso, style = 'short') =>
+  new Date(iso + (iso.length === 7 ? '-01' : '') + 'T00:00:00Z').toLocaleDateString(undefined, { timeZone: 'UTC', month: style });
+
+// GitHub-style grid: one column per week (Monday first), one cell per day,
+// shaded in 4 steps by quartile of the days that have any activity
+function heatmap(days, metric) {
+  if (!days.length) return '<div class="empty-note">Nothing recorded yet</div>';
+  const values = days.filter(d => !d.bulk && d.chapters > 0).map(d => d.chapters).sort((a, b) => a - b);
+  const q = f => values.length ? values[Math.min(values.length - 1, Math.floor(values.length * f))] : 0;
+  const cuts = [q(0.25), q(0.5), q(0.75)];
+  const level = c => c <= 0 ? 0 : c <= cuts[0] ? 1 : c <= cuts[1] ? 2 : c <= cuts[2] ? 3 : 4;
+  const weeks = Math.ceil(days.length / 7);
+
+  let cells = '';
+  let lastMonth = null;
+  days.forEach((d, i) => {
+    const week = Math.floor(i / 7);
+    const weekday = i % 7;
+    if (weekday === 0) {
+      const month = d.date.slice(0, 7);
+      // Label a month on the first week that starts in it (skipped for a
+      // partial first column so labels don't collide)
+      if (month !== lastMonth && (week > 0 || d.date.slice(8) === '01')) {
+        cells += `<span class="heatmap-month" style="grid-column: ${week + 2} / span 4;">${MONTH_FMT(month)}</span>`;
+      }
+      lastMonth = month;
+    }
+    const tip = d.bulk
+      ? `<strong>${shortDate(d.date, true)}</strong>${fmt(d.chapters)} chapters - bulk update, not counted`
+      : `<strong>${shortDate(d.date, true)}</strong>${d.chapters > 0 ? metric.label(d.chapters) : metric.zero}`;
+    const cls = d.bulk ? 'bulk' : `l${level(d.chapters)}`;
+    cells += `<div class="heat-cell ${cls}" style="grid-column: ${week + 2}; grid-row: ${weekday + 2};" data-tip="${attr(tip)}"></div>`;
+  });
+
+  const dayLabels = [['Mon', 0], ['Wed', 2], ['Fri', 4]].map(([name, row]) =>
+    `<span class="heatmap-day" style="grid-row: ${row + 2};">${name}</span>`).join('');
+
+  const legendTip = n => attr(`<strong>${['None', 'Light', 'Moderate', 'Heavy', 'Very heavy'][n]}</strong>${
+    n === 0 ? metric.zero : n === 4 ? `more than ${fmt(cuts[2])} ${metric.unit === 'series' ? 'series' : 'chapters'}` : `up to ${fmt(cuts[n - 1])} ${metric.unit === 'series' ? 'series' : 'chapters'}`}`);
+
+  return `
+    <div class="heatmap-scroll">
+      <div class="heatmap" style="--weeks: ${weeks};">${dayLabels}${cells}</div>
     </div>
-  `;
+    <div class="heatmap-legend">
+      ${metric.hasBulk !== false ? `
+        <span class="heat-cell bulk" data-tip="${attr('<strong>Bulk update</strong>An import or mass progress edit, not counted')}"></span>
+        <span>Bulk</span>
+        <span class="gap"></span>` : ''}
+      <span>Less</span>
+      ${[0, 1, 2, 3, 4].map(n => `<span class="heat-cell l${n}" data-tip="${legendTip(n)}"></span>`).join('')}
+      <span>More</span>
+    </div>`;
+}
+
+function bestMonthText(months) {
+  const best = months.reduce((a, b) => (b.chapters > a.chapters ? b : a), months[0] || { chapters: 0 });
+  return best.chapters > 0 ? ` · best: ${MONTH_FMT(best.month, 'long')} (${fmt(best.chapters)})` : '';
+}
+
+function monthChart(months, metric) {
+  if (!months.length) return '<div class="empty-note">Nothing recorded yet</div>';
+  const scaleMax = niceMax(Math.max(0, ...months.map(m => m.chapters)));
+  const now = new Date();
+  const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const gridLines = [0, 0.5, 1].map(f => `
+    <div class="col-grid-line" style="bottom: ${f * 100}%;"><span>${fmt(scaleMax * f)}</span></div>
+  `).join('');
+  const bars = months.map(m => {
+    const height = Math.min(100, (m.chapters / scaleMax) * 100);
+    const name = new Date(m.month + '-01T00:00:00Z').toLocaleDateString(undefined, { timeZone: 'UTC', month: 'long', year: 'numeric' });
+    const tip = `<strong>${name}</strong>${metric.label(m.chapters)}${m.month === current ? ' so far' : ''}`;
+    return `
+      <div class="col bar-hit" data-tip="${attr(tip)}">
+        <div class="col-bar" style="height: ${height}%; ${m.chapters > 0 && height < 2 ? 'min-height: 2px;' : ''}"></div>
+      </div>`;
+  }).join('');
+  const axis = months.map(m => `<span>${MONTH_FMT(m.month)}</span>`).join('');
+  return `
+    <div class="col-chart month-chart" style="--bar: ${metric.color};">
+      ${gridLines}
+      <div class="col-bars" style="gap: 6px;">${bars}</div>
+    </div>
+    <div class="col-axis months" style="gap: 6px;">${axis}</div>`;
+}
+
+function yearList(years, selected, metric) {
+  if (!years.length) return '<div class="empty-note">Nothing recorded yet</div>';
+  const vals = years.map(y => metric.get(y).total);
+  const max = Math.max(1, ...vals);
+  return `<div>${years.map(y => {
+    const { total, activeDays } = metric.get(y);
+    return `
+    <button type="button" class="year-row${y.year === selected ? ' selected' : ''}" data-year="${y.year}" style="--bar: ${metric.color};">
+      <span class="year-label">${escapeHtml(y.year)}</span>
+      <div class="rank-meter" style="grid-column: auto;"><div style="width: ${(total / max) * 100}%;"></div></div>
+      <span class="year-value">${fmt(total)} ${metric.unit}<small>${fmt(activeDays)} active day${activeDays === 1 ? '' : 's'}</small></span>
+    </button>`;
+  }).join('')}</div>`;
+}
+
+// The Dashboard opens with this title searched across all statuses
+function dashboardSearchUrl(title) {
+  return `/dashboard?search=${encodeURIComponent(title)}`;
+}
+
+function miniTile(labelText, value, unit) {
+  return `
+    <div class="card mini">
+      <div class="mini-label">${labelText}</div>
+      <div class="mini-value">${fmt(value)}<small>${unit}</small></div>
+    </div>`;
+}
+
+// Rounds a max up to a clean axis value (1, 2, 5 x 10^n)
+function niceMax(value) {
+  if (value <= 0) return 4;
+  const exp = Math.pow(10, Math.floor(Math.log10(value)));
+  const f = value / exp;
+  const nice = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10;
+  return nice * exp;
+}
+
+function columnChart(days, color, verb) {
+  const scaleMax = niceMax(Math.max(0, ...days.filter(d => !d.bulk).map(d => d.chapters)));
+  const today = days[days.length - 1]?.date;
+  const gridLines = [0, 0.5, 1].map(f => `
+    <div class="col-grid-line" style="bottom: ${f * 100}%;"><span>${fmt(scaleMax * f)}</span></div>
+  `).join('');
+
+  const bars = days.map(d => {
+    const height = d.bulk ? 100 : Math.min(100, (d.chapters / scaleMax) * 100);
+    const tip = d.bulk
+      ? `<strong>${shortDate(d.date, true)}</strong>${fmt(d.chapters)} chapters - bulk update, not counted`
+      : `<strong>${shortDate(d.date, true)}</strong>${fmt(d.chapters)} chapter${d.chapters === 1 ? '' : 's'} ${verb}`;
+    return `
+      <div class="col bar-hit" data-tip="${attr(tip)}">
+        <div class="col-bar${d.bulk ? ' bulk' : ''}${d.date === today ? ' today' : ''}" style="height: ${height}%; ${d.chapters > 0 && height < 2 ? 'min-height: 2px;' : ''}"></div>
+      </div>`;
+  }).join('');
+
+  // A date under every 7th column, counting back from today
+  const axis = days.map((d, i) => `<span>${(days.length - 1 - i) % 7 === 0 ? shortDate(d.date) : ''}</span>`).join('');
+
+  return `
+    <div class="col-chart" style="--bar: ${color};">
+      ${gridLines}
+      <div class="col-bars">${bars}</div>
+    </div>
+    <div class="col-axis">${axis}</div>`;
+}
+
+function donutCard(title, data, order, unit, labels = null) {
+  const keys = [...order.filter(k => data[k]), ...Object.keys(data).filter(k => !order.includes(k) && data[k])];
+  const total = keys.reduce((sum, k) => sum + data[k], 0);
+  const nameOf = k => labels ? escapeHtml(labels[k] || k) : label(k);
+
+  const r = 54;
+  const circumference = 2 * Math.PI * r;
+  const gap = keys.length > 1 ? 2 : 0;
+  let offset = 0;
+  const segments = keys.map(k => {
+    const length = (data[k] / total) * circumference;
+    const dash = Math.max(length - gap, 0.5);
+    const tip = `<strong>${nameOf(k)}</strong>${fmt(data[k])} ${unit} · ${escapeHtml(pctText(data[k], total))}`;
+    const seg = `<circle class="donut-seg" data-key="${attr(k)}" data-tip="${attr(tip)}" cx="66" cy="66" r="${r}" fill="none"
+      stroke="${COLOR_MAP[k] || '#678ec9'}" stroke-width="16"
+      stroke-dasharray="${dash} ${circumference - dash}" stroke-dashoffset="${-offset}"/>`;
+    offset += length;
+    return seg;
+  }).join('');
+
+  const legend = keys.map(k => `
+    <li data-key="${attr(k)}">
+      <span class="swatch" style="background: ${COLOR_MAP[k] || '#678ec9'};"></span>
+      <span class="name">${nameOf(k)}</span>
+      <span class="num">${fmt(data[k])}</span>
+      <span class="pct">${escapeHtml(pctText(data[k], total))}</span>
+    </li>`).join('');
+
+  return `
+    <div class="card donut-card">
+      <h3 class="card-title" style="margin-bottom: 16px;">${title}</h3>
+      <div class="donut-wrap">
+        <div class="donut">
+          <svg viewBox="0 0 132 132">${segments}</svg>
+          <div class="donut-center"><strong>${fmt(total)}</strong><span>${unit}</span></div>
+        </div>
+        <ul class="legend">${legend}</ul>
+      </div>
+    </div>`;
+}
+
+function statusByType(typeByStatus) {
+  const types = [...ORDER.type.filter(t => typeByStatus[t]), ...Object.keys(typeByStatus).filter(t => !ORDER.type.includes(t))];
+  const legend = ORDER.status.map(s => `
+    <span><span class="swatch" style="background: ${COLOR_MAP[s]};"></span>${label(s)}</span>`).join('');
+
+  const rows = types.map(t => {
+    const counts = typeByStatus[t];
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const statuses = [...ORDER.status.filter(s => counts[s]), ...Object.keys(counts).filter(s => !ORDER.status.includes(s))];
+    const segs = statuses.map(s => {
+      const tip = `<strong>${label(t)} · ${label(s)}</strong>${fmt(counts[s])} of ${fmt(total)} (${pct(counts[s], total)}%)`;
+      return `<div class="stack-seg" data-tip="${attr(tip)}" style="flex: ${counts[s]} 0 0; background: ${COLOR_MAP[s] || '#678ec9'};"></div>`;
+    }).join('');
+    return `
+      <div class="stack-row">
+        <span class="hbar-label">${label(t)}</span>
+        <div class="stack">${segs}</div>
+        <span class="hbar-value">${fmt(total)}</span>
+      </div>`;
+  }).join('');
+
+  return `<div class="inline-legend">${legend}</div>${rows}`;
+}
+
+function hbars(items, total, color) {
+  const max = Math.max(1, ...items.map(i => i.value));
+  return items.map(i => {
+    const tip = `<strong>${i.name}</strong>${fmt(i.value)} series · ${pct(i.value, total)}% of your library`;
+    return `
+      <div class="hbar" data-tip="${attr(tip)}" style="--bar: ${color};">
+        <span class="hbar-label">${i.name}</span>
+        <div class="hbar-track"><div class="hbar-fill" style="width: ${(i.value / max) * 100}%;"></div></div>
+        <span class="hbar-value">${fmt(i.value)}</span>
+      </div>`;
+  }).join('');
+}
+
+function rankList(series, describe, emptyText) {
+  if (!series.length) return `<div class="empty-note">${emptyText}</div>`;
+  return `<ol class="rank-list">${series.map((s, i) => {
+    const d = describe(s);
+    return `
+      <li data-tip="${attr(d.tip)}">
+        <span class="rank-n">${i + 1}</span>
+        <a class="rank-title" href="${dashboardSearchUrl(s.title)}">${escapeHtml(s.title)}</a>
+        <span class="rank-value">${d.value}</span>
+        <span></span>
+        <div class="rank-meter" style="--bar: ${d.color};"><div style="width: ${d.fill}%;"></div></div>
+      </li>`;
+  }).join('')}</ol>`;
+}
+
+// One tooltip for every chart: any element with data-tip (already-escaped HTML)
+function initChartTooltip() {
+  const tooltip = document.createElement('div');
+  tooltip.id = 'chart-tooltip';
+  document.body.appendChild(tooltip);
+  const content = document.getElementById('stats-content');
+  let current = null;
+
+  function place(x, y) {
+    const pad = 12;
+    const rect = tooltip.getBoundingClientRect();
+    let left = x + pad;
+    let top = y - rect.height - pad;
+    if (left + rect.width > window.innerWidth - 8) left = x - rect.width - pad;
+    if (top < 8) top = y + pad;
+    tooltip.style.left = `${Math.max(8, left)}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  function highlight(target, on) {
+    const key = target?.dataset.key;
+    if (!key) return;
+    target.closest('.donut-card')?.querySelectorAll('.legend li').forEach(li => {
+      li.classList.toggle('hl', on && li.dataset.key === key);
+    });
+  }
+
+  function hide() {
+    highlight(current, false);
+    current = null;
+    tooltip.classList.remove('show');
+  }
+
+  function onPointer(e) {
+    const target = e.target.closest('[data-tip]');
+    if (!target) return hide();
+    if (target !== current) {
+      highlight(current, false);
+      current = target;
+      tooltip.innerHTML = target.dataset.tip;
+      tooltip.classList.add('show');
+      highlight(target, true);
+    }
+    place(e.clientX, e.clientY);
+  }
+
+  content.addEventListener('pointermove', onPointer);
+  content.addEventListener('pointerdown', onPointer);  // a tap on touch screens
+  content.addEventListener('pointerleave', e => e.pointerType === 'mouse' && hide());
+  window.addEventListener('scroll', hide, { passive: true });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   initNotifications();
+  initChartTooltip();
   loadStats();
-  
+
+  document.getElementById('stats-content').addEventListener('click', e => {
+    const yearBtn = e.target.closest('.year-row');
+    if (yearBtn) return selectYear(yearBtn.dataset.year);
+    const modeBtn = e.target.closest('#history-mode-toggle .seg-btn');
+    if (modeBtn) return setHistoryMode(modeBtn.dataset.mode);
+  });
+
+  document.getElementById('quiet-modal-close').addEventListener('click', closeQuietModal);
+  document.getElementById('quiet-modal').addEventListener('click', e => {
+    if (e.target.id === 'quiet-modal') closeQuietModal();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !document.getElementById('quiet-modal').classList.contains('hidden')) closeQuietModal();
+  });
+
   document.getElementById('btn-refresh-stats').addEventListener('click', async () => {
     const btn = document.getElementById('btn-refresh-stats');
     btn.disabled = true;

@@ -865,6 +865,204 @@ html {
   background: #e04b4b;
 }
 
+/* Save for Later modal */
+.later-list-content {
+  width: 420px;
+}
+
+.later-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.later-add-form input {
+  height: 36px;
+  padding: 0 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.later-add-form textarea {
+  min-height: 36px;
+  max-height: 160px;
+  padding: 8px 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  overflow-y: auto;
+}
+
+.later-add-form .btn-primary {
+  align-self: flex-end;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  background: #3182ce;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.later-add-form .btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.later-list {
+  max-height: 320px;
+}
+
+.later-empty-state {
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+.later-item-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #1e293b;
+}
+
+.later-item-row:last-child {
+  border-bottom: none;
+}
+
+.later-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.later-item-title {
+  color: #e2e8f0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.later-item-title:hover {
+  color: white;
+  text-decoration: underline;
+}
+
+/* Popover opened by clicking a (possibly truncated) title - shows the full
+   title/link untruncated. position:fixed so it isn't clipped by .later-list's
+   overflow:auto, positioned in JS under the clicked title. */
+.later-detail-menu {
+  position: fixed;
+  z-index: 1100;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  max-height: 240px;
+  overflow-y: auto;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+}
+
+.later-detail-menu.hidden {
+  display: none;
+}
+
+.later-detail-title {
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.later-detail-link {
+  color: #63b3ed;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-top: 8px;
+}
+
+.later-detail-link:empty {
+  display: none;
+}
+
+.later-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Neutral color override - .manage-bookmark-delete-btn's default red reads
+   as destructive, wrong for an edit action. */
+.later-item-edit-btn {
+  color: #94a3b8;
+}
+
+.later-item-edit-btn:hover {
+  background: #1e2c40;
+  border-color: #475569;
+  color: white;
+}
+
+.later-item-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.later-item-edit-title {
+  height: 32px;
+  padding: 0 8px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.later-item-edit-url {
+  min-height: 32px;
+  max-height: 140px;
+  padding: 6px 8px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: white;
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+  width: 100%;
+  resize: none;
+  overflow-y: auto;
+}
+
+.later-item-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .multi-select-menu input {
   margin-right: 8px;
 }
@@ -1031,10 +1229,6 @@ html {
   margin-right: 8px;
 }
 
-/* Rating section inside scrollable area */
-#filter-genre-menu .rating-section {
-  padding-top: 8px;
-}
 
 /* Scrollbar for combined list */
 #filter-genre-menu .combined-tags-list::-webkit-scrollbar {
@@ -1386,6 +1580,7 @@ html {
   line-clamp: 2;
   overflow: hidden;
   min-height: 39px;
+  cursor: pointer;
 }
 
 .card-chapters {
@@ -3759,6 +3954,7 @@ html {
 .notification-icon.bookmark_added { color: #22c55e; }
 .notification-icon.bookmark_updated { color: #a855f7; }
 .notification-icon.bookmark_deleted { color: #ef4444; }
+.notification-icon.copy { color: #06b6d4; }
 
 .notification-message {
   flex: 1;
@@ -4153,8 +4349,7 @@ html {
   /* Square buttons */
   .control-button.square-button,
   .sort-toggle,
-  #mobile-filter-btn,
-  #mobile-sort-direction {
+  #mobile-filter-btn {
     width: 44px;
     height: 44px;
     min-width: 44px;
@@ -4209,7 +4404,6 @@ html {
 
   /* Ensure mobile-only elements are visible */
   #mobile-filter-btn,
-  #mobile-sort-direction,
   #mobile-search-input {
     display: flex !important;
   }

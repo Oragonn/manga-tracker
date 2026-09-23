@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel49" />
+  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel54" />
   <style>
     /* style.css only defines .mobile-menu/.mobile-menu-overlay inside its
        @media(max-width:768px) block - on a desktop-width viewport they have
@@ -31,7 +31,7 @@
   </style>
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
-  <script src="/static/js/notifications.js?v=mobilepanel49"></script>
+  <script src="/static/js/notifications.js?v=mobilepanel54"></script>
 </head>
 <body>
 
@@ -207,6 +207,14 @@
           <div id="source-health-list"></div>
         </div>
       </div>
+      <!-- Save for Later: quick-capture scratch list for a title/link to check out later -->
+      <button id="btn-later-list" class="control-button square-button" title="Save for Later">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
+          <line x1="9" y1="10" x2="15" y2="10"/>
+          <line x1="12" y1="7" x2="12" y2="13"/>
+        </svg>
+      </button>
       <!-- Search -->
       <div class="control-search">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -412,6 +420,33 @@
       <button id="btn-manage-bookmarks-close" class="btn-secondary">Close</button>
     </div>
   </div>
+</div>
+
+<!-- Save for Later: quick-capture scratch list, reachable from the
+     dashboard's control panel (desktop) and control row (mobile). -->
+<div id="later-list-modal" class="modal hidden">
+  <div class="modal-content manage-bookmarks-content later-list-content">
+    <h3>Save for Later</h3>
+    <form id="later-add-form" class="later-add-form">
+      <input type="text" id="later-add-title" placeholder="Title..." maxlength="200" autocomplete="off" />
+      <textarea id="later-add-url" placeholder="Link (optional)... Shift+Enter for a new line" maxlength="2000" rows="1" autocomplete="off"></textarea>
+      <button type="submit" id="later-add-submit" class="btn-primary">Add</button>
+    </form>
+    <div class="manage-bookmarks-list later-list" id="later-list">
+      <p class="later-empty-state">Nothing saved yet.</p>
+    </div>
+    <div class="modal-buttons">
+      <button id="btn-later-list-close" class="btn-secondary">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Popover for a Later item's full (untruncated) title/link - see
+     openLaterDetailMenu() in dashboard.js. Positioned in JS, one shared
+     instance reused for every row. -->
+<div id="later-detail-menu" class="later-detail-menu hidden">
+  <div class="later-detail-title" id="later-detail-title-text"></div>
+  <div class="later-detail-link" id="later-detail-link-text"></div>
 </div>
 
 <!-- Series Settings Modal — being rebuilt piece by piece; only the cover +
@@ -896,7 +931,7 @@
   </svg>
 </button>
 
-<script src="/static/js/dashboard.js?v=mobilepanel49"></script>
+<script src="/static/js/dashboard.js?v=mobilepanel54"></script>
   <!-- ADDED: Initialize notifications -->
   <script>
   // Initialize notification system on page load

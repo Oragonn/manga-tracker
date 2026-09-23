@@ -1143,6 +1143,77 @@ def revert_tag_bans(tags):
         release_db(conn)
 
 
+def get_later_items():
+    """All "Save for Later" entries, newest first."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, title, url, created_at
+        FROM later_items
+        ORDER BY id DESC
+    """)
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [
+        {'id': row[0], 'title': row[1], 'url': row[2], 'created_at': row[3]}
+        for row in rows
+    ]
+
+
+def create_later_item(title, url):
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO later_items (title, url)
+            VALUES (?, ?)
+        """, (title, url))
+        new_id = cursor.lastrowid
+        release_db(conn)
+        return new_id
+    except Exception as e:
+        print(f"[Database] Failed to create later item: {e}")
+        try:
+            release_db(conn, commit=False)
+        except:
+            pass
+        return None
+
+
+def update_later_item(item_id, title, url):
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE later_items SET title = ?, url = ? WHERE id = ?", (title, url, item_id))
+        updated = cursor.rowcount > 0
+        release_db(conn)
+        return updated
+    except Exception as e:
+        print(f"[Database] Failed to update later item: {e}")
+        try:
+            release_db(conn, commit=False)
+        except:
+            pass
+        return False
+
+
+def delete_later_item(item_id):
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM later_items WHERE id = ?", (item_id,))
+        deleted = cursor.rowcount > 0
+        release_db(conn)
+        return deleted
+    except Exception as e:
+        print(f"[Database] Failed to delete later item: {e}")
+        try:
+            release_db(conn, commit=False)
+        except:
+            pass
+        return False
+
+
 def get_filter_bookmarks():
     """All saved filter bookmarks, built-in ("Default") first, then by
     saved position."""
@@ -1409,6 +1480,18 @@ def init_db():
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tag_rules_target ON tag_rules(target_key)")
+
+    # Quick-capture scratch list ("Save for Later") for a title or link the
+    # user wants to check out later - freeform text, unrelated to the
+    # tracked series table, until they act on it and delete it.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS later_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            url TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     # Saved filter/sort combinations ("bookmarks") the dashboard's bookmark
     # dropdown lets you switch between in one click. "Default" is seeded
@@ -1701,6 +1784,35 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
             pass
         raise
 
+def get_progress_history_for_stats(series_id):
+    """The series' still-live 'progress' log entries, as plain JSON-safe
+    dicts - for stapling onto a 'deleted' log entry's old_value snapshot
+    (call this BEFORE delete_series()) so that undoing the delete can restore
+    the exact chapters_read this series contributed, without needing to find
+    those activity_log rows again afterward - the delete clears series_id off
+    them (ON DELETE SET NULL) and marks them can_undo = 0."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT timestamp, old_value, new_value FROM activity_log
+            WHERE series_id = ? AND action_type = 'progress' AND can_undo = 1
+        """, (series_id,))
+        rows = cursor.fetchall()
+    finally:
+        release_db(conn)
+    history = []
+    for timestamp, old_str, new_str in rows:
+        try:
+            history.append({
+                'timestamp': timestamp,
+                'old_value': json.loads(old_str) if old_str else {},
+                'new_value': json.loads(new_str) if new_str else {},
+            })
+        except Exception:
+            continue
+    return history
+
 def delete_series(series_id):
     """
     Delete a series and all its chapters (CASCADE).
@@ -1713,26 +1825,44 @@ def delete_series(series_id):
         # CHANGED: Get series info BEFORE deleting for stats tracking
         cursor.execute("SELECT created_at FROM series WHERE id = ?", (series_id,))
         series_data = cursor.fetchone()
-        
+
         if not series_data:
             release_db(conn)
             return False
-        
+
         created_at = series_data[0]
-        
+
+        # Snapshot the series' still-live progress history before it's gone -
+        # ON DELETE SET NULL clears series_id off these activity_log rows the
+        # moment the series row below is deleted, so this has to happen first.
+        cursor.execute("""
+            SELECT timestamp, old_value, new_value FROM activity_log
+            WHERE series_id = ? AND action_type = 'progress' AND can_undo = 1
+        """, (series_id,))
+        progress_rows = cursor.fetchall()
+        if progress_rows:
+            # Deleting the series makes reverting any one of these
+            # individually meaningless (and, since their stats are about to
+            # be reversed together below, undoing one afterwards would
+            # double-reverse it) - so they stop being undoable here.
+            cursor.execute("""
+                UPDATE activity_log SET can_undo = 0
+                WHERE series_id = ? AND action_type = 'progress' AND can_undo = 1
+            """, (series_id,))
+
         # Delete series (chapters will be auto-deleted via CASCADE)
         cursor.execute("DELETE FROM series WHERE id = ?", (series_id,))
         deleted = cursor.rowcount > 0
-        
+
         release_db(conn)
-        
+
         # ADDED: Update stats to reflect deletion
         if deleted and created_at:
             try:
-                adjust_stats_for_deletion(created_at)
+                adjust_stats_for_deletion(created_at, progress_rows)
             except Exception as stats_err:
                 print(f"[Database] Failed to adjust stats for deletion: {stats_err}")
-        
+
         return deleted
     except Exception as e:
         print(f"[Database] Delete series {series_id} failed: {e}")
@@ -2057,6 +2187,7 @@ def update_current_period_stats():
             SELECT old_value, new_value
             FROM activity_log
             WHERE action_type = 'progress'
+            AND can_undo = 1
             AND timestamp >= ?
         """, (today_start.isoformat(),))
         
@@ -2106,6 +2237,7 @@ def update_current_period_stats():
             SELECT old_value, new_value
             FROM activity_log
             WHERE action_type = 'progress'
+            AND can_undo = 1
             AND timestamp >= ? AND timestamp <= ?
         """, (week_start.isoformat(), now.isoformat()))
         
@@ -2152,6 +2284,7 @@ def update_current_period_stats():
             SELECT old_value, new_value
             FROM activity_log
             WHERE action_type = 'progress'
+            AND can_undo = 1
             AND timestamp >= ? AND timestamp <= ?
         """, (month_start.isoformat(), now.isoformat()))
         
@@ -2223,74 +2356,118 @@ def update_current_period_stats():
             except Exception as release_err:
                 print(f"[Stats] Failed to release DB in update_current_period_stats: {release_err}")
 
-def adjust_stats_for_deletion(created_at_str):
-    """
-    Adjust stats when a series is deleted.
-    Decrements series_added for the period when it was originally added.
-    """
-    from datetime import datetime, timezone
-    import json
-    
+def _parse_activity_timestamp(timestamp_str):
+    """Parses either timestamp format this app stores: activity_log's own
+    ISO-8601 with a trailing 'Z', or series.created_at from SQLite's DEFAULT
+    CURRENT_TIMESTAMP, which is UTC but stored with no timezone marker (e.g.
+    "2026-08-28 15:30:00", not ISO 8601) and so comes back naive -- attach
+    UTC explicitly or it can't be compared against an aware datetime."""
+    dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+def _chapter_progress_delta(old_value, new_value):
+    """The net chapters_read a single 'progress' activity-log entry added at
+    the time - mirrors the summation in update_current_period_stats()/
+    save_completed_period_stats(), so reversing it (negate the result)
+    exactly cancels what the original change added."""
+    old_ch = (old_value or {}).get('chapter', -1)
+    new_ch = (new_value or {}).get('chapter', -1)
+    if new_ch >= 0:
+        if old_ch == -1:
+            return float(new_ch)
+        if old_ch >= 0:
+            return float(new_ch) - float(old_ch)
+        return 0.0
+    if new_ch == -1 and old_ch >= 0:
+        return -float(old_ch)
+    return 0.0
+
+def _apply_stats_delta(cursor, event_time, chapters_delta=0.0, series_delta=0):
+    """Adds chapters_delta/series_delta (either can be negative, to reverse
+    something that was already counted) to the day/week/month/year
+    stats_history rows that event_time's OWN moment falls into - not "now".
+    A row that was never created (nothing happened in that bucket yet, or it
+    predates daily-row tracking) is nothing to correct, so the UPDATE just
+    matches zero rows there."""
+    if not chapters_delta and not series_delta:
+        return
+    day_start = event_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = day_start - timedelta(days=day_start.weekday())
+    month_start = day_start.replace(day=1)
+    year_start = day_start.replace(month=1, day=1)
+    for period_type, period_start in (
+        ('day', day_start), ('week', week_start), ('month', month_start), ('year', year_start)
+    ):
+        cursor.execute("""
+            UPDATE stats_history
+            SET chapters_read = MAX(0, chapters_read + ?),
+                series_added = MAX(0, series_added + ?)
+            WHERE period_type = ? AND period_start = ?
+        """, (chapters_delta, series_delta, period_type, period_start.date().isoformat()))
+
+def adjust_stats_for_progress_undo(timestamp_str, old_value, new_value):
+    """Reverses the chapters_read a 'progress' activity-log entry added, at
+    the day/week/month/year buckets its OWN timestamp falls in - call this
+    when that entry is undone, or a chapter marked read on a past day would
+    inflate that day's (and week's/month's/year's) totals forever, since
+    reverting series.current_chapter alone never touches stats_history."""
+    delta = _chapter_progress_delta(old_value, new_value)
+    if not delta:
+        return
     conn = None
     try:
-        # Parse created_at to determine which period to adjust. Series added
-        # via add_series() get created_at from SQLite's DEFAULT
-        # CURRENT_TIMESTAMP, which is UTC but stored with no timezone marker
-        # (e.g. "2026-08-28 15:30:00", not ISO 8601) -- fromisoformat() on
-        # that produces a naive datetime, which can't be compared against
-        # the timezone-aware "now" below without attaching UTC explicitly.
-        created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
-        
+        event_time = _parse_activity_timestamp(timestamp_str)
+        conn = get_db()
+        _apply_stats_delta(conn.cursor(), event_time, chapters_delta=-delta)
+    except Exception as e:
+        print(f"[Stats] Failed to reverse stats for undone progress: {e}")
+    finally:
+        if conn is not None:
+            try:
+                release_db(conn)
+            except Exception as release_err:
+                print(f"[Stats] Failed to release DB in adjust_stats_for_progress_undo: {release_err}")
+
+def adjust_stats_for_deletion(created_at_str, progress_rows=()):
+    """
+    Adjust stats when a series is deleted: decrements series_added for the
+    day/week/month/year it was originally added in (whichever of those the
+    deletion is still within - unlike a same-day undo, a series added weeks
+    ago that gets deleted still needs ITS OWN past buckets corrected, not
+    just today's), and reverses every not-yet-undone chapter-progress entry
+    logged for it, each at its own timestamp's buckets - otherwise chapters
+    read on a since-deleted series stay counted in Reading history forever.
+
+    progress_rows: (timestamp, old_value, new_value) tuples for that
+    series' still-live 'progress' log entries, snapshotted by the caller
+    BEFORE the delete - series_id on those rows is cleared the moment the
+    series is gone (ON DELETE SET NULL), so they can't be looked up after.
+    """
+    conn = None
+    try:
+        created_at = _parse_activity_timestamp(created_at_str)
         conn = get_db()
         cursor = conn.cursor()
-        
-        # Determine if deletion affects current periods
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        
-        # Adjust TODAY if series was added today
-        if created_at >= today_start:
-            today_str = today_start.date().isoformat()
-            cursor.execute("""
-                UPDATE stats_history 
-                SET series_added = MAX(0, series_added - 1)
-                WHERE period_type = 'day' AND period_start = ?
-            """, (today_str,))
-        
-        # Adjust WEEK if series was added this week
-        if created_at >= week_start:
-            week_str = week_start.date().isoformat()
-            cursor.execute("""
-                UPDATE stats_history 
-                SET series_added = MAX(0, series_added - 1)
-                WHERE period_type = 'week' AND period_start = ?
-            """, (week_str,))
-        
-        # Adjust MONTH if series was added this month
-        if created_at >= month_start:
-            month_str = month_start.date().isoformat()
-            cursor.execute("""
-                UPDATE stats_history 
-                SET series_added = MAX(0, series_added - 1)
-                WHERE period_type = 'month' AND period_start = ?
-            """, (month_str,))
-        
-        # Adjust YEAR if series was added this year
-        if created_at >= year_start:
-            year_str = year_start.date().isoformat()
-            cursor.execute("""
-                UPDATE stats_history 
-                SET series_added = MAX(0, series_added - 1)
-                WHERE period_type = 'year' AND period_start = ?
-            """, (year_str,))
-        
-        print(f"[Stats] Adjusted stats for deleted series (created: {created_at.date()})")
-        
+
+        _apply_stats_delta(cursor, created_at, series_delta=-1)
+
+        reversed_count = 0
+        for timestamp_str, old_str, new_str in progress_rows:
+            try:
+                old_value = json.loads(old_str) if old_str else {}
+                new_value = json.loads(new_str) if new_str else {}
+                delta = _chapter_progress_delta(old_value, new_value)
+                if delta:
+                    _apply_stats_delta(cursor, _parse_activity_timestamp(timestamp_str), chapters_delta=-delta)
+                    reversed_count += 1
+            except Exception:
+                continue
+
+        print(f"[Stats] Adjusted stats for deleted series (created: {created_at.date()}, "
+              f"{reversed_count} progress entries reversed)")
+
     except Exception as e:
         print(f"[Stats] Failed to adjust stats for deletion: {e}")
         import traceback
@@ -2301,6 +2478,50 @@ def adjust_stats_for_deletion(created_at_str):
                 release_db(conn)
             except Exception as release_err:
                 print(f"[Stats] Failed to release DB in adjust_stats_for_deletion: {release_err}")
+
+def restore_stats_for_series(created_at_str, progress_history=()):
+    """
+    The inverse of adjust_stats_for_deletion(): re-adds series_added at the
+    day/week/month/year the series was ORIGINALLY added in (not wherever
+    "now" is when it's restored), and every progress entry's chapters_read,
+    each at its own original timestamp's buckets - called when a 'deleted'
+    log entry is undone, so restoring a series puts Reading history back
+    exactly where it was before the delete, not where a fresh add today
+    would put it.
+
+    progress_history: the list of {'timestamp', 'old_value', 'new_value'}
+    entries get_progress_history_for_stats() captured before the delete, off
+    the 'deleted' log's old_value snapshot.
+    """
+    conn = None
+    try:
+        created_at = _parse_activity_timestamp(created_at_str)
+        conn = get_db()
+        cursor = conn.cursor()
+
+        _apply_stats_delta(cursor, created_at, series_delta=1)
+
+        restored_count = 0
+        for entry in progress_history:
+            try:
+                delta = _chapter_progress_delta(entry.get('old_value'), entry.get('new_value'))
+                if delta:
+                    _apply_stats_delta(cursor, _parse_activity_timestamp(entry['timestamp']), chapters_delta=delta)
+                    restored_count += 1
+            except Exception:
+                continue
+
+        print(f"[Stats] Restored stats for undeleted series (created: {created_at.date()}, "
+              f"{restored_count} progress entries restored)")
+
+    except Exception as e:
+        print(f"[Stats] Failed to restore stats for undeleted series: {e}")
+    finally:
+        if conn is not None:
+            try:
+                release_db(conn)
+            except Exception as release_err:
+                print(f"[Stats] Failed to release DB in restore_stats_for_series: {release_err}")
 
 def cleanup_old_stats(keep_days=90, keep_years=True):
     """

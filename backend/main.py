@@ -278,7 +278,18 @@ def api_undo_log(log_id):
                             content_rating=old_value.get('content_rating', 'unknown'),
                             source_type=old_value.get('source_type', 'other')
                         )
-                        
+
+                        # db_add_series() stamps created_at as "now" - put the
+                        # original date back, or the restored series counts as
+                        # added today (both for stats_history and any "date
+                        # added" sort) on top of the historical-day credit
+                        # restore_stats_for_series() gives it below.
+                        if old_value.get('created_at'):
+                            try:
+                                update_series(series_id, {'created_at': old_value['created_at']})
+                            except Exception as e:
+                                print(f"[Undo] Failed to restore created_at for '{old_value.get('title')}': {e}")
+
                         # Restore chapter progress if available
                         if 'current_chapter' in source and source['current_chapter'] is not None:
                             update_series(series_id, {'current_chapter': source['current_chapter']})
@@ -307,6 +318,19 @@ def api_undo_log(log_id):
                                     add_custom_tag_to_series(series_id, tag_id)
                             except Exception as tag_err:
                                 print(f"[Undo] Failed to restore custom tag '{tag_name}': {tag_err}")
+
+                        # Put back the series_added/chapters_read the delete
+                        # subtracted, at the ORIGINAL dates they happened on -
+                        # not "today", or Reading history would show this as
+                        # a brand new add instead of restoring what was there.
+                        # (Missing on a 'deleted' entry from before this fix -
+                        # nothing to restore for those.)
+                        if old_value.get('created_at'):
+                            try:
+                                from .database import restore_stats_for_series
+                                restore_stats_for_series(old_value['created_at'], old_value.get('_progress_history', []))
+                            except Exception as e:
+                                print(f"[Undo] Failed to restore stats for '{old_value.get('title')}': {e}")
 
                         need_check_now = True
                         restored_series_id = series_id
@@ -339,6 +363,14 @@ def api_undo_log(log_id):
                 except Exception as e:
                     print(f"[Undo] Failed to revert progress: {e}")
                     return jsonify({'error': f'Failed to revert progress: {str(e)}'}), 500
+                # Reverting current_chapter alone doesn't touch the Reading
+                # history stats that chapter add contributed at the time -
+                # undo it at the day/week/month/year it actually happened on.
+                try:
+                    from .database import adjust_stats_for_progress_undo
+                    adjust_stats_for_progress_undo(timestamp_str, old_value, new_value)
+                except Exception as e:
+                    print(f"[Undo] Failed to reverse progress stats: {e}")
         
         elif action_type == 'status' and series_id:
             # Revert status
@@ -598,8 +630,8 @@ def api_undo_bulk(bulk_id):
         
         # Undo each entry
         for log in logs:
-            log_id, action_type, series_id, series_title, old_value_str, new_value_str = log[:6]
-            
+            log_id, action_type, series_id, series_title, old_value_str, new_value_str, log_timestamp, log_can_undo = log[:8]
+
             old_value = json.loads(old_value_str) if old_value_str else None
             new_value = json.loads(new_value_str) if new_value_str else None
             
@@ -638,7 +670,16 @@ def api_undo_bulk(bulk_id):
                             content_rating=old_value.get('content_rating', 'unknown'),
                             source_type=old_value.get('source_type', 'other')
                         )
-                        
+
+                        # See the single-undo path above: db_add_series()
+                        # stamps created_at as "now", so put the original
+                        # date back or the restore double-counts series_added.
+                        if old_value.get('created_at'):
+                            try:
+                                update_series(new_series_id, {'created_at': old_value['created_at']})
+                            except Exception as e:
+                                print(f"[Undo Bulk] Failed to restore created_at for '{old_value.get('title')}': {e}")
+
                         if 'current_chapter' in source and source['current_chapter'] is not None:
                             update_series(new_series_id, {'current_chapter': source['current_chapter']})
 
@@ -666,17 +707,38 @@ def api_undo_bulk(bulk_id):
                             except Exception as tag_err:
                                 print(f"[Undo Bulk] Failed to restore custom tag '{tag_name}': {tag_err}")
 
+                        # Put back the series_added/chapters_read the delete
+                        # subtracted, at the ORIGINAL dates they happened on.
+                        if old_value.get('created_at'):
+                            try:
+                                from .database import restore_stats_for_series
+                                restore_stats_for_series(old_value['created_at'], old_value.get('_progress_history', []))
+                            except Exception as e:
+                                print(f"[Undo Bulk] Failed to restore stats for '{old_value.get('title')}': {e}")
+
                         restored_series_ids.append(new_series_id)
                     except Exception as e:
                         print(f"[Undo Bulk] Failed to restore '{old_value.get('title')}': {e}")
                         continue
             
             elif action_type == 'progress' and series_id:
-                if old_value and 'chapter' in old_value:
+                # This entry may have already been individually undone (e.g.
+                # its series was since deleted, which reverses and closes out
+                # its still-live progress entries on its own) - the bulk
+                # group's own can_undo only gates the group as a whole, so
+                # skip anything already closed out or its stats would be
+                # reversed a second time.
+                if old_value and 'chapter' in old_value and log_can_undo:
                     try:
                         update_series(series_id, {'current_chapter': old_value['chapter']})
                     except Exception as e:
                         print(f"[Undo Bulk] Failed to revert progress for series {series_id}: {e}")
+                        continue
+                    try:
+                        from .database import adjust_stats_for_progress_undo
+                        adjust_stats_for_progress_undo(log_timestamp, old_value, new_value)
+                    except Exception as e:
+                        print(f"[Undo Bulk] Failed to reverse progress stats for series {series_id}: {e}")
             
             elif action_type == 'status' and series_id:
                 if old_value and 'status' in old_value:

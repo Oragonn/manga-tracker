@@ -171,6 +171,7 @@ def get_series_snapshot(series_id):
             'title': series_dict.get('title'),
             'sources': sources,
             'custom_tags': custom_tags,
+            'created_at': series_dict.get('created_at'),
             'status': series_dict.get('status'),
             'cover_url': series_dict.get('cover_url'),
             'banner_url': series_dict.get('banner_url'),

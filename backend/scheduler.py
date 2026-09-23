@@ -13,6 +13,7 @@ from .trackers import hivetoons as hive_tracker
 from .trackers import flamecomics as flame_tracker
 from .backup_manager import BackupManager
 from .series_backup_manager import SeriesBackupManager
+from .discord_backup_uploader import DiscordBackupUploader
 
 class MangaScheduler:
     def __init__(self):
@@ -38,6 +39,8 @@ class MangaScheduler:
             backup_interval_hours=24,  # Kenmei-style CSV snapshot once a day
             retention_days=30
         )
+
+        self.discord_backup_uploader = DiscordBackupUploader(self.backup_manager)
 
         # Per-status fetch state for the /scheduler page - tracked in memory
         # since none of this (last activity, live scan progress) needs to
@@ -1017,6 +1020,7 @@ class MangaScheduler:
         self.cleanup_thread.start()
         self.backup_manager.start()
         self.series_backup_manager.start()
+        self.discord_backup_uploader.start()
 
     def stop(self):
         self.active = False

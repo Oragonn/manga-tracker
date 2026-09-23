@@ -8,6 +8,55 @@ function isSafeUrl(url) {
 	return typeof url === 'string' && /^https?:\/\//i.test(url);
 }
 
+// navigator.clipboard requires a secure context; execCommand is the fallback
+// for anything else (e.g. plain-http LAN access).
+async function copyTextToClipboard(text) {
+	if (navigator.clipboard && navigator.clipboard.writeText) {
+		try {
+			await navigator.clipboard.writeText(text);
+			return true;
+		} catch (err) {
+			console.log('Clipboard API failed, trying fallback:', err);
+		}
+	}
+	try {
+		const textArea = document.createElement('textarea');
+		textArea.value = text;
+		textArea.style.position = 'fixed';
+		textArea.style.left = '-999999px';
+		textArea.style.top = '-999999px';
+		document.body.appendChild(textArea);
+		textArea.focus();
+		textArea.select();
+		const successful = document.execCommand('copy');
+		document.body.removeChild(textArea);
+		return successful;
+	} catch (err) {
+		console.error('Fallback copy failed:', err);
+		return false;
+	}
+}
+
+// Dropdown/panel menus close on any outside click. But selecting text to copy
+// (e.g. a chapter title) often starts with mousedown inside the menu and ends
+// with the mouseup/click outside it once the drag crosses the menu's edge --
+// that's a selection, not a request to dismiss. Track where the press
+// started so "outside click" handlers can tell the two apart.
+let lastMouseDownTarget = null;
+document.addEventListener('mousedown', (e) => { lastMouseDownTarget = e.target; }, true);
+function menuClickStartedInside(menu) {
+	return !!(menu && lastMouseDownTarget && menu.contains(lastMouseDownTarget));
+}
+
+// Modal backdrops close on a click that lands exactly on the dimmed overlay
+// (not its content), so the same selection-drag problem shows up there too:
+// a press that starts on modal content and releases on the backdrop still
+// has e.target === the overlay. Require the press to have started on the
+// backdrop as well.
+function mousedownStartedOnBackdrop(e) {
+	return lastMouseDownTarget === e.currentTarget;
+}
+
 let loadGenres;
 let loadCustomTagsFilterSection;
 let loadMobileCustomTagsFilterSection;
@@ -85,6 +134,9 @@ let loadPageSeq = 0;
 // list and to decide whether "Save" overwrites it or prompts for a new one).
 let bookmarksCache = [];
 state.activeBookmarkId = null;
+// Save for Later scratch list - mirrors /api/later, refetched each time the
+// modal opens since it's cheap and rarely more than a handful of items.
+let laterItemsCache = [];
 // Staged renames in the Manage Views modal ({id: newName}) - not sent to
 // the server until the modal's Close/Save button is clicked, matching the
 // rest of the app's "stage locally, one button commits" pattern (e.g.
@@ -313,6 +365,8 @@ function applyFilterBookmarkState(fs) {
 	if (sortIcon) sortIcon.innerHTML = SORT_ICONS[state.dir];
 	const mobileSortIcon = document.querySelector('#mobile-sort-direction svg');
 	if (mobileSortIcon) mobileSortIcon.innerHTML = SORT_ICONS[state.dir];
+	const mobileSortLabel = document.getElementById('mobile-sort-direction-label');
+	if (mobileSortLabel) mobileSortLabel.textContent = state.dir === 'asc' ? 'Ascending' : 'Descending';
 
 	document.querySelectorAll('.multi-select-menu, .single-select-menu').forEach(menu => {
 		menu.classList.add('hidden');
@@ -483,7 +537,7 @@ function setupBookmarkDropdown(triggerId, menuId, searchId, formId, mainId) {
 	const isMobileDrawer = triggerId.startsWith('mobile-');
 
 	document.addEventListener('click', (e) => {
-		if (!menu.contains(e.target) && e.target !== trigger && !trigger.contains(e.target)) {
+		if (!menu.contains(e.target) && e.target !== trigger && !trigger.contains(e.target) && !menuClickStartedInside(menu)) {
 			menu.classList.add('hidden');
 		}
 	});
@@ -701,8 +755,324 @@ async function initBookmarkDropdown() {
 	// staged rename isn't silently discarded just because it was closed a
 	// different way.
 	document.getElementById('manage-bookmarks-modal')?.addEventListener('click', (e) => {
-		if (e.target.id === 'manage-bookmarks-modal') handleManageBookmarksCloseClick();
+		if (e.target.id === 'manage-bookmarks-modal' && mousedownStartedOnBackdrop(e)) handleManageBookmarksCloseClick();
 	});
+}
+
+// ─── Save for Later ────────────────────────────────────────
+// Quick-capture scratch list for a title or link to check out later - not
+// part of the tracked series table, just freeform notes until the user
+// deletes them.
+async function fetchLaterItems() {
+	try {
+		const res = await fetch('/api/later');
+		if (!res.ok) return;
+		const data = await res.json();
+		laterItemsCache = data.items || [];
+	} catch (e) {
+		console.error('Failed to load later items:', e);
+	}
+}
+
+function renderLaterList() {
+	const container = document.getElementById('later-list');
+	if (!container) return;
+	closeLaterDetailMenu(); // rows are about to be replaced - drop any stale reference
+
+	if (laterItemsCache.length === 0) {
+		container.innerHTML = '<p class="later-empty-state">Nothing saved yet.</p>';
+		return;
+	}
+
+	container.innerHTML = laterItemsCache.map(item => {
+		// Link is deliberately not shown here - only the title (falling back to
+		// the link when there's no title). Click the title to see/open the
+		// full link in the detail popover; edit to change either field.
+		const label = item.title || item.url;
+		return `
+			<div class="later-item-row" data-later-id="${item.id}">
+				<div class="later-item-info">
+					<div class="later-item-title">${escapeHtml(label)}</div>
+				</div>
+				<div class="later-item-actions">
+					<button type="button" class="manage-bookmark-delete-btn later-item-edit-btn" title="Edit">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+							<path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>
+						</svg>
+					</button>
+					<button type="button" class="manage-bookmark-delete-btn later-item-delete-btn" title="Delete">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+						</svg>
+					</button>
+				</div>
+			</div>
+		`;
+	}).join('');
+
+	container.querySelectorAll('.later-item-row').forEach(row => {
+		const id = parseInt(row.dataset.laterId, 10);
+		const item = laterItemsCache.find(i => i.id === id);
+		if (!item) return;
+
+		row.querySelector('.later-item-title')?.addEventListener('click', (e) => {
+			e.stopPropagation();
+			toggleLaterDetailMenu(e.currentTarget, item);
+		});
+
+		row.querySelector('.later-item-edit-btn')?.addEventListener('click', () => {
+			closeLaterDetailMenu();
+			openLaterItemEditForm(row, item);
+		});
+
+		row.querySelector('.later-item-delete-btn')?.addEventListener('click', () => {
+			// Inline "Delete this?" confirm instead of a native confirm() -
+			// matches the app's Manage Views delete flow.
+			row.innerHTML = `
+				<span class="manage-bookmark-confirm-text">Delete "${escapeHtml(item.title || item.url)}"?</span>
+				<div class="manage-bookmark-confirm-actions">
+					<button type="button" class="bookmark-form-btn bookmark-form-cancel later-cancel-delete">Cancel</button>
+					<button type="button" class="bookmark-form-btn bookmark-form-delete-confirm later-confirm-delete">Delete</button>
+				</div>
+			`;
+			row.querySelector('.later-cancel-delete')?.addEventListener('click', renderLaterList);
+			row.querySelector('.later-confirm-delete')?.addEventListener('click', async () => {
+				try {
+					const res = await fetch(`/api/later/${id}`, { method: 'DELETE' });
+					if (res.ok) {
+						laterItemsCache = laterItemsCache.filter(i => i.id !== id);
+						renderLaterList();
+						showNotification('Removed from Later', 'delete');
+					} else {
+						showNotification('Failed to delete item', 'error');
+					}
+				} catch (e) {
+					showNotification('Failed to delete item', 'error');
+				}
+			});
+		});
+	});
+}
+
+// Swaps a row into an inline edit form (title input + link textarea, same
+// Enter-submits/Shift+Enter-newline behavior as the Add form) - mirrors the
+// row's delete-confirm swap rather than the Manage Views modal's
+// always-visible rename inputs, since only one item is ever edited at a time.
+function openLaterItemEditForm(row, item) {
+	const urlPlaceholder = isMobileDevice()
+		? 'Link (optional)... Return for a new line'
+		: 'Link (optional)... Shift+Enter for a new line';
+	row.innerHTML = `
+		<div class="later-item-edit-form">
+			<input type="text" class="later-item-edit-title" value="${escapeHtml(item.title || '')}" maxlength="200" placeholder="Title..." />
+			<textarea class="later-item-edit-url" maxlength="2000" rows="1" placeholder="${escapeHtml(urlPlaceholder)}">${escapeHtml(item.url || '')}</textarea>
+			<div class="later-item-edit-actions">
+				<button type="button" class="bookmark-form-btn bookmark-form-cancel later-edit-cancel">Cancel</button>
+				<button type="button" class="bookmark-form-btn bookmark-form-confirm later-edit-save">Save</button>
+			</div>
+		</div>
+	`;
+
+	const titleInput = row.querySelector('.later-item-edit-title');
+	const urlInput = row.querySelector('.later-item-edit-url');
+	const saveBtn = row.querySelector('.later-edit-save');
+
+	urlInput.style.height = `${urlInput.scrollHeight}px`;
+	urlInput.addEventListener('input', () => {
+		urlInput.style.height = 'auto';
+		urlInput.style.height = `${urlInput.scrollHeight}px`;
+	});
+	urlInput.addEventListener('keydown', (e) => {
+		// The on-screen keyboard has no way to hold Shift while tapping Return,
+		// so on mobile Enter has to stay a plain newline - Save is a tap away.
+		if (e.key === 'Enter' && !e.shiftKey && !isMobileDevice()) {
+			e.preventDefault();
+			saveBtn.click();
+		}
+	});
+	titleInput.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			saveBtn.click();
+		}
+	});
+
+	row.querySelector('.later-edit-cancel')?.addEventListener('click', renderLaterList);
+	saveBtn.addEventListener('click', async () => {
+		const title = titleInput.value.trim();
+		const url = urlInput.value.trim();
+		if (!title && !url) {
+			showNotification('Enter a title or a link', 'error');
+			return;
+		}
+		saveBtn.disabled = true;
+		try {
+			const res = await fetch(`/api/later/${item.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ title, url })
+			});
+			if (res.ok) {
+				item.title = title || null;
+				item.url = url || null;
+				renderLaterList();
+				showNotification('Saved', 'added');
+			} else {
+				const data = await res.json().catch(() => ({}));
+				showNotification(data.error || 'Failed to save changes', 'error');
+				saveBtn.disabled = false;
+			}
+		} catch (e) {
+			showNotification('Failed to save changes', 'error');
+			saveBtn.disabled = false;
+		}
+	});
+
+	titleInput.focus();
+}
+
+async function openLaterListModal() {
+	await fetchLaterItems();
+	renderLaterList();
+	document.getElementById('later-list-modal')?.classList.remove('hidden');
+	// html, not body, is the page's actual scrolling element on desktop
+	// (style.css sets `html { overflow-y: scroll }` with no matching
+	// height/overflow constraint on body) - same fix as the Add Series modal.
+	document.body.style.overflow = 'hidden';
+	document.documentElement.style.overflow = 'hidden';
+}
+
+function closeLaterListModal() {
+	document.getElementById('later-list-modal')?.classList.add('hidden');
+	closeLaterDetailMenu();
+	document.body.style.overflow = '';
+	document.documentElement.style.overflow = '';
+}
+
+// Popover for a title/link too long to fit on one line (see .later-item-title
+// truncation) - one shared element, repositioned under whichever row's title
+// was clicked. Clicking the same title again closes it (toggle).
+function toggleLaterDetailMenu(titleEl, item) {
+	const menu = document.getElementById('later-detail-menu');
+	if (!menu) return;
+	const alreadyOpenForThis = !menu.classList.contains('hidden') && menu.dataset.forId === String(item.id);
+	closeLaterDetailMenu();
+	if (alreadyOpenForThis) return;
+
+	const titleText = document.getElementById('later-detail-title-text');
+	const linkText = document.getElementById('later-detail-link-text');
+	if (titleText) titleText.textContent = item.title || '(no title)';
+	if (linkText) {
+		linkText.innerHTML = '';
+		if (item.url) {
+			if (!item.url.includes('\n') && isSafeUrl(item.url)) {
+				linkText.innerHTML = `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${escapeHtml(item.url)}</a>`;
+			} else {
+				linkText.textContent = item.url;
+			}
+		}
+	}
+
+	menu.dataset.forId = String(item.id);
+	menu.classList.remove('hidden');
+
+	const rect = titleEl.getBoundingClientRect();
+	const menuWidth = menu.offsetWidth || 300;
+	let left = rect.left;
+	if (left + menuWidth > window.innerWidth - 8) left = window.innerWidth - menuWidth - 8;
+	if (left < 8) left = 8;
+	let top = rect.bottom + 4;
+	if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - menu.offsetHeight - 4);
+	menu.style.left = `${left}px`;
+	menu.style.top = `${top}px`;
+}
+
+function closeLaterDetailMenu() {
+	const menu = document.getElementById('later-detail-menu');
+	if (!menu) return;
+	menu.classList.add('hidden');
+	delete menu.dataset.forId;
+}
+
+async function handleLaterAddSubmit(e) {
+	e.preventDefault();
+	const titleInput = document.getElementById('later-add-title');
+	const urlInput = document.getElementById('later-add-url');
+	const title = titleInput?.value.trim() || '';
+	const url = urlInput?.value.trim() || '';
+	if (!title && !url) {
+		showNotification('Enter a title or a link', 'error');
+		return;
+	}
+
+	const submitBtn = document.getElementById('later-add-submit');
+	if (submitBtn) submitBtn.disabled = true;
+	try {
+		const res = await fetch('/api/later', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ title, url })
+		});
+		if (res.ok) {
+			const data = await res.json();
+			laterItemsCache.unshift({ id: data.id, title: title || null, url: url || null, created_at: new Date().toISOString() });
+			renderLaterList();
+			if (titleInput) titleInput.value = '';
+			if (urlInput) { urlInput.value = ''; urlInput.style.height = 'auto'; }
+			titleInput?.focus();
+			showNotification('Saved for later', 'added');
+		} else {
+			const data = await res.json().catch(() => ({}));
+			showNotification(data.error || 'Failed to save item', 'error');
+		}
+	} catch (e) {
+		showNotification('Failed to save item', 'error');
+	} finally {
+		if (submitBtn) submitBtn.disabled = false;
+	}
+}
+
+function initLaterList() {
+	document.getElementById('btn-later-list')?.addEventListener('click', openLaterListModal);
+	document.getElementById('btn-later-list-close')?.addEventListener('click', closeLaterListModal);
+	document.getElementById('later-add-form')?.addEventListener('submit', handleLaterAddSubmit);
+	document.getElementById('later-list-modal')?.addEventListener('click', (e) => {
+		if (e.target.id === 'later-list-modal' && mousedownStartedOnBackdrop(e)) closeLaterListModal();
+	});
+
+	// The link field is a textarea so a link (or a pasted note) can span
+	// multiple lines - Shift+Enter inserts the line break, plain Enter still
+	// submits like the single-line title field does natively.
+	const urlInput = document.getElementById('later-add-url');
+	if (urlInput) {
+		if (isMobileDevice()) urlInput.placeholder = 'Link (optional)... Return for a new line';
+		urlInput.addEventListener('keydown', (e) => {
+			// The on-screen keyboard has no way to hold Shift while tapping
+			// Return, so on mobile Enter has to stay a plain newline - the Add
+			// button is a tap away instead.
+			if (e.key === 'Enter' && !e.shiftKey && !isMobileDevice()) {
+				e.preventDefault();
+				urlInput.form?.requestSubmit();
+			}
+		});
+		urlInput.addEventListener('input', () => {
+			urlInput.style.height = 'auto';
+			urlInput.style.height = `${urlInput.scrollHeight}px`;
+		});
+	}
+
+	// Close the full-text popover on outside click, Escape, or scrolling the
+	// list (its position is computed once and would otherwise go stale).
+	document.addEventListener('click', (e) => {
+		if (!e.target.closest('#later-detail-menu') && !e.target.closest('.later-item-title') && !menuClickStartedInside(document.getElementById('later-detail-menu'))) {
+			closeLaterDetailMenu();
+		}
+	});
+	document.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') closeLaterDetailMenu();
+	});
+	document.getElementById('later-list')?.addEventListener('scroll', closeLaterDetailMenu);
 }
 
 // ─── Bulk Selection State ────────────────────────────────────────
@@ -2171,7 +2541,7 @@ function initSeriesTagsEditor() {
 	document.getElementById('settings-typetags-done')?.addEventListener('click', closeTypeTagsMenu);
 	document.addEventListener('click', e => {
 		if (!menu || menu.classList.contains('hidden')) return;
-		if (!menu.contains(e.target) && !document.getElementById('settings-typetags-selector')?.contains(e.target)) closeTypeTagsMenu();
+		if (!menu.contains(e.target) && !document.getElementById('settings-typetags-selector')?.contains(e.target) && !menuClickStartedInside(menu)) closeTypeTagsMenu();
 	});
 	// Scrolling the modal would leave a fixed-position menu floating where the button was
 	document.querySelector('#edit-series-modal .settings-modal')?.addEventListener('scroll', closeTypeTagsMenu, { passive: true });
@@ -2414,6 +2784,7 @@ function describeMissingChapterGaps(gaps) {
 // preventDefault()s its touchend, which suppresses the click entirely.
 function closeMissingChapterTips(e) {
 	if (e.target.closest && e.target.closest('.missing-chapters-flag')) return;
+	if (e.type === 'click' && lastMouseDownTarget?.closest?.('.missing-chapters-flag.open')) return;
 	document.querySelectorAll('.missing-chapters-flag.open').forEach(f => f.classList.remove('open'));
 }
 document.addEventListener('click', closeMissingChapterTips);
@@ -2450,7 +2821,7 @@ ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.title)}</span></div>` : ''}
 </div>
 <div class="card-info">
-<div class="card-title">${escapeHtml(series.title)}</div>
+<div class="card-title" title="Click to copy title">${escapeHtml(series.title)}</div>
 <div class="card-chapters">
 <span class="chapter-not-started">Loading...</span>
 <span class="chapter-not-started">Loading...</span>
@@ -3063,7 +3434,15 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 			toggleCardSelection(series.id);
 		}
 	});
-	
+
+	const titleEl = card.querySelector('.card-title');
+	titleEl.addEventListener('click', async (e) => {
+		if (bulkState.isBulkMode) return; // let the card's own handler toggle selection
+		e.stopPropagation();
+		const copied = await copyTextToClipboard(series.title);
+		showNotification(copied ? `Copied "${series.title}" to clipboard` : 'Failed to copy to clipboard', copied ? 'copy' : 'error');
+	});
+
 	// Setup lazy loading for cover image
 	const coverImg = card.querySelector('.series-cover');
 	if (coverImg && coverImg.dataset.src) {
@@ -3619,11 +3998,11 @@ function setupStaticMultiSelect(trigger, menu, checkboxes, stateKey, labelMap = 
   const isMobileDrawer = trigger.id.startsWith('mobile-');
   
   document.addEventListener('click', (e) => {
-    if (!menu.contains(e.target) && e.target !== trigger) {
+    if (!menu.contains(e.target) && e.target !== trigger && !menuClickStartedInside(menu)) {
       menu.classList.add('hidden');
     }
   });
-  
+
   trigger.addEventListener('click', (e) => {
     e.stopPropagation();
     menu.classList.toggle('hidden');
@@ -3682,7 +4061,7 @@ function setupStaticMultiSelect(trigger, menu, checkboxes, stateKey, labelMap = 
 function setupSingleSelect(trigger, menu, stateKey, labelMap, defaultValue) {
 	const options = menu.querySelectorAll('.option-item');
 	document.addEventListener('click', (e) => {
-		if (!menu.contains(e.target) && e.target !== trigger) {
+		if (!menu.contains(e.target) && e.target !== trigger && !menuClickStartedInside(menu)) {
 			menu.classList.add('hidden');
 		}
 	});
@@ -3826,6 +4205,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	setInterval(updateSourceHealth, 30000);
 
 	initBookmarkDropdown();
+	initLaterList();
 	const sourceHealthBtn = document.getElementById('btn-source-alert');
 	const sourceHealthPanel = document.getElementById('source-health-panel');
 	if (sourceHealthBtn && sourceHealthPanel) {
@@ -3834,12 +4214,15 @@ document.addEventListener('DOMContentLoaded', () => {
 			sourceHealthPanel.classList.toggle('hidden');
 		});
 		document.addEventListener('click', (e) => {
-			if (!sourceHealthPanel.contains(e.target) && e.target !== sourceHealthBtn) {
+			if (!sourceHealthPanel.contains(e.target) && e.target !== sourceHealthBtn && !menuClickStartedInside(sourceHealthPanel)) {
 				sourceHealthPanel.classList.add('hidden');
 			}
 		});
 	}
 
+	// /dashboard?search=<title> (the Stats page's series links) opens with
+	// that search across all statuses
+	const urlSearch = (new URLSearchParams(window.location.search).get('search') || '').trim();
 	if (window.location.search) {
 		window.history.replaceState({}, '', '/');
 	}
@@ -3907,7 +4290,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Close menu when clicking outside
 	document.addEventListener('click', (e) => {
-		if (!genreMenu.contains(e.target) && e.target !== genreTrigger) {
+		if (!genreMenu.contains(e.target) && e.target !== genreTrigger && !menuClickStartedInside(genreMenu)) {
 			genreMenu.classList.add('hidden');
 		}
 	});
@@ -4373,7 +4756,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const menu = document.getElementById('settings-title-menu');
 		if (!menu || menu.classList.contains('hidden')) return;
 		const selector = document.getElementById('settings-title-selector');
-		if (!menu.contains(e.target) && !selector?.contains(e.target)) {
+		if (!menu.contains(e.target) && !selector?.contains(e.target) && !menuClickStartedInside(menu)) {
 			closeTitleMenu();
 		}
 	});
@@ -4616,7 +4999,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.addEventListener('click', (e) => {
 		const menu = document.getElementById('settings-cover-menu');
 		if (!menu || menu.classList.contains('hidden')) return;
-		if (!menu.contains(e.target) && e.target.id !== 'settings-cover-edit-btn') {
+		if (!menu.contains(e.target) && e.target.id !== 'settings-cover-edit-btn' && !menuClickStartedInside(menu)) {
 			closeCoverMenu();
 		}
 	});
@@ -4771,7 +5154,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const menu = document.getElementById('settings-source-menu');
 		if (!menu || menu.classList.contains('hidden')) return;
 		const selector = document.getElementById('settings-source-selector');
-		if (!menu.contains(e.target) && !selector?.contains(e.target)) {
+		if (!menu.contains(e.target) && !selector?.contains(e.target) && !menuClickStartedInside(menu)) {
 			closeSourceMenu();
 		}
 	});
@@ -4901,7 +5284,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const menu = document.getElementById('settings-tags-menu');
 		if (!menu || menu.classList.contains('hidden')) return;
 		const selector = document.getElementById('settings-tags-selector');
-		if (!menu.contains(e.target) && !selector?.contains(e.target)) {
+		if (!menu.contains(e.target) && !selector?.contains(e.target) && !menuClickStartedInside(menu)) {
 			closeTagsMenu();
 		}
 	});
@@ -4942,7 +5325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const menu = document.getElementById('chapter-select-menu');
 		if (!menu || menu.classList.contains('hidden')) return;
 		const trigger = document.getElementById('chapter-select-trigger');
-		if (!menu.contains(e.target) && !trigger?.contains(e.target)) {
+		if (!menu.contains(e.target) && !trigger?.contains(e.target) && !menuClickStartedInside(menu)) {
 			closeChapterSelectMenu();
 		}
 	});
@@ -4982,7 +5365,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const menu = document.getElementById('settings-status-menu');
 		if (!menu || menu.classList.contains('hidden')) return;
 		const selector = document.getElementById('settings-status-selector');
-		if (!menu.contains(e.target) && !selector?.contains(e.target)) {
+		if (!menu.contains(e.target) && !selector?.contains(e.target) && !menuClickStartedInside(menu)) {
 			closeStatusMenu();
 		}
 	});
@@ -5214,7 +5597,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// ─── Modified Modal Close Handler ─────────────────────────────
 	editModal?.addEventListener('click', async (e) => {
-		if (e.target === editModal) {
+		if (e.target === editModal && mousedownStartedOnBackdrop(e)) {
 			// A click beside the modal is easy to make by accident, so ask
 			// before throwing away anything staged. The Save button is enabled
 			// exactly when something differs from what's saved.
@@ -5428,7 +5811,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Click-outside-to-close handler for Add Series modal
 	document.getElementById('add-series-modal')?.addEventListener('click', (e) => {
-	if (e.target.id === 'add-series-modal') {
+	if (e.target.id === 'add-series-modal' && mousedownStartedOnBackdrop(e)) {
 		closeAddSeriesModal();
 	}
 	});
@@ -5441,7 +5824,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('series-delete-modal').classList.remove('hidden');
 	});
 	document.getElementById('series-delete-modal')?.addEventListener('click', (e) => {
-		if (e.target.id === 'series-delete-modal') {
+		if (e.target.id === 'series-delete-modal' && mousedownStartedOnBackdrop(e)) {
 			document.getElementById('series-delete-modal').classList.add('hidden');
 		}
 	});
@@ -5618,22 +6001,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Close modals when clicking outside
 	document.getElementById('bulk-edit-modal')?.addEventListener('click', (e) => {
-		if (e.target.id === 'bulk-edit-modal') {
+		if (e.target.id === 'bulk-edit-modal' && mousedownStartedOnBackdrop(e)) {
 			document.getElementById('bulk-edit-modal').classList.add('hidden');
 		}
 	});
 	document.getElementById('bulk-status-modal')?.addEventListener('click', (e) => {
-		if (e.target.id === 'bulk-status-modal') {
+		if (e.target.id === 'bulk-status-modal' && mousedownStartedOnBackdrop(e)) {
 			document.getElementById('bulk-status-modal').classList.add('hidden');
 		}
 	});
 	document.getElementById('bulk-read-modal')?.addEventListener('click', (e) => {
-		if (e.target.id === 'bulk-read-modal') {
+		if (e.target.id === 'bulk-read-modal' && mousedownStartedOnBackdrop(e)) {
 			document.getElementById('bulk-read-modal').classList.add('hidden');
 		}
 	});
 	document.getElementById('bulk-delete-modal')?.addEventListener('click', (e) => {
-		if (e.target.id === 'bulk-delete-modal') {
+		if (e.target.id === 'bulk-delete-modal' && mousedownStartedOnBackdrop(e)) {
 			document.getElementById('bulk-delete-modal').classList.add('hidden');
 		}
 	});
@@ -5676,8 +6059,20 @@ document.addEventListener('DOMContentLoaded', () => {
 		loadGenres();
 	});
 
-	// Initial load
-	loadPage();
+	// Initial load. A /dashboard?search= link is for one specific series, so
+	// it searches every status with the Mature/Explicit excludes set back to
+	// neutral - the rest of the default filters stay.
+	if (urlSearch && searchInput) {
+		searchInput.value = urlSearch;
+		document.getElementById('search-clear-btn')?.classList.add('show');
+		const fs = captureCurrentFilterState();
+		fs.status = 'all';
+		fs.rating = [];
+		applyFilterBookmarkState(fs);
+		loadPage();
+	} else {
+		loadPage();
+	}
 });
 
 // ================================
@@ -5828,7 +6223,7 @@ function createMobileHeader() {
       mobileSourceHealthPanel.classList.toggle('hidden');
     });
     document.addEventListener('click', (e) => {
-      if (!mobileSourceHealthPanel.contains(e.target) && e.target !== mobileSourceHealthBtn) {
+      if (!mobileSourceHealthPanel.contains(e.target) && e.target !== mobileSourceHealthBtn && !menuClickStartedInside(mobileSourceHealthPanel)) {
         mobileSourceHealthPanel.classList.add('hidden');
       }
     });
@@ -5933,7 +6328,18 @@ function createFilterDrawer() {
         </button>
       </div>
       <div class="filter-drawer-content">
-        
+
+        <!-- Sort Direction -->
+        <div class="filter-section">
+          <h3>Sort Direction</h3>
+          <button class="control-input" id="mobile-sort-direction" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px;">
+            <svg width="16" height="16" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.5">
+              ${SORT_ICONS[state.dir]}
+            </svg>
+            <span id="mobile-sort-direction-label">${state.dir === 'asc' ? 'Ascending' : 'Descending'}</span>
+          </button>
+        </div>
+
         <!-- Content Type -->
         <div class="filter-section">
           <h3>Content Type</h3>
@@ -6090,6 +6496,16 @@ function createFilterDrawer() {
   document.getElementById('filter-drawer-close')?.addEventListener('click', closeFilterDrawer);
   document.getElementById('mobile-reset-filters')?.addEventListener('click', resetMobileFilters);
 
+  // Sort direction toggle
+  const mobileSortDirBtn = document.getElementById('mobile-sort-direction');
+  mobileSortDirBtn?.addEventListener('click', () => {
+    state.dir = state.dir === 'asc' ? 'desc' : 'asc';
+    mobileSortDirBtn.querySelector('svg').innerHTML = SORT_ICONS[state.dir];
+    const label = document.getElementById('mobile-sort-direction-label');
+    if (label) label.textContent = state.dir === 'asc' ? 'Ascending' : 'Descending';
+    loadPage();
+  });
+
   // Setup multi-select dropdowns (same as desktop)
   
   // Content Type
@@ -6115,7 +6531,7 @@ function createFilterDrawer() {
 
   // Close menu when clicking outside
   document.addEventListener('click', (e) => {
-    if (!mobileGenreMenu.contains(e.target) && e.target !== mobileGenreTrigger) {
+    if (!mobileGenreMenu.contains(e.target) && e.target !== mobileGenreTrigger && !menuClickStartedInside(mobileGenreMenu)) {
       mobileGenreMenu.classList.add('hidden');
     }
   });
@@ -6399,20 +6815,19 @@ function setupMobileControlPanel() {
   `;
   filterBtn.addEventListener('click', openFilterDrawer);
 
-  // Sort direction button (clone from row 1)
-  const sortDirBtn = document.createElement('button');
-  sortDirBtn.id = 'mobile-sort-direction';
-  sortDirBtn.className = 'control-button square-button';
-  sortDirBtn.innerHTML = `
-    <svg width="16" height="16" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.5">
-      ${SORT_ICONS[state.dir]}
+  // Save for Later button
+  const laterBtn = document.createElement('button');
+  laterBtn.id = 'mobile-btn-later-list';
+  laterBtn.className = 'control-button square-button';
+  laterBtn.title = 'Save for Later';
+  laterBtn.innerHTML = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
+      <line x1="9" y1="10" x2="15" y2="10"/>
+      <line x1="12" y1="7" x2="12" y2="13"/>
     </svg>
   `;
-  sortDirBtn.addEventListener('click', () => {
-    state.dir = state.dir === 'asc' ? 'desc' : 'asc';
-    sortDirBtn.querySelector('svg').innerHTML = SORT_ICONS[state.dir];
-    loadPage();
-  });
+  laterBtn.addEventListener('click', openLaterListModal);
 
 	// Search input
 	const searchContainer = document.createElement('div');
@@ -6434,6 +6849,14 @@ function setupMobileControlPanel() {
 	const searchInput = searchContainer.querySelector('input');
 	const mobileClearBtn = searchContainer.querySelector('.search-clear-btn'); // ADDED
 	let searchTimeout;
+
+	// Carry over a search already in the desktop box (e.g. from a
+	// /dashboard?search= link), which loadPage() is already filtering by
+	const existingSearch = document.getElementById('search-input')?.value.trim();
+	if (existingSearch) {
+		searchInput.value = existingSearch;
+		mobileClearBtn?.classList.add('show');
+	}
 
 	searchInput.addEventListener('input', () => {
 	clearTimeout(searchTimeout);
@@ -6470,7 +6893,7 @@ function setupMobileControlPanel() {
 
   // Add elements to mobile row
   mobileRow2.appendChild(filterBtn);
-  mobileRow2.appendChild(sortDirBtn);
+  mobileRow2.appendChild(laterBtn);
   mobileRow2.appendChild(searchContainer);
 
   // Insert mobile row at the start of row 2
@@ -6487,6 +6910,8 @@ function updateMobileSortIcon() {
   const mobileSortBtn = document.getElementById('mobile-sort-direction');
   if (mobileSortBtn && isMobileDevice()) {
     mobileSortBtn.querySelector('svg').innerHTML = SORT_ICONS[state.dir];
+    const label = document.getElementById('mobile-sort-direction-label');
+    if (label) label.textContent = state.dir === 'asc' ? 'Ascending' : 'Descending';
   }
 }
 
@@ -6654,6 +7079,8 @@ function resetMobileFilters() {
   const mobileSortBtn = document.getElementById('mobile-sort-direction');
   if (mobileSortBtn) {
     mobileSortBtn.querySelector('svg').innerHTML = SORT_ICONS['asc'];
+    const mobileSortLabel = document.getElementById('mobile-sort-direction-label');
+    if (mobileSortLabel) mobileSortLabel.textContent = 'Ascending';
   }
   
   // Update desktop status/sort selected states
@@ -6797,7 +7224,7 @@ function createBottomSheet() {
 	const menu = document.getElementById('sheet-settings-menu');
 	const settingsBtn = document.getElementById('sheet-settings-btn');
 	
-	if (menu && !menu.contains(e.target) && e.target !== settingsBtn && !settingsBtn?.contains(e.target)) {
+	if (menu && !menu.contains(e.target) && e.target !== settingsBtn && !settingsBtn?.contains(e.target) && !menuClickStartedInside(menu)) {
 		menu.classList.remove('active');
 	}
 	});
@@ -8162,7 +8589,7 @@ document.getElementById('mobile-btn-reset-not-started')?.addEventListener('click
 
 // Click outside to close Edit modal
 document.getElementById('mobile-edit-modal')?.addEventListener('click', async (e) => {
-  if (e.target.id === 'mobile-edit-modal') {
+  if (e.target.id === 'mobile-edit-modal' && mousedownStartedOnBackdrop(e)) {
     if (mobilePendingSourceChanges.hasChanges) {
       if (!(await confirmDiscardChanges())) {
         return;
@@ -8371,7 +8798,7 @@ document.getElementById('mobile-btn-delete-series')?.addEventListener('click', a
 
 // Click outside to close Settings modal
 document.getElementById('mobile-settings-modal')?.addEventListener('click', (e) => {
-  if (e.target.id === 'mobile-settings-modal') {
+  if (e.target.id === 'mobile-settings-modal' && mousedownStartedOnBackdrop(e)) {
     const savedScrollY = mobileState.scrollY || 0; // CHANGED: Save before clearing
     document.getElementById('mobile-settings-modal').classList.add('hidden');
     
