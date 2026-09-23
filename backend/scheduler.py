@@ -487,6 +487,30 @@ class MangaScheduler:
             sources_reached = 0  # fetch didn't raise, whether or not it returned chapters
             primary_status = None  # publication status reported by the primary source
 
+            # The chapters each source supplied last time. A source that had
+            # chapters and now reports none is far more likely broken (a
+            # failed chapter-list request, a page-format change its parser
+            # doesn't match) than emptied, so its stored chapters are kept
+            # and it counts as a failure (Source Alerts) instead of the
+            # series silently losing every chapter.
+            previous_by_source = {}
+            conn_prev = get_db()
+            try:
+                cursor_prev = conn_prev.cursor()
+                cursor_prev.execute("""
+                    SELECT chapter_number, volume, raw_chapter, release_date,
+                           chapter_url, is_oneshot, source_type
+                    FROM chapters WHERE series_id = ? AND source_type IS NOT NULL
+                """, (series_id,))
+                for row in cursor_prev.fetchall():
+                    previous_by_source.setdefault(row[6], []).append({
+                        'chapter_number': row[0], 'volume': row[1], 'raw_chapter': row[2],
+                        'release_date': row[3], 'chapter_url': row[4],
+                        'is_oneshot': bool(row[5]), 'source_type': row[6],
+                    })
+            finally:
+                release_db(conn_prev)
+
             # Fetch chapters from all sources concurrently instead of one at a
             # time -- each source is an independent network call, and the
             # merge step below is already order-independent (it compares
@@ -527,6 +551,23 @@ class MangaScheduler:
                                 log_error(source['source_url'], str(source_error), series_title=title)
                             except Exception:
                                 pass
+                        continue
+
+                    previous = previous_by_source.get(source_type)
+                    if not chapters and previous:
+                        print(f"[Scheduler] {source_type} returned no chapters for series {series_id} "
+                              f"(had {len(previous)}) - keeping the stored ones")
+                        try:
+                            record_source_failure(
+                                source['id'],
+                                f"Returned no chapters (had {len(previous)}) - kept the stored ones"
+                            )
+                        except Exception:
+                            pass
+                        for ch in previous:
+                            ch['source_id'] = source['id']
+                            ch['source_url'] = source['source_url']
+                        all_chapters.extend(previous)
                         continue
 
                     try:

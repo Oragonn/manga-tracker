@@ -16,9 +16,12 @@ except ImportError:
 LOG_DIR = "logs"
 ERRORS_MAX_DAYS = 7
 
-# In-memory errors
+# In-memory errors (the unread-count badge reads these). Seeded from the
+# log files on first use, so a restart doesn't reset the badge to 0 while
+# unread errors are still sitting in today's log.
 _errors = []
 _errors_lock = Lock()
+_errors_loaded = False
 
 def _ensure_dirs():
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -66,9 +69,26 @@ def log_error(source_url, error_message, series_title=None):
         f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
 
     with _errors_lock:
+        _load_recent_errors()
         _errors.append(log_entry)
         if len(_errors) > 200:
             _errors.pop(0)
+
+
+def _load_recent_errors():
+    """Fill _errors from the last few days' log files, once. Call with
+    _errors_lock held."""
+    global _errors_loaded
+    if _errors_loaded:
+        return
+    _errors_loaded = True
+    today = _get_now_paris().date()
+    entries = []
+    for days_ago in range(ERRORS_MAX_DAYS - 1, -1, -1):
+        date_str = (today - timedelta(days=days_ago)).strftime("%Y-%m-%d")
+        entries.extend(reversed(get_errors_for_date(date_str)))  # oldest first
+    _errors[:0] = entries[-200:]
+    del _errors[:-200]
 
 def get_last_errors_visit():
     try:
@@ -96,6 +116,7 @@ def get_unread_error_count():
 
     count = 0
     with _errors_lock:
+        _load_recent_errors()
         for err in _errors:
             try:
                 err_ts = err['timestamp']
@@ -110,6 +131,7 @@ def get_unread_error_count():
 
 def get_recent_errors(limit=50):
     with _errors_lock:
+        _load_recent_errors()
         return list(reversed(_errors[-limit:]))
 
 def get_available_log_dates():
@@ -151,8 +173,17 @@ def get_errors_for_date(date_str):
         try:
             with open(log_file, "r", encoding="utf-8") as f:
                 for line in f:
-                    if line.strip():
-                        errors.append(json.loads(line))
-        except:
+                    if not line.strip():
+                        continue
+                    # One damaged line (two scan threads writing at once, a
+                    # crash mid-write) is skipped rather than hiding every
+                    # error after it
+                    try:
+                        entry = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(entry, dict):
+                        errors.append(entry)
+        except OSError:
             pass
     return list(reversed(errors))

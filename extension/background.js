@@ -45,6 +45,40 @@ let lastRowMode = null;
 // until known for the current row.
 let lastRowKenmeiSites = null;
 
+// Chrome stops an idle MV3 service worker after ~30s, wiping every variable
+// above - so a row left open while reading search results would forget its
+// tabs, and the next Y/U did nothing. All of it is mirrored into
+// chrome.storage.session (kept for the browser session, across worker
+// restarts), restored before any event is handled and saved after each change.
+const STORAGE_KEY = 'helperState';
+let restored = null;
+
+function restoreState() {
+  if (!restored) {
+    restored = chrome.storage.session.get(STORAGE_KEY).then((data) => {
+      const saved = data && data[STORAGE_KEY];
+      if (!saved) return;
+      importTabId = saved.importTabId ?? null;
+      kenmeiTabId = saved.kenmeiTabId ?? null;
+      dashboardTabId = saved.dashboardTabId ?? null;
+      state = saved.state ?? null;
+      lastRowTabs = saved.lastRowTabs || [];
+      lastRowMode = saved.lastRowMode ?? null;
+      lastRowKenmeiSites = saved.lastRowKenmeiSites ? new Set(saved.lastRowKenmeiSites) : null;
+    }).catch(() => {});
+  }
+  return restored;
+}
+
+function saveState() {
+  chrome.storage.session.set({
+    [STORAGE_KEY]: {
+      importTabId, kenmeiTabId, dashboardTabId, state, lastRowTabs, lastRowMode,
+      lastRowKenmeiSites: lastRowKenmeiSites ? Array.from(lastRowKenmeiSites) : null
+    }
+  }).catch(() => {});
+}
+
 const SITE_PATTERNS = [
   { re: /^https:\/\/mangadex\.org\//, site: 'mangadex' },
   { re: /^https:\/\/atsu\.moe\//, site: 'atsu' },
@@ -124,6 +158,7 @@ async function startRow(title, urls, originTab, mode) {
   lastRowTabs = [];
   lastRowMode = mode;
   lastRowKenmeiSites = null;
+  saveState();
 
   // Put the series name on the clipboard so it can be pasted straight into a
   // source's own search box. Not awaited: a slow or failed copy must never
@@ -141,6 +176,7 @@ async function startRow(title, urls, originTab, mode) {
     const entry = { tabId: tab.id, site: siteFor(urls[i]) };
     state.sourceTabs.push(entry);
     lastRowTabs.push(entry);
+    saveState();
   }
   broadcastState();
 }
@@ -165,6 +201,7 @@ function resolveTab(tabId, capturedUrl) {
   } else {
     broadcastState();
   }
+  saveState();
 
   if (copiesToClipboard(mode) && capturedUrl) {
     copyToClipboard(urls.join(', '));
@@ -176,16 +213,30 @@ function resolveTab(tabId, capturedUrl) {
   }
 }
 
+// Every message waits for the saved state first (the worker may have just been
+// restarted to deliver it), then gets a reply - null unless it asked for one.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  restoreState().then(() => {
+    let response = null;
+    handleMessage(msg, sender, (value) => { response = value; });
+    sendResponse(response);
+  });
+  return true; // replying asynchronously
+});
+
+function handleMessage(msg, sender, sendResponse) {
   switch (msg.type) {
     case 'registerImportTab':
       if (sender.tab) importTabId = sender.tab.id;
+      saveState();
       return;
     case 'registerKenmeiTab':
       if (sender.tab) kenmeiTabId = sender.tab.id;
+      saveState();
       return;
     case 'registerDashboardTab':
       if (sender.tab) dashboardTabId = sender.tab.id;
+      saveState();
       return;
     case 'startRow':
       if (sender.tab) startRow(msg.title, msg.urls, sender.tab, msg.mode || 'import');
@@ -216,6 +267,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       // via 'getKenmeiSourceInfo' below.
       if (lastRowMode !== 'kenmei') return;
       lastRowKenmeiSites = new Set(msg.sites || []);
+      saveState();
       for (const t of lastRowTabs) {
         chrome.tabs.sendMessage(t.tabId, { type: 'kenmeiSourceKnown', hasSource: lastRowKenmeiSites.has(t.site) }).catch(() => {});
       }
@@ -238,10 +290,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     default:
       return;
   }
-});
+}
 
 // Safety net: closing a source tab by hand (Ctrl+W) counts as a skip.
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (!state) return;
-  if (state.sourceTabs.some((t) => t.tabId === tabId)) resolveTab(tabId, null);
+  restoreState().then(() => {
+    if (!state) return;
+    if (state.sourceTabs.some((t) => t.tabId === tabId)) resolveTab(tabId, null);
+  });
 });

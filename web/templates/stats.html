@@ -450,8 +450,16 @@ const LABEL_MAP = {
   mature: 'Mature',
   explicit: 'Explicit',
   mangadex: 'MangaDex',
-  kagane: 'Kagane'
+  kagane: 'Kagane',
+  atsu: 'Atsumaru',
+  asura: 'AsuraScans',
+  hive: 'HiveToons',
+  flame: 'Flame Comics'
 };
+
+// Stats values that come from the data (a scraped tag name, an unexpected
+// type or status value) are inserted as HTML below, so they're escaped.
+const label = value => escapeHtml(LABEL_MAP[value] || value);
 
 async function loadStats() {
   try {
@@ -617,13 +625,13 @@ function renderStats(stats) {
       <div class="stats-grid">
         ${Object.entries(stats.additional.series_per_source).map(([source, count]) => `
           <div class="stat-card">
-            <div class="stat-label">${LABEL_MAP[source] || source} Series</div>
+            <div class="stat-label">${label(source)} Series</div>
             <div class="stat-value">${count}</div>
           </div>
         `).join('')}
         <div class="stat-card">
           <div class="stat-label">Most Used Source</div>
-          <div class="stat-value" style="font-size: 24px;">${LABEL_MAP[stats.additional.most_used_source] || stats.additional.most_used_source}</div>
+          <div class="stat-value" style="font-size: 24px;">${label(stats.additional.most_used_source)}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Multi-Source Series</div>
@@ -632,7 +640,7 @@ function renderStats(stats) {
         </div>
         <div class="stat-card">
           <div class="stat-label">Most Common Genre</div>
-          <div class="stat-value" style="font-size: 20px;">${stats.additional.most_common_genre}</div>
+          <div class="stat-value" style="font-size: 20px;">${escapeHtml(stats.additional.most_common_genre)}</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Avg Chapters per Series</div>
@@ -641,7 +649,7 @@ function renderStats(stats) {
         </div>
         <div class="stat-card">
           <div class="stat-label">Most Read Type</div>
-          <div class="stat-value" style="font-size: 24px;">${LABEL_MAP[stats.additional.most_read_type] || stats.additional.most_read_type}</div>
+          <div class="stat-value" style="font-size: 24px;">${label(stats.additional.most_read_type)}</div>
         </div>
       </div>
     </div>
@@ -658,7 +666,7 @@ function renderBreakdown(title, data, total) {
       <h3 style="color: white; font-size: 16px; margin-bottom: 16px;">${title}</h3>
       ${entries.map(([key, value]) => {
         const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
-        const label = LABEL_MAP[key] || key;
+        const text = label(key);
         const color = COLOR_MAP[key] || '#678ec9';
         
         return `
@@ -666,7 +674,7 @@ function renderBreakdown(title, data, total) {
           <div class="breakdown-item">
             <div class="breakdown-label">
               <span class="color-dot" style="background: ${color};"></span>
-              ${label}
+              ${text}
             </div>
             <div class="breakdown-value">${value} (${percentage}%)</div>
           </div>

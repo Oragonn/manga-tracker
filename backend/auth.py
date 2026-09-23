@@ -6,7 +6,6 @@ from datetime import timedelta
 from flask import jsonify, redirect, render_template, request, session, url_for
 from flask.sessions import SecureCookieSessionInterface
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 from flask_wtf import CSRFProtect
 from werkzeug.security import check_password_hash
 
@@ -75,6 +74,26 @@ def _is_local_path(path):
         and "\\" not in path and not any(ord(c) < 32 for c in path)
 
 
+_LOOPBACK = {"127.0.0.1", "::1"}
+
+
+def _client_ip():
+    """The address to rate-limit logins by and to record in the auth log.
+    Everything coming through the Cloudflare Tunnel reaches Flask over
+    loopback, so the socket address alone lumped every internet visitor
+    together as 127.0.0.1 - one person hammering the login page used up the
+    limit for everyone, the owner included, and the log never showed who.
+    For loopback traffic the edge's Cf-Connecting-Ip names the real client
+    (only cloudflared, on this machine, can connect over loopback); any
+    other request is identified by its socket address, never by a header."""
+    addr = request.remote_addr
+    if addr in _LOOPBACK:
+        cf_ip = request.headers.get("Cf-Connecting-Ip", "").strip()
+        if cf_ip:
+            return cf_ip
+    return addr
+
+
 def is_lan_request():
     addr = request.remote_addr
     if not addr:
@@ -110,10 +129,10 @@ def init_auth(app):
     app.session_interface = _LanAwareSessionInterface()
 
     CSRFProtect(app)
-    limiter = Limiter(get_remote_address, app=app, default_limits=[])
+    limiter = Limiter(_client_ip, app=app, default_limits=[])
 
     def _on_login_breach(*_args, **_kwargs):
-        log_lockout(request.remote_addr)
+        log_lockout(_client_ip())
 
     @app.route("/login", methods=["GET", "POST"])
     @limiter.limit("5 per 15 minutes", methods=["POST"], on_breach=_on_login_breach)
@@ -128,7 +147,7 @@ def init_auth(app):
                 if not _is_local_path(next_path):
                     next_path = None
                 return redirect(next_path or url_for("dashboard"))
-            log_failed_login(request.remote_addr)
+            log_failed_login(_client_ip())
             error = "Invalid password"
         return render_template("login.html", error=error)
 

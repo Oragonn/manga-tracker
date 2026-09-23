@@ -83,13 +83,12 @@ def get_series_info(slug):
         canonical_slug = s.get('slug') or slug
         public_url = s.get('public_url') or f"/comics/{slug}"
 
-        # The chapter list is a secondary call - if it fails, keep going with
-        # empty chapters rather than treating the whole source as broken
-        # (metadata itself already succeeded).
+        # A failed chapter-list request is a failed fetch: carrying on with
+        # no chapters would read as "this series has none" and empty it.
         chapters_resp = _delayed_get(f"{API_BASE}/series/{canonical_slug}/chapters")
-        raw_chapters = []
-        if chapters_resp.status_code == 200:
-            raw_chapters = chapters_resp.json().get('data') or []
+        if chapters_resp.status_code != 200:
+            raise Exception(f"AsuraScans chapter list returned HTTP {chapters_resp.status_code} for series {slug}")
+        raw_chapters = chapters_resp.json().get('data') or []
 
         chapters = []
         for ch in raw_chapters:

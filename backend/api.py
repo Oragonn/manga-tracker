@@ -77,6 +77,27 @@ def _check_for_duplicate_titles(data, url, titles):
         })
 
 
+def _find_tracked_series(url):
+    """(series_id, title) of a tracked series that already has a source
+    pointing at the same series as `url` on the same site, whatever form
+    either link is written in; None if there is none (or `url` isn't a
+    recognised series link)."""
+    from .source_links import parse_source_link, find_series_ids
+    link = parse_source_link(url)
+    if not link:
+        return None
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        ids = find_series_ids(cursor, *link)
+        if not ids:
+            return None
+        cursor.execute("SELECT id, title FROM series WHERE id = ?", (ids[0],))
+        return cursor.fetchone()
+    finally:
+        release_db(conn)
+
+
 class AddTask:
     def __init__(self, data, task_id):
         self.data = data
@@ -117,8 +138,25 @@ def _add_worker():
                     task_processed = True
                     continue
 
-                # === NO EARLY DUPLICATE CHECK - Let database handle it atomically ===
-                # Duplicates will be caught by IntegrityError and logged there
+                # The same series can be linked in more than one form
+                # (kagane.org vs kagane.to, a MangaDex link with or without its
+                # title slug, a trailing slash...), which the unique source_url
+                # check below can't see. Compare the site's own series id.
+                existing = _find_tracked_series(url)
+                if existing:
+                    series_id, existing_title = existing
+                    try:
+                        from .error_logger import log_error
+                        log_error(url, f"Duplicate series: '{existing_title}' is already in your tracker",
+                                  series_title=existing_title)
+                    except Exception:
+                        pass
+                    result = {'id': series_id, 'title': existing_title, 'success': True, 'duplicate': True}
+                    task_processed = True
+                    continue
+
+                # Otherwise the database's unique source_url is the final
+                # guard (an IntegrityError is handled below)
 
                 if is_mangadex:
                     manga_id = extract_manga_id(url)

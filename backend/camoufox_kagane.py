@@ -13,6 +13,7 @@
 
 import asyncio
 import base64
+import concurrent.futures
 import json
 import os
 import threading
@@ -157,7 +158,13 @@ class KaganeBrowserClient:
 
     def _run_coro(self, coro, timeout=40):
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result(timeout=timeout)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            # Stop it for real: left running, it keeps driving the page while
+            # the caller's retry reinitialises the browser under it.
+            future.cancel()
+            raise
 
     def get_series_info(self, series_id, with_gallery=False):
         """

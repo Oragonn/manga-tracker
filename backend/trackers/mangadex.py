@@ -1,6 +1,7 @@
 # backend/trackers/mangadex.py
 
 import requests
+import threading
 import time
 from urllib.parse import urlparse
 
@@ -12,16 +13,22 @@ _session.headers.update({
 })
 
 _last_call = 0
+_last_call_lock = threading.Lock()
 _MIN_DELAY = 0.4
 _MAX_RETRIES = 3
 
 def _delayed_get(url, **kwargs):
     global _last_call
     for attempt in range(_MAX_RETRIES):
-        now = time.time()
-        if now - _last_call < _MIN_DELAY:
-            time.sleep(_MIN_DELAY - (now - _last_call))
-        _last_call = now
+        # The scheduler scans several series at once, so the throttle
+        # read+write must be atomic (same as atsu.py/asura.py), and the time
+        # recorded is when this request actually goes out - after any sleep -
+        # or the next caller measures its gap from too early.
+        with _last_call_lock:
+            now = time.time()
+            if now - _last_call < _MIN_DELAY:
+                time.sleep(_MIN_DELAY - (now - _last_call))
+            _last_call = time.time()
         try:
             resp = _session.get(url, timeout=10, **kwargs)
             if resp.status_code == 429:

@@ -953,6 +953,15 @@ def api_add_source(series_id):
         if not source_url:
             return jsonify({'error': 'source_url required'}), 400
 
+        # Already attached - here or to another series - under any form of
+        # the link (kagane.org vs kagane.to, with or without a title slug...)
+        from .api import _find_tracked_series
+        existing = _find_tracked_series(source_url)
+        if existing:
+            if existing[0] == series_id:
+                return jsonify({'error': 'That source is already attached to this series'}), 409
+            return jsonify({'error': f"That source already belongs to \"{existing[1]}\""}), 409
+
         # Detect source type
         if 'mangadex.org' in source_url:
             source_type = 'mangadex'
