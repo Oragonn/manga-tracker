@@ -474,7 +474,7 @@
       tr.className = row.skipped ? 'row-skipped' : (row.importState === 'imported' ? 'row-imported' : '');
 
       const originHtml = row.source_site
-        ? `<span class="row-origin">was on ${row.source_site}</span>`
+        ? `<span class="row-origin">was on ${escapeHtml(row.source_site)}</span>`
         : '';
 
       const statusOptions = Object.entries(STATUS_LABELS)
@@ -526,7 +526,7 @@
         </td>
         <td>
           <span class="row-status-text ${row.skipped ? 'pending' : (committed ? 'ok' : (row.importState === 'error' ? 'err' : 'pending'))}">
-            ${row.skipped ? 'Skipped' : (committed ? '✓ Imported' : (row.importState === 'error' ? row.errorMsg : ''))}
+            ${row.skipped ? 'Skipped' : (committed ? '✓ Imported' : (row.importState === 'error' ? escapeHtml(row.errorMsg) : ''))}
           </span>
           ${row.infoMsg ? `<div class="row-info-msg">${escapeHtml(row.infoMsg)}</div>` : ''}
         </td>

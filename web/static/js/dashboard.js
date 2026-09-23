@@ -72,8 +72,12 @@ const state = {
 	lastPage: undefined // Track page changes for scroll behavior
 };
 
-// Loading state to prevent multiple simultaneous loads
+// True while a loadPage() request is in flight. loadPageSeq numbers each
+// call: a filter change made mid-load starts a new request, and only the
+// newest one's response is ever rendered (an older one arriving later is
+// dropped), so the grid always matches the current filters.
 let isLoadingPage = false;
+let loadPageSeq = 0;
 
 // Saved filter/sort "bookmarks" (the dropdown left of the status filter).
 // bookmarksCache mirrors /api/filter-bookmarks; state.activeBookmarkId
@@ -943,7 +947,13 @@ function openEditModal(series) {
 		.then(r => r.json())
 		.then(data => data.sources || [])
 		.catch(() => []);
+	// Every response below is checked against the series the modal shows NOW:
+	// reopening it for another series before these land must not let this
+	// series' chapters/tags/sources fill the other one's form (and be saved
+	// onto it).
+	const stillOpen = () => currentSeriesIdForEdit === series.id;
 	currentSeriesSourcesPromise.then(sources => {
+		if (!stillOpen()) return;
 		const primary = sources.find(s => s.is_primary);
 		currentPrimarySourceId = primary ? primary.id : null;
 		pendingPrimarySourceId = currentPrimarySourceId;
@@ -954,12 +964,13 @@ function openEditModal(series) {
 	currentSeriesUploadsPromise = fetch(`/api/series/${series.id}/uploaded-covers`)
 		.then(r => r.json())
 		.then(data => {
-			currentSeriesUploadsCache = data.covers || [];
-			return currentSeriesUploadsCache;
+			const covers = data.covers || [];
+			if (stillOpen()) currentSeriesUploadsCache = covers;
+			return covers;
 		})
 		.catch(() => {
-			currentSeriesUploadsCache = [];
-			return currentSeriesUploadsCache;
+			if (stillOpen()) currentSeriesUploadsCache = [];
+			return [];
 		});
 
 	galleryCoverPage = 0;
@@ -972,6 +983,7 @@ function openEditModal(series) {
 		fetch('/api/custom-tags').then(r => r.json()).catch(() => []),
 		fetch(`/api/series/${series.id}/custom-tags`).then(r => r.json()).catch(() => ({ tag_ids: [] }))
 	]).then(([allTags, seriesTags]) => {
+		if (!stillOpen()) return;
 		allCustomTagsCache = allTags || [];
 		currentSeriesTagIds = seriesTags.tag_ids || [];
 		pendingSeriesTagIds = [...currentSeriesTagIds];
@@ -981,10 +993,24 @@ function openEditModal(series) {
 
 	loadSeriesTagsForEdit(series.id);
 
+	// Until this series' chapters arrive, the dropdown holds a single
+	// placeholder carrying the saved chapter - not the previous series' list,
+	// which would read as a chapter change (and could be saved).
+	const chapterSelectEl = document.getElementById('edit-current-chapter');
+	if (chapterSelectEl) {
+		const placeholder = document.createElement('option');
+		placeholder.value = String(series.current_chapter ?? -1);
+		placeholder.textContent = 'Loading…';
+		chapterSelectEl.replaceChildren(placeholder);
+		chapterSelectEl.value = placeholder.value;
+		syncChapterCustomList();
+	}
+
 	// Load chapters (existing code)
 	fetch(`/api/series/${series.id}/chapters`)
 		.then(r => r.json())
 		.then(chapters => {
+			if (!stillOpen()) return;
 			const select = document.getElementById('edit-current-chapter');
 			select.innerHTML = '<option value="-1">Not started</option>';
 			const hasAnyNullVolume = chapters.some(ch => ch.volume == null || ch.volume === '');
@@ -1226,8 +1252,8 @@ function syncChapterCustomList() {
 		const releaseDate = opt.dataset.releaseDate;
 		const dateHtml = releaseDate ? `<span class="settings-dropdown-item-date">${formatTimeAgo(releaseDate)}</span>` : '';
 		return `
-		<div class="settings-dropdown-item settings-dropdown-item-chapter ${opt.selected ? 'selected' : ''}" data-value="${opt.value}" data-search="${opt.textContent.toLowerCase()}">
-			<span class="settings-dropdown-item-label">${opt.textContent}</span>
+		<div class="settings-dropdown-item settings-dropdown-item-chapter ${opt.selected ? 'selected' : ''}" data-value="${escapeHtml(opt.value)}" data-search="${escapeHtml(opt.textContent.toLowerCase())}">
+			<span class="settings-dropdown-item-label">${escapeHtml(opt.textContent)}</span>
 			${dateHtml}
 		</div>
 	`;
@@ -3072,10 +3098,8 @@ function renderPagination(current, total, status, sort) {
 			prevBtn.classList.add('cursor-not-allowed', 'opacity-50');
 		} else {
 			prevBtn.addEventListener('click', () => {
-				if (!isLoadingPage) {
-					state.page = current - 1;
-					loadPage();
-				}
+				state.page = current - 1;
+				loadPage();
 			});
 		}
 		const prevSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -3119,10 +3143,8 @@ function renderPagination(current, total, status, sort) {
 					pageBtn.classList.add('page__current');
 				} else {
 					pageBtn.addEventListener('click', () => {
-						if (!isLoadingPage) {
-							state.page = page;
-							loadPage();
-						}
+						state.page = page;
+						loadPage();
 					});
 				}
 				nav.appendChild(pageBtn);
@@ -3135,10 +3157,8 @@ function renderPagination(current, total, status, sort) {
 			nextBtn.classList.add('cursor-not-allowed', 'opacity-50');
 		} else {
 			nextBtn.addEventListener('click', () => {
-				if (!isLoadingPage) {
-					state.page = current + 1;
-					loadPage();
-				}
+				state.page = current + 1;
+				loadPage();
 			});
 		}
 		const nextSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -3438,8 +3458,7 @@ async function refreshSeriesCardInPlace(seriesId) {
 }
 
 async function loadPage() {
-	// Prevent concurrent loads
-	if (isLoadingPage) return;
+	const seq = ++loadPageSeq;
 	isLoadingPage = true;
 
 	// Every filter/sort interaction ends up calling loadPage(), so this is
@@ -3529,6 +3548,7 @@ async function loadPage() {
 		const res = await fetch(url);
 		if (!res.ok) throw new Error('Failed to load series');
 		const data = await res.json();
+		if (seq !== loadPageSeq) return; // a newer load has replaced this one
 
 		// Store all series for reference
 		state.allSeries = data.items;
@@ -3553,6 +3573,7 @@ async function loadPage() {
 
 		renderPagination(data.current_page, data.total_pages, status, sort);
 	} catch (err) {
+		if (seq !== loadPageSeq) return;
 		seriesGrid.innerHTML = `
 			<div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: #ef4444;">
 				<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin: 0 auto 16px; display: block;">
@@ -3561,7 +3582,7 @@ async function loadPage() {
 					<line x1="12" y1="16" x2="12.01" y2="16"></line>
 				</svg>
 				<p style="font-size: 18px; font-weight: 600; margin-bottom: 8px; color: white;">Failed to load series</p>
-				<p style="font-size: 14px; color: #94a3b8; margin-bottom: 16px;">${err.message}</p>
+				<p style="font-size: 14px; color: #94a3b8; margin-bottom: 16px;">${escapeHtml(err.message)}</p>
 				<button onclick="loadPage()" style="padding: 10px 20px; background: #1665f4; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;">
 					Retry
 				</button>
@@ -3569,8 +3590,8 @@ async function loadPage() {
 		`;
 		console.error(err);
 	} finally {
-		// Always reset loading state
-		isLoadingPage = false;
+		// Only the newest load clears the flag
+		if (seq === loadPageSeq) isLoadingPage = false;
 	}
 }
 
@@ -5194,8 +5215,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	// ─── Modified Modal Close Handler ─────────────────────────────
 	editModal?.addEventListener('click', async (e) => {
 		if (e.target === editModal) {
-			if (pendingPrimarySourceId !== currentPrimarySourceId) {
-				if (!(await confirmDiscardChanges('You have an unsaved source change.'))) {
+			// A click beside the modal is easy to make by accident, so ask
+			// before throwing away anything staged. The Save button is enabled
+			// exactly when something differs from what's saved.
+			updateSaveButtonState();
+			const saveBtn = document.getElementById('btn-save-chapter');
+			if (saveBtn && !saveBtn.disabled) {
+				if (!(await confirmDiscardChanges('You have unsaved changes to this series.'))) {
 					return;
 				}
 			}
@@ -5718,8 +5744,15 @@ function formatTimeAgo(dateString) {
   }
 }
 
+// initMobile() runs on load and again on resize (for a window resized down
+// to phone width), but must only build the mobile UI once: phones fire resize
+// every time the address bar shows or hides while scrolling, and each run
+// used to rebuild the header and add another scroll/click listener.
+let mobileInitialized = false;
+
 function initMobile() {
-  if (!isMobileDevice()) return;
+  if (!isMobileDevice() || mobileInitialized) return;
+  mobileInitialized = true;
 
   // Create mobile header
   createMobileHeader();
@@ -6785,6 +6818,22 @@ function createBottomSheet() {
 
 	switch (action) {
 		case 'edit':
+		// A chapter picked with the sheet's +/- is saved first (as closing the
+		// sheet would), so switching to Series Settings doesn't drop it.
+		if (mobileState.pendingChapter !== null && mobileState.pendingChapter !== series.current_chapter) {
+			try {
+				const res = await saveChapter(series.id, mobileState.pendingChapter, series.current_chapter);
+				if (!res.ok) {
+					showNotification('Failed to save chapter - check your connection and try again', 'error');
+					return;
+				}
+				series.current_chapter = mobileState.pendingChapter;
+				refreshSeriesCardInPlace(series.id);
+			} catch (err) {
+				showNotification('Failed to save chapter', 'error');
+				return;
+			}
+		}
 		// Opens the same Series Settings modal as desktop's pencil-icon
 		// Edit -- this used to be two separate, each-incomplete mobile
 		// modals (a quick "Edit" for chapter/status/source, and a bare
@@ -6989,16 +7038,20 @@ function openBottomSheet(series) {
   mobileState.currentSeries = series;
   mobileState.pendingChapter = series.current_chapter;
   
-  // ADDED: Fetch and store primary source URL
+  // ADDED: Fetch and store primary source URL. Cleared first, so "Go to
+  // Source" can never use the previously opened series' link while this
+  // loads (it falls back to this series' own source_url meanwhile).
+  mobileState.primarySourceUrl = null;
   fetch(`/api/series/${series.id}/sources`)
     .then(res => res.json())
     .then(data => {
-      const primarySource = data.sources.find(s => s.is_primary);
+      if (mobileState.currentSeries?.id !== series.id) return;
+      const primarySource = (data.sources || []).find(s => s.is_primary);
       mobileState.primarySourceUrl = primarySource ? primarySource.source_url : series.source_url;
     })
     .catch(err => {
       console.error('Failed to get sources:', err);
-      mobileState.primarySourceUrl = series.source_url;
+      if (mobileState.currentSeries?.id === series.id) mobileState.primarySourceUrl = series.source_url;
     });
 
   // ADDED: Lock scrolling - MORE AGGRESSIVE (same as bulk edit menu)

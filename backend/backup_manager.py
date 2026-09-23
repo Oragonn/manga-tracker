@@ -220,8 +220,11 @@ class BackupManager:
             backups = []
             total_size = 0
             
-            for filename in sorted(os.listdir(self.backup_dir), reverse=True):
-                if not filename.startswith("tracker_backup_") or not filename.endswith(".db.gz"):
+            # Safety copies made just before a restore are listed too - they
+            # are the only way back from restoring the wrong backup
+            for filename in os.listdir(self.backup_dir):
+                is_safety = filename.startswith("safety_before_restore_")
+                if not (filename.startswith("tracker_backup_") or is_safety) or not filename.endswith(".db.gz"):
                     continue
                 
                 filepath = os.path.join(self.backup_dir, filename)
@@ -232,9 +235,11 @@ class BackupManager:
                     'filename': filename,
                     'size_mb': file_size / (1024 * 1024),
                     'created': datetime.fromtimestamp(file_mtime, tz=timezone.utc),
-                    'age_hours': (time.time() - file_mtime) / 3600
+                    'age_hours': (time.time() - file_mtime) / 3600,
+                    'is_safety': is_safety
                 })
                 total_size += file_size
+            backups.sort(key=lambda b: b['age_hours'])  # newest first
             
             return {
                 'count': len(backups),

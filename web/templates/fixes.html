@@ -1075,6 +1075,7 @@
   // ---------- Series picker ----------
 
   let searchDebounce = null;
+  let searchSeq = 0;  // only the newest search's results are shown
   filterTitle.addEventListener('input', () => {
     clearTimeout(searchDebounce);
     searchDebounce = setTimeout(runSearch, 300);
@@ -1085,10 +1086,12 @@
   async function runSearch() {
     const q = filterTitle.value.trim();
     if (!q) {
+      searchSeq++;  // a search still in flight must not refill the list
       pickerResults.innerHTML = '<div class="picker-empty">Type a title to search.</div>';
       return;
     }
     pickerResults.innerHTML = '<div class="picker-empty">Searching...</div>';
+    const seq = ++searchSeq;
     try {
       const params = new URLSearchParams({
         search: q,
@@ -1099,10 +1102,12 @@
       });
       const res = await fetch(`/api/series?${params}`);
       const data = await res.json();
+      if (seq !== searchSeq) return;
       pickerAllItems = data.items || [];
       pickerVisibleCount = PICKER_PAGE_SIZE;
       renderPickerResults();
     } catch (e) {
+      if (seq !== searchSeq) return;
       pickerResults.innerHTML = '<div class="picker-empty">Search failed.</div>';
     }
   }
@@ -1166,44 +1171,60 @@
     url.searchParams.set('series_id', id);
     window.history.replaceState({}, '', url);
 
+    // Clear the previous series' rows straight away
+    seriesSources = [];
+    currentChapters = [];
+    overrides = [];
+    currentChaptersTbody.innerHTML = '<tr><td colspan="4" class="fixes-empty-state">Loading...</td></tr>';
+    correctionsSection.style.display = 'none';
+
     await Promise.all([loadSources(), loadChapters(), loadOverrides()]);
+    if (id !== selectedSeriesId) return;  // another series was picked meanwhile
     renderAddSourceOptions();
     renderCurrentChapters();
     renderCorrections();
     workspace.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  // Each loader only stores what it fetched if that series is still the one
+  // selected: picking another series before these land must not put this
+  // one's chapters (and their Ban/Save buttons) under the other's title.
   async function loadSources() {
+    const id = selectedSeriesId;
+    let sources = [];
     try {
-      const res = await fetch(`/api/series/${selectedSeriesId}/sources`);
+      const res = await fetch(`/api/series/${id}/sources`);
       const data = await res.json();
-      seriesSources = data.sources || [];
-    } catch (e) {
-      seriesSources = [];
-    }
+      sources = data.sources || [];
+    } catch (e) { /* none */ }
+    if (id === selectedSeriesId) seriesSources = sources;
   }
 
   async function loadChapters() {
+    const id = selectedSeriesId;
+    let chapters = [];
     try {
-      const res = await fetch(`/api/series/${selectedSeriesId}/chapters`);
-      currentChapters = await res.json();
-    } catch (e) {
-      currentChapters = [];
-    }
+      const res = await fetch(`/api/series/${id}/chapters`);
+      chapters = await res.json();
+    } catch (e) { /* none */ }
+    if (id === selectedSeriesId) currentChapters = Array.isArray(chapters) ? chapters : [];
   }
 
   async function loadOverrides() {
+    const id = selectedSeriesId;
+    let list = [];
     try {
-      const res = await fetch(`/api/series/${selectedSeriesId}/chapter-overrides`);
+      const res = await fetch(`/api/series/${id}/chapter-overrides`);
       const data = await res.json();
-      overrides = data.overrides || [];
-    } catch (e) {
-      overrides = [];
-    }
+      list = data.overrides || [];
+    } catch (e) { /* none */ }
+    if (id === selectedSeriesId) overrides = list;
   }
 
   async function refreshAfterChange() {
+    const id = selectedSeriesId;
     await Promise.all([loadChapters(), loadOverrides()]);
+    if (id !== selectedSeriesId) return;
     renderCurrentChapters();
     renderCorrections();
   }

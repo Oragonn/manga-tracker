@@ -47,9 +47,10 @@ async function loadBackups() {
     const usagePercent = Math.min((data.total_size_mb / dbTargetMB) * 100, 100);
     document.getElementById('usage-fill').style.width = `${usagePercent}%`;
     
-    // Calculate last backup time
-    if (data.backups.length > 0) {
-      const lastBackup = data.backups[0];
+    // Calculate last backup time (from the hourly backups - a safety copy
+    // made before a restore doesn't move the schedule)
+    const lastBackup = data.backups.find(b => !b.is_safety);
+    if (lastBackup) {
       const ageHours = lastBackup.age_hours;
       let lastBackupText;
       if (ageHours < 1) {
@@ -95,7 +96,7 @@ async function loadBackups() {
         html += `
           <div class="backup-entry">
             <div class="backup-info">
-              <div class="backup-filename">${escapeHtml(backup.filename)}</div>
+              <div class="backup-filename">${escapeHtml(backup.filename)}${backup.is_safety ? ' <span class="backup-safety-label">Before restore</span>' : ''}</div>
               <div class="backup-meta">
                 Size: ${backup.size_mb.toFixed(2)} MB  •  
                 <span class="backup-time" data-full-date="${fullDate}">${ageText}</span>
