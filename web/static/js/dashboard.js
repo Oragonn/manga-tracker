@@ -1723,24 +1723,40 @@ async function removeSeriesSource(sourceId) {
 	}
 }
 
-async function addSeriesSource(url) {
-	if (!currentSeriesIdForEdit || !url) return;
-	try {
-		const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ source_url: url })
-		});
-		const data = await res.json().catch(() => ({}));
-		if (res.ok) {
-			await refreshSourcesUI();
-			showNotification('Source added', 'source_added');
-			loadPage();
-		} else {
-			showNotification(data.error || 'Failed to add source', 'error');
+// Accepts one URL or a comma-separated list (same format as the Add Series
+// URL box and the extension's Y clipboard list). Added one at a time, in
+// order - each add fetches that source's metadata server-side, and running
+// them in parallel would race each other merging into the same series row.
+async function addSeriesSource(input) {
+	const urls = (input || '').split(',').map(u => u.trim()).filter(Boolean);
+	if (!currentSeriesIdForEdit || urls.length === 0) return;
+	let added = 0;
+	const failures = [];
+	for (const url of urls) {
+		try {
+			const res = await fetch(`/api/series/${currentSeriesIdForEdit}/sources`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ source_url: url })
+			});
+			const data = await res.json().catch(() => ({}));
+			if (res.ok) added++;
+			else failures.push(data.error || 'Failed to add source');
+		} catch (e) {
+			failures.push('Failed to add source');
 		}
-	} catch (e) {
-		showNotification('Failed to add source', 'error');
+	}
+	if (added > 0) {
+		await refreshSourcesUI();
+		showNotification(added === 1 ? 'Source added' : `${added} sources added`, 'source_added');
+		loadPage();
+	}
+	if (failures.length > 0) {
+		// A single failure keeps the server's own message; several just get counted.
+		showNotification(
+			failures.length === 1 ? failures[0] : `${failures.length} of ${urls.length} sources failed to add`,
+			'error'
+		);
 	}
 }
 
