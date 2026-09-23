@@ -607,9 +607,8 @@ function getLogIcon(type) {
 }
 
 function getLogTitle(log) {
-  // Tag names come from scraped sources or typed text, and this string is
-  // injected as HTML below, so it has to be escaped (series titles are left
-  // as they always were).
+  // Series titles and tag names come from scraped sources or typed text, and
+  // this string is injected as HTML below, so it has to be escaped.
   if (log.action_type.startsWith('tag_')) return escapeHtml(log.series_title || 'Tags');
 
   if (log.is_bulk) {
@@ -621,7 +620,7 @@ function getLogTitle(log) {
     return `${typeLabels[log.action_type] || 'Modified'} ${log.affected_count || 'multiple'} series`;
   }
   
-  return log.series_title || 'Unknown Series';
+  return escapeHtml(log.series_title || 'Unknown Series');
 }
 
 function getLogDetails(log) {
@@ -698,7 +697,7 @@ function getLogDetails(log) {
       case 'bookmark_added':
         return 'Saved view created';
       case 'bookmark_updated':
-        return newVal?.renamed ? `Renamed to "${newVal.name}"` : 'Filters updated';
+        return newVal?.renamed ? `Renamed to "${escapeHtml(newVal.name)}"` : 'Filters updated';
       case 'bookmark_deleted':
         return 'Saved view deleted';
       case 'tag_merged':

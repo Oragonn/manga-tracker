@@ -161,7 +161,9 @@ def _add_worker():
                                 # Race condition or duplicate: fetch existing series
                                 conn_dup = get_db()
                                 cursor_dup = conn_dup.cursor()
-                                cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ? "
+                                    "UNION ALL SELECT s.id, s.title FROM series_sources x JOIN series s ON s.id = x.series_id "
+                                    "WHERE x.source_url = ? LIMIT 1", (url, url))
                                 existing = cursor_dup.fetchone()
                                 release_db(conn_dup)
                                 
@@ -353,7 +355,9 @@ def _add_worker():
                                 # Race condition: fetch existing series
                                 conn_dup = get_db()
                                 cursor_dup = conn_dup.cursor()
-                                cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ? "
+                                    "UNION ALL SELECT s.id, s.title FROM series_sources x JOIN series s ON s.id = x.series_id "
+                                    "WHERE x.source_url = ? LIMIT 1", (url, url))
                                 existing = cursor_dup.fetchone()
                                 release_db(conn_dup)
                                 
@@ -520,7 +524,9 @@ def _add_worker():
                                     # Race condition: fetch existing series
                                     conn_dup = get_db()
                                     cursor_dup = conn_dup.cursor()
-                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ? "
+                                    "UNION ALL SELECT s.id, s.title FROM series_sources x JOIN series s ON s.id = x.series_id "
+                                    "WHERE x.source_url = ? LIMIT 1", (url, url))
                                     existing = cursor_dup.fetchone()
                                     release_db(conn_dup)
                                     
@@ -687,7 +693,9 @@ def _add_worker():
                                     # Race condition: fetch existing series
                                     conn_dup = get_db()
                                     cursor_dup = conn_dup.cursor()
-                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ? "
+                                    "UNION ALL SELECT s.id, s.title FROM series_sources x JOIN series s ON s.id = x.series_id "
+                                    "WHERE x.source_url = ? LIMIT 1", (url, url))
                                     existing = cursor_dup.fetchone()
                                     release_db(conn_dup)
 
@@ -844,7 +852,9 @@ def _add_worker():
                                     # Race condition: fetch existing series
                                     conn_dup = get_db()
                                     cursor_dup = conn_dup.cursor()
-                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ? "
+                                    "UNION ALL SELECT s.id, s.title FROM series_sources x JOIN series s ON s.id = x.series_id "
+                                    "WHERE x.source_url = ? LIMIT 1", (url, url))
                                     existing = cursor_dup.fetchone()
                                     release_db(conn_dup)
 
@@ -1001,7 +1011,9 @@ def _add_worker():
                                     # Race condition: fetch existing series
                                     conn_dup = get_db()
                                     cursor_dup = conn_dup.cursor()
-                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ? "
+                                    "UNION ALL SELECT s.id, s.title FROM series_sources x JOIN series s ON s.id = x.series_id "
+                                    "WHERE x.source_url = ? LIMIT 1", (url, url))
                                     existing = cursor_dup.fetchone()
                                     release_db(conn_dup)
 
@@ -1158,7 +1170,9 @@ def _add_worker():
                                     # Race condition: fetch existing series
                                     conn_dup = get_db()
                                     cursor_dup = conn_dup.cursor()
-                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ?", (url,))
+                                    cursor_dup.execute("SELECT id, title FROM series WHERE source_url = ? "
+                                    "UNION ALL SELECT s.id, s.title FROM series_sources x JOIN series s ON s.id = x.series_id "
+                                    "WHERE x.source_url = ? LIMIT 1", (url, url))
                                     existing = cursor_dup.fetchone()
                                     release_db(conn_dup)
 
@@ -1216,6 +1230,8 @@ def _add_worker():
                     pass
 
             finally:
+                from .database import release_leaked_db
+                release_leaked_db()
                 # Always return a result to unblock UI
                 if not task_processed:
                     result = {'error': 'Internal processing error'}
@@ -1239,6 +1255,13 @@ manga_scheduler = MangaScheduler()
 app = Flask(__name__,
             static_folder='../web/static',
             template_folder='../web/templates')
+
+@app.teardown_request
+def _release_leaked_db(_exc):
+    # A request that raised between get_db() and release_db() would otherwise
+    # keep the global DB lock forever, hanging every later request and scan.
+    from .database import release_leaked_db
+    release_leaked_db()
 
 # Every file under web/static/uploads/ is content-addressed - atsu_covers and
 # kagane_covers are keyed by the source's own stable image id/filename, and
@@ -1288,8 +1311,11 @@ def api_add_status(task_id):
 @app.route('/api/series')
 def api_series():
     from .database import get_db, release_db
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 50, type=int)
+    # Clamped: SQLite rejects an integer this large as LIMIT/OFFSET, and
+    # per_page=0 would divide by zero below. The dashboard asks for up to
+    # 9999 at once when it needs the whole list.
+    page = min(max(request.args.get('page', 1, type=int), 1), 1_000_000)
+    per_page = min(max(request.args.get('per_page', 50, type=int), 1), 10_000)
     status_filter = request.args.get('status', 'reading').strip()
     sort_order = request.args.get('sort', 'unread_first').strip()
     sort_dir = request.args.get('dir', '').strip()
@@ -1871,7 +1897,9 @@ def api_update_series(series_id):
         if old_row:
             old_title, old_chapter, old_status, old_cover, old_type, old_rating = old_row
             
-            # Determine action type and log values
+            # One entry per kind of change, so a save that changes several
+            # at once (Series Settings sends chapter, status, title and
+            # cover together) logs - and can undo - each of them
             if 'current_chapter' in updates and old_chapter != updates['current_chapter']:
                 log_activity(
                     action_type='progress',
@@ -1888,7 +1916,7 @@ def api_update_series(series_id):
                     update_current_period_stats()
                 except Exception as stats_err:
                     print(f"[Update] Stats update failed: {stats_err}")
-            elif 'status' in updates and old_status != updates['status']:
+            if 'status' in updates and old_status != updates['status']:
                 log_activity(
                     action_type='status',
                     series_id=series_id,
@@ -1898,16 +1926,15 @@ def api_update_series(series_id):
                     is_bulk=_is_bulk,
                     bulk_id=_bulk_id
                 )
-            elif 'title' in updates or 'cover_url' in updates:
-                old_vals = {}
-                new_vals = {}
-                if 'title' in updates:
-                    old_vals['title'] = old_title
-                    new_vals['title'] = updates['title']
-                if 'cover_url' in updates:
-                    old_vals['cover_url'] = old_cover
-                    new_vals['cover_url'] = updates['cover_url']
-                
+            old_vals = {}
+            new_vals = {}
+            if 'title' in updates and old_title != updates['title']:
+                old_vals['title'] = old_title
+                new_vals['title'] = updates['title']
+            if 'cover_url' in updates and old_cover != updates['cover_url']:
+                old_vals['cover_url'] = old_cover
+                new_vals['cover_url'] = updates['cover_url']
+            if new_vals:
                 log_activity(
                     action_type='edited',
                     series_id=series_id,
@@ -1919,8 +1946,7 @@ def api_update_series(series_id):
                 )
 
             # Content type and content rating are logged together, in one entry
-            # of their own: the if/elif chain above records only ONE kind of edit
-            # per save, and these have their own undo.
+            # of their own, with their own undo.
             classification_old = {}
             classification_new = {}
             if 'source_type' in updates and old_type != updates['source_type']:
@@ -2276,29 +2302,18 @@ def save_completed_period_stats():
                     WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
                 """, (last_year_start.isoformat(), last_year_end.isoformat()))
                 series_added = cursor.fetchone()[0] or 0
-                
+
+                # The year's month rows, not a recount of activity_log - it
+                # only keeps the last 30 days of progress
                 cursor.execute("""
-                    SELECT old_value, new_value
-                    FROM activity_log
-                    WHERE action_type = 'progress'
-                    AND timestamp >= ? AND timestamp <= ?
-                """, (last_year_start.isoformat(), last_year_end.isoformat()))
-                
-                chapters_read = 0
-                for old_str, new_str in cursor.fetchall():
-                    try:
-                        old_val = json.loads(old_str) if old_str else {}
-                        new_val = json.loads(new_str) if new_str else {}
-                        old_ch = old_val.get('chapter', -1)
-                        new_ch = new_val.get('chapter', -1)
-                        if old_ch >= 0 and new_ch >= 0:
-                            chapters_read += float(new_ch) - float(old_ch)
-                    except:
-                        continue
-                
+                    SELECT COALESCE(SUM(chapters_read), 0) FROM stats_history
+                    WHERE period_type = 'month' AND period_start >= ? AND period_start <= ?
+                """, (year_str, last_year_end.date().isoformat()))
+                chapters_read = round(cursor.fetchone()[0], 1)
+
                 # Use existing cursor instead of calling save_period_stats() to avoid deadlock
                 cursor.execute("""
-                    INSERT OR REPLACE INTO stats_history 
+                    INSERT OR REPLACE INTO stats_history
                     (period_type, period_start, period_end, series_added, chapters_read)
                     VALUES (?, ?, ?, ?, ?)
                 """, ('year', year_str, last_year_end.date().isoformat(), series_added, chapters_read))

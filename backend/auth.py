@@ -67,6 +67,14 @@ def _get_visitor_ip():
     return request.remote_addr
 
 
+def _is_local_path(path):
+    """True for a path on this site ("/dashboard"). The login page's ?next=
+    must never send someone to another site ("https://evil.example",
+    "//evil.example", or "/\\evil.example", which browsers treat the same)."""
+    return bool(path) and path.startswith("/") and not path.startswith("//") \
+        and "\\" not in path and not any(ord(c) < 32 for c in path)
+
+
 def is_lan_request():
     addr = request.remote_addr
     if not addr:
@@ -117,6 +125,8 @@ def init_auth(app):
                 session.permanent = True
                 session["authenticated"] = True
                 next_path = request.args.get("next")
+                if not _is_local_path(next_path):
+                    next_path = None
                 return redirect(next_path or url_for("dashboard"))
             log_failed_login(request.remote_addr)
             error = "Invalid password"

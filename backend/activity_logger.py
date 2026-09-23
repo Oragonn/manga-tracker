@@ -4,6 +4,7 @@ Activity logging system with undo support.
 Logs all user actions (add, delete, status changes, progress updates).
 """
 
+import html
 import json
 from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
@@ -102,7 +103,7 @@ def log_activity(action_type, series_id=None, series_title=None, old_value=None,
         print(f"[Activity Log] Failed to log {action_type}: {e}")
         # Don't crash the app if logging fails
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
 
@@ -189,7 +190,7 @@ def get_series_snapshot(series_id):
     except Exception as e:
         print(f"[Activity Log] Failed to get series snapshot: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return None
@@ -217,7 +218,7 @@ def cleanup_old_logs():
     except Exception as e:
         print(f"[Activity Log] Cleanup error: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
 
@@ -236,7 +237,7 @@ def mark_log_undone(log_id=None, bulk_id=None):
     except Exception as e:
         print(f"[Activity Log] Failed to mark as undone: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
 
@@ -346,7 +347,8 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
                 days = diff.days
                 display_time = f"{days}d ago"
             
-            # Get series list for bulk operations
+            # Get series list for bulk operations (sent as HTML, so each
+            # title - scraped from a source site - is escaped)
             series_list = None
             affected_count = 1
             if is_bulk and bulk_id:
@@ -360,9 +362,9 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
                 affected_count = len(bulk_series)
                 
                 if affected_count <= 5:
-                    series_list = "<br>".join([f"• {s[0]}" for s in bulk_series])
+                    series_list = "<br>".join([f"• {html.escape(s[0] or '')}" for s in bulk_series])
                 else:
-                    series_list = "<br>".join([f"• {s[0]}" for s in bulk_series[:3]])
+                    series_list = "<br>".join([f"• {html.escape(s[0] or '')}" for s in bulk_series[:3]])
                     series_list += f"<br>• ... and {affected_count - 3} more"
             
             results.append({
@@ -386,7 +388,7 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
     except Exception as e:
         print(f"[Activity Log] Failed to get logs: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return []

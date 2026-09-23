@@ -320,6 +320,8 @@ class MangaScheduler:
                 time.sleep(60)
             except Exception as e:
                 print(f"[Scheduler] Background error: {e}")
+                from .database import release_leaked_db
+                release_leaked_db()
                 time.sleep(60)
 
     def _update_last_check(self, series_id, conn):
@@ -693,6 +695,10 @@ class MangaScheduler:
                         
         except Exception as e:
             from .error_logger import log_error
+            from .database import release_leaked_db
+            # get_db() below would deadlock on a connection this thread
+            # never released before the error
+            release_leaked_db()
             try:
                 conn_err = get_db()
                 cursor_err = conn_err.cursor()

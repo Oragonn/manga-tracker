@@ -3,6 +3,7 @@ import sqlite3
 import os
 import json
 from datetime import datetime, timezone, timedelta  # ADDED: timedelta
+import threading
 from threading import Lock
 import glob
 import re
@@ -33,29 +34,57 @@ def series_search_titles(title, title_en, title_romaji, title_native, alt_titles
 
 DB_PATH = "data/tracker.db"
 _db_lock = Lock()
+# The connection (if any) the current thread holds the global lock with, so
+# release_leaked_db() can free it when code between get_db() and release_db()
+# raised without a try/finally - otherwise the lock stays held forever and
+# every later request and scan hangs.
+_db_holder = threading.local()
 
 # Ensure data dir exists early
 os.makedirs("data", exist_ok=True)
 
 def get_db():
     _db_lock.acquire()
-    conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES, timeout=20.0)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=10000;")  # 10s wait for lock
-    # *** FIX 1: Ensure foreign keys are enabled to trigger CASCADE deletes ***
-    conn.execute("PRAGMA foreign_keys = ON;")
+    try:
+        conn = sqlite3.connect(DB_PATH, detect_types=sqlite3.PARSE_DECLTYPES, timeout=20.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=10000;")  # 10s wait for lock
+        # *** FIX 1: Ensure foreign keys are enabled to trigger CASCADE deletes ***
+        conn.execute("PRAGMA foreign_keys = ON;")
+    except BaseException:
+        _db_lock.release()
+        raise
+    _db_holder.conn = conn
     return conn
 
-def release_db(conn):
-    """Commit, close, and release global lock."""
+def release_db(conn, commit=True):
+    """Commit (or, with commit=False, roll back - for error paths, so a
+    half-done change is never saved), close, and release global lock."""
     try:
-        conn.commit()
+        if commit:
+            conn.commit()
+        else:
+            conn.rollback()
     except:
         conn.rollback()
         raise
     finally:
+        if getattr(_db_holder, 'conn', None) is conn:
+            _db_holder.conn = None
         conn.close()
         _db_lock.release()
+
+def release_leaked_db():
+    """Roll back and release a connection this thread took with get_db() but
+    never released (an exception escaped before release_db ran). Safe to call
+    at any point where the thread shouldn't be holding one - the end of a
+    request, or of a scan. Returns True if something was released."""
+    conn = getattr(_db_holder, 'conn', None)
+    if conn is None:
+        return False
+    print("[Database] Releasing a DB connection that was never released (an error skipped release_db)")
+    release_db(conn, commit=False)
+    return True
 
 def add_source_to_series(series_id, source_url, source_type, is_primary=False, cover_url=None):
     """
@@ -88,7 +117,7 @@ def add_source_to_series(series_id, source_url, source_type, is_primary=False, c
     except Exception as e:
         print(f"[Database] Failed to add source: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return None
@@ -184,7 +213,7 @@ def migrate_to_multi_source():
     except Exception as e:
         print(f"[Migration] Failed: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         raise
@@ -249,7 +278,7 @@ def get_series_sources_bulk(series_ids):
     except Exception as e:
         print(f"[Database] Failed to get bulk series sources: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return {}
@@ -358,6 +387,14 @@ def set_primary_source(series_id, source_id):
     cursor = conn.cursor()
     
     try:
+        # Refuse a source that isn't this series' own - demoting first and
+        # then finding nothing to promote would leave the series with no
+        # primary source at all.
+        cursor.execute("SELECT 1 FROM series_sources WHERE id = ? AND series_id = ?", (source_id, series_id))
+        if not cursor.fetchone():
+            release_db(conn)
+            return False
+
         # Demote all sources for this series
         cursor.execute("""
             UPDATE series_sources 
@@ -386,7 +423,7 @@ def set_primary_source(series_id, source_id):
     except Exception as e:
         print(f"[Database] Failed to set primary source: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False
@@ -431,7 +468,7 @@ def remove_source(source_id):
     except Exception as e:
         print(f"[Database] Failed to remove source: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False
@@ -467,7 +504,7 @@ def get_chapter_overrides(series_id):
     except Exception as e:
         print(f"[Database] Failed to get chapter overrides: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return []
@@ -496,7 +533,7 @@ def get_chapter_overrides_bulk(series_ids):
     except Exception as e:
         print(f"[Database] Failed to get bulk chapter overrides: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return {}
@@ -521,7 +558,7 @@ def get_chapter_override_by_id(override_id):
     except Exception as e:
         print(f"[Database] Failed to get chapter override: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return None
@@ -592,7 +629,7 @@ def upsert_chapter_override(series_id, source_type, chapter_number, is_banned,
     except Exception as e:
         print(f"[Database] Failed to upsert chapter override: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return None
@@ -613,7 +650,7 @@ def delete_chapter_override(override_id):
     except Exception as e:
         print(f"[Database] Failed to delete chapter override: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False
@@ -695,7 +732,7 @@ def migrate_chapter_overrides_ban_by_url():
         except:
             pass
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
 
@@ -716,7 +753,7 @@ def add_series_cover(series_id, cover_url):
     except Exception as e:
         print(f"[Database] Failed to record series cover: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return None
@@ -765,7 +802,7 @@ def delete_series_cover(cover_id, series_id):
     except Exception as e:
         print(f"[Database] Failed to delete series cover: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return None
@@ -843,7 +880,7 @@ def create_custom_tag(name):
     except Exception as e:
         print(f"[Database] Failed to create custom tag: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return None
@@ -861,7 +898,7 @@ def delete_custom_tag(tag_id):
     except Exception as e:
         print(f"[Database] Failed to delete custom tag: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False
@@ -889,7 +926,7 @@ def add_custom_tag_to_series(series_id, tag_id):
     except Exception as e:
         print(f"[Database] Failed to attach custom tag: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False
@@ -908,7 +945,7 @@ def remove_custom_tag_from_series(series_id, tag_id):
     except Exception as e:
         print(f"[Database] Failed to detach custom tag: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False
@@ -1150,7 +1187,7 @@ def create_filter_bookmark(name, filter_state):
     except Exception as e:
         print(f"[Database] Failed to create filter bookmark: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return None
@@ -1183,7 +1220,7 @@ def update_filter_bookmark(bookmark_id, name=None, filter_state=None):
     except Exception as e:
         print(f"[Database] Failed to update filter bookmark: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False, str(e)
@@ -1208,7 +1245,7 @@ def delete_filter_bookmark(bookmark_id):
     except Exception as e:
         print(f"[Database] Failed to delete filter bookmark: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False, str(e)
@@ -1651,7 +1688,7 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
     except sqlite3.IntegrityError as e:
         # CRITICAL: Release the lock before re-raising
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         # Re-raise so caller can handle it
@@ -1659,7 +1696,7 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
     except Exception as e:
         # CRITICAL: Release the lock on ANY error
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         raise
@@ -1700,7 +1737,7 @@ def delete_series(series_id):
     except Exception as e:
         print(f"[Database] Delete series {series_id} failed: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False
@@ -1915,7 +1952,7 @@ def save_period_stats(period_type, period_start, period_end, series_added, chapt
     except Exception as e:
         print(f"[Database] Failed to save period stats: {e}")
         try:
-            release_db(conn)
+            release_db(conn, commit=False)
         except:
             pass
         return False
@@ -2157,34 +2194,15 @@ def update_current_period_stats():
         """, (year_start.isoformat(), now.isoformat()))
         series_added_year = cursor.fetchone()[0] or 0
         
+        # Not recounted from activity_log: it only keeps the last
+        # ACTIVITY_LOG_RETENTION_DAYS (30) of progress, so a recount would
+        # shrink the year to about a month. This month's figure (just
+        # computed above) plus the stored rows of the year's earlier months.
         cursor.execute("""
-            SELECT old_value, new_value
-            FROM activity_log
-            WHERE action_type = 'progress'
-            AND timestamp >= ? AND timestamp <= ?
-        """, (year_start.isoformat(), now.isoformat()))
-        
-        chapters_read_year = 0
-        for old_str, new_str in cursor.fetchall():
-            try:
-                old_val = json.loads(old_str) if old_str else {}
-                new_val = json.loads(new_str) if new_str else {}
-                old_ch = old_val.get('chapter', -1)
-                new_ch = new_val.get('chapter', -1)
-                
-                # CHANGED: Handle both forward and backward progress
-                if new_ch >= 0:
-                    if old_ch == -1:
-                        chapters_read_year += float(new_ch)
-                    elif old_ch >= 0:
-                        chapters_read_year += float(new_ch) - float(old_ch)
-                elif new_ch == -1 and old_ch >= 0:
-                    # ADDED: Reset to "Not started" - subtract all read chapters
-                    chapters_read_year -= float(old_ch)
-            except:
-                continue
-        
-        chapters_read_year = round(chapters_read_year, 1)
+            SELECT COALESCE(SUM(chapters_read), 0) FROM stats_history
+            WHERE period_type = 'month' AND period_start >= ? AND period_start < ?
+        """, (year_str, month_str))
+        chapters_read_year = round(cursor.fetchone()[0] + chapters_read_month, 1)
         
         cursor.execute("""
             INSERT OR REPLACE INTO stats_history 
@@ -2337,6 +2355,6 @@ def cleanup_old_stats(keep_days=90, keep_years=True):
         print(f"[Stats Cleanup] Failed: {e}")
         if conn:
             try:
-                release_db(conn)
+                release_db(conn, commit=False)
             except:
                 pass

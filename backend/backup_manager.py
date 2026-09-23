@@ -85,9 +85,9 @@ class BackupManager:
             backup_path = os.path.join(self.backup_dir, backup_filename)
             temp_path = backup_path + ".tmp"
             
-            # Copy database file (handles WAL mode correctly)
-            # Using SQLite backup API would be better, but requires DB connection
-            shutil.copy2(self.db_path, temp_path.replace('.gz', ''))
+            # A consistent snapshot through SQLite's backup API, taken while
+            # holding the app's DB lock so no write lands halfway through
+            self._snapshot_db(temp_path.replace('.gz', ''))
             
             # Compress the backup
             with open(temp_path.replace('.gz', ''), 'rb') as f_in:
@@ -120,6 +120,29 @@ class BackupManager:
                 pass
             return False
     
+    def _snapshot_db(self, dest_path, locked=False):
+        """Copy the live database to dest_path with SQLite's backup API (a
+        consistent copy, WAL contents included). Takes the app's DB lock
+        unless the caller already holds it (locked=True)."""
+        from .database import _db_lock
+
+        def copy():
+            src = sqlite3.connect(self.db_path)
+            try:
+                dst = sqlite3.connect(dest_path)
+                try:
+                    src.backup(dst)
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+
+        if locked:
+            copy()
+        else:
+            with _db_lock:
+                copy()
+
     def cleanup_old_backups(self):
         """Delete backups older than retention period."""
         try:
@@ -363,6 +386,7 @@ class BackupManager:
         Returns:
             True if successful, False otherwise
         """
+        temp_restore = None
         try:
             backup_path = os.path.join(self.backup_dir, backup_filename)
             
@@ -375,30 +399,37 @@ class BackupManager:
             safety_filename = f"safety_before_restore_{timestamp}.db.gz"
             safety_backup_path = os.path.join(self.backup_dir, safety_filename)
             
-            if os.path.exists(self.db_path):
-                # Compress current DB and save to backups/
-                temp_db_copy = f"{self.db_path}.temp_{timestamp}"
-                shutil.copy2(self.db_path, temp_db_copy)
-                
-                with open(temp_db_copy, 'rb') as f_in:
-                    with gzip.open(safety_backup_path, 'wb', compresslevel=6) as f_out:
-                        shutil.copyfileobj(f_in, f_out)
-                
-                # Remove temp uncompressed copy
-                os.remove(temp_db_copy)
-                
-                print(f"[Backup] Created safety backup: {safety_filename}")
-            
-            # Decompress and restore
+            # Decompress first, outside the lock
             temp_restore = f"{self.db_path}.restoring"
             with gzip.open(backup_path, 'rb') as f_in:
                 with open(temp_restore, 'wb') as f_out:
                     shutil.copyfileobj(f_in, f_out)
-            
-            # Replace current database
-            if os.path.exists(self.db_path):
-                os.remove(self.db_path)
-            shutil.move(temp_restore, self.db_path)
+
+            from .database import _db_lock
+            # Held for the safety copy and the swap, so no request or scan
+            # writes to the database while it's being replaced
+            with _db_lock:
+                if os.path.exists(self.db_path):
+                    # Compress current DB and save to backups/
+                    temp_db_copy = f"{self.db_path}.temp_{timestamp}"
+                    self._snapshot_db(temp_db_copy, locked=True)
+
+                    with open(temp_db_copy, 'rb') as f_in:
+                        with gzip.open(safety_backup_path, 'wb', compresslevel=6) as f_out:
+                            shutil.copyfileobj(f_in, f_out)
+
+                    # Remove temp uncompressed copy
+                    os.remove(temp_db_copy)
+
+                    print(f"[Backup] Created safety backup: {safety_filename}")
+
+                # Replace current database. The old one's -wal/-shm files go
+                # too: left behind, SQLite would replay the old database's
+                # journal onto the restored one.
+                for path in (self.db_path, self.db_path + '-wal', self.db_path + '-shm'):
+                    if os.path.exists(path):
+                        os.remove(path)
+                shutil.move(temp_restore, self.db_path)
             
             print(f"[Backup] Successfully restored from: {backup_filename}")
             print(f"[Backup] Safety backup available at: backups/{safety_filename}")
@@ -411,7 +442,7 @@ class BackupManager:
             print(f"[Backup] Restore failed: {e}")
             # Try to clean up
             try:
-                if os.path.exists(temp_restore):
+                if temp_restore and os.path.exists(temp_restore):
                     os.remove(temp_restore)
             except:
                 pass
