@@ -90,6 +90,27 @@ status badge (bottom-right of the series page, showing the title so you
 don't lose track of which series you're matching) shows progress the same
 way.
 
+## Dashboard source search
+
+The tracker's own "search all 5 sources" buttons use the same keys:
+**Search** in the Add Series modal's *Search title* view (or Enter in that
+box), and the search button in Series Settings' source section. With the
+extension installed, those open the 5 tabs through the extension instead:
+
+| Key | Where           | Does |
+|-----|-----------------|------|
+| `K` | on a source tab | jump into the first result on a search-results page |
+| `Y` | on a source tab | copy the running `url, url, ...` list to the clipboard, close the tab |
+| `U` | on a source tab | no match here - just close the tab |
+| `I` | on a source tab | re-run the last search (start over) |
+
+Same clipboard behavior as the kenmei.co lookup: the title is copied when
+the search starts, and every `Y` overwrites it with all links captured so
+far. Nothing is filled in on the page - paste the list wherever you want
+it. A badge (bottom-right of the dashboard) shows progress and hides itself
+a few seconds after the last tab closes. Without the extension the buttons
+keep their normal open-5-tabs behavior.
+
 ## Known limitations (scaffold, not polished)
 
 - Only finds pending rows on the *currently visible page* of the import

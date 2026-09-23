@@ -17,13 +17,18 @@
 //              has no clipboard access itself, and writing from the source
 //              tab that captured the match doesn't work either, since only
 //              the first of the row's 5 tabs is ever made active/focused.
+//   'dashboard' - content_dashboard.js, the tracker dashboard's own "search
+//              all 5 sources" buttons (Add Series / Series Settings). Same
+//              clipboard behavior as 'kenmei', just started from a
+//              different page.
 //
-// importTabId/kenmeiTabId are tracked independently of `state` (registered
-// as soon as their content script loads) so "I" pressed on a source tab can
+// importTabId/kenmeiTabId/dashboardTabId are tracked independently of
+// `state` (registered as soon as their content script loads) so "I" pressed on a source tab can
 // still reach the right page even before any row has been started yet.
 
 let importTabId = null;
 let kenmeiTabId = null;
+let dashboardTabId = null;
 let state = null; // { mode, title, total, sourceTabs: [{tabId, site}], capturedUrls: [] }
 
 // A snapshot of the current row's tabs that, unlike state.sourceTabs, is
@@ -54,7 +59,14 @@ function siteFor(url) {
 }
 
 function originTabId(mode) {
-  return mode === 'kenmei' ? kenmeiTabId : importTabId;
+  if (mode === 'kenmei') return kenmeiTabId;
+  if (mode === 'dashboard') return dashboardTabId;
+  return importTabId;
+}
+
+// Modes whose end result is the clipboard rather than a page's URL box.
+function copiesToClipboard(mode) {
+  return mode === 'kenmei' || mode === 'dashboard';
 }
 
 // Offscreen document setup, lazily created on first copy and reused after
@@ -101,6 +113,7 @@ function broadcastState() {
 
 async function startRow(title, urls, originTab, mode) {
   if (mode === 'kenmei') kenmeiTabId = originTab.id;
+  else if (mode === 'dashboard') dashboardTabId = originTab.id;
   else importTabId = originTab.id;
   // A previous row that never fully resolved (e.g. abandoned via a fresh
   // "I") - best-effort close its leftover tabs before starting the new one.
@@ -153,7 +166,7 @@ function resolveTab(tabId, capturedUrl) {
     broadcastState();
   }
 
-  if (mode === 'kenmei' && capturedUrl) {
+  if (copiesToClipboard(mode) && capturedUrl) {
     copyToClipboard(urls.join(', '));
   }
 
@@ -171,13 +184,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case 'registerKenmeiTab':
       if (sender.tab) kenmeiTabId = sender.tab.id;
       return;
+    case 'registerDashboardTab':
+      if (sender.tab) dashboardTabId = sender.tab.id;
+      return;
     case 'startRow':
       if (sender.tab) startRow(msg.title, msg.urls, sender.tab, msg.mode || 'import');
       return;
     case 'startNextRow': {
       // "I" pressed on a source tab - relay to whichever page started the
-      // row still in progress, or the import page by default if nothing is.
-      const target = state ? originTabId(state.mode) : importTabId;
+      // row still in progress, else whichever page started the last one
+      // (the import page if nothing has run yet).
+      const target = originTabId(state ? state.mode : lastRowMode);
       if (target != null) chrome.tabs.sendMessage(target, { type: 'startNextRow' }).catch(() => {});
       return;
     }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Manga Tracker – Kenmei Import Helper",
-  "version": "1.0.0",
-  "description": "Speeds up matching Kenmei CSV rows on the Manga Tracker import page: opens all 5 source searches per row and lets you grab/skip results with W/U, then confirm with Y. Also works directly on a kenmei.co series page: I opens the same 5 searches, Y copies the matched links to the clipboard.",
+  "version": "1.1.0",
+  "description": "Speeds up matching Kenmei CSV rows on the Manga Tracker import page: opens all 5 source searches per row and lets you grab/skip results with W/U, then confirm with Y. Also works directly on a kenmei.co series page: I opens the same 5 searches, Y copies the matched links to the clipboard. Same K/Y/U keys on the tracker dashboard's own Add Series / Series Settings source searches.",
   "permissions": ["tabs", "clipboardWrite", "offscreen"],
   "host_permissions": [
     "https://mangadex.org/*",
@@ -35,6 +35,16 @@
         "http://*:8080/import-kenmei*"
       ],
       "js": ["content_import.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "http://*:8080/*"
+      ],
+      "exclude_matches": [
+        "http://*:8080/import-kenmei*"
+      ],
+      "js": ["content_dashboard.js"],
       "run_at": "document_idle"
     },
     {
