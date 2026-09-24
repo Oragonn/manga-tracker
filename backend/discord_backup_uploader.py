@@ -1,9 +1,15 @@
 import os
 import time
 import threading
-from datetime import datetime, timezone
+from datetime import datetime
 
 import requests
+
+try:
+    from zoneinfo import ZoneInfo
+    LOCAL_TZ = ZoneInfo("Europe/Paris")
+except ImportError:
+    LOCAL_TZ = None
 
 
 class DiscordBackupUploader:
@@ -17,12 +23,15 @@ class DiscordBackupUploader:
     of a failed upload.
     """
 
-    CHECK_INTERVAL_SECONDS = 3600  # checked hourly; only posts once per UTC day
+    CHECK_INTERVAL_SECONDS = 3600  # checked hourly; posts once per local day, at/after the target hour
 
     def __init__(self, backup_manager):
         self.backup_manager = backup_manager
         self.webhook_url = os.environ.get("DISCORD_DB_BACKUP_WEBHOOK_URL")
         self.max_upload_mb = float(os.environ.get("DISCORD_DB_BACKUP_MAX_MB", "10"))
+        # Hour of the day (Europe/Paris, 0-23) to post at -- not "on the first
+        # check after startup", so restarting mid-day doesn't fire it early.
+        self.target_hour = int(os.environ.get("DISCORD_DB_BACKUP_HOUR", "4"))
         self.marker_path = os.path.join(backup_manager.backup_dir, ".last_discord_post")
 
         self.active = True
@@ -30,12 +39,15 @@ class DiscordBackupUploader:
 
         if self.webhook_url:
             print(f"[Discord Backup] Initialized: posting the latest DB backup to Discord once a day "
-                  f"(limit {self.max_upload_mb:.0f} MB)")
+                  f"around {self.target_hour:02d}:00 Europe/Paris (limit {self.max_upload_mb:.0f} MB)")
         else:
             print("[Discord Backup] DISCORD_DB_BACKUP_WEBHOOK_URL not set in .env -- daily Discord upload disabled")
 
+    def _now_local(self):
+        return datetime.now(LOCAL_TZ) if LOCAL_TZ else datetime.now()
+
     def _today(self):
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return self._now_local().strftime("%Y-%m-%d")
 
     def _already_posted_today(self):
         try:
@@ -63,8 +75,11 @@ class DiscordBackupUploader:
         uploaded. `force=True` bypasses the once-a-day guard (manual testing)."""
         if not self.webhook_url:
             return False
-        if not force and self._already_posted_today():
-            return False
+        if not force:
+            if self._already_posted_today():
+                return False
+            if self._now_local().hour < self.target_hour:
+                return False
 
         latest = self._latest_backup()
         if latest is None:
