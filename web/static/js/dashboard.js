@@ -784,11 +784,23 @@ function renderLaterList() {
 		return;
 	}
 
+	// Numbered in the order items were saved (oldest first), not display order
+	// (newest first) - so the first untitled item stays "No Title" and later
+	// ones count up from it, regardless of new items pushing it down the list.
+	const untitledLabels = new Map();
+	laterItemsCache
+		.filter(item => !item.title)
+		.sort((a, b) => a.id - b.id)
+		.forEach((item, idx) => {
+			untitledLabels.set(item.id, idx === 0 ? 'No Title' : `No Title ${idx}`);
+		});
+
 	container.innerHTML = laterItemsCache.map(item => {
-		// Link is deliberately not shown here - only the title (falling back to
-		// the link when there's no title). Click the title to see/open the
-		// full link in the detail popover; edit to change either field.
-		const label = item.title || item.url;
+		// Link is deliberately not shown here - only the title. An item saved
+		// with just a link has no title, so it shows "No Title" (see
+		// untitledLabels above). Click the title to see/open the full link in
+		// the detail popover; edit to change either field.
+		const label = item.title || untitledLabels.get(item.id);
 		return `
 			<div class="later-item-row" data-later-id="${item.id}">
 				<div class="later-item-info">
