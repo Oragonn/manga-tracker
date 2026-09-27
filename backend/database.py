@@ -1899,6 +1899,10 @@ def init_db():
 
     if "source_type" not in columns:
         cursor.execute("ALTER TABLE series ADD COLUMN source_type TEXT DEFAULT 'other'")
+
+    # Free-text personal note from the Series Settings modal
+    if "notes" not in columns:
+        cursor.execute("ALTER TABLE series ADD COLUMN notes TEXT")
     
     if "created_at" not in columns:
         cursor.execute("ALTER TABLE series ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")

@@ -1464,6 +1464,29 @@ html {
   background-color: #edf2f7;
 }
 
+/* Top-left row on the cover: unread count, then the Notes pill. Spans the
+   cover (left/right 8px) so the note tooltip inside it can too; clicks pass
+   through everywhere except the badges themselves. */
+.card-cover-badges {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.card-cover-badges > * {
+  pointer-events: auto;
+}
+
+.card-cover-badges .unread-badge {
+  position: static;
+}
+
 .unread-badge {
   position: absolute;
   top: 8px;
@@ -1557,11 +1580,79 @@ html {
   display: block;
 }
 
+/* "Notes" pill next to the unread count; hover (tap on touch) shows the
+   note. Same open/close rules as the missing-chapters warning above. */
+.card-note-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 6px;
+  background: rgba(20, 27, 47, 0.85);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 10px;
+  color: white;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: bold;
+  line-height: 18px;
+  cursor: help;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.card-note-flag svg {
+  flex-shrink: 0;
+}
+
+.card-note-flag:hover,
+.card-note-flag.open {
+  background: rgba(20, 27, 47, 1);
+  border-color: #94a3b8;
+}
+
+.card-note-tip {
+  display: none;
+  position: absolute;
+  top: 28px;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow: hidden;
+  padding: 8px 10px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.card-note-tip.note-markdown h3 { font-size: 14px; }
+.card-note-tip.note-markdown h4 { font-size: 13px; }
+.card-note-tip.note-markdown h5 { font-size: 12px; }
+.card-note-tip.note-markdown code { font-size: 11px; }
+.card-note-tip.note-markdown ul,
+.card-note-tip.note-markdown ol { padding-left: 18px; }
+.card-note-tip.note-markdown p,
+.card-note-tip.note-markdown ul,
+.card-note-tip.note-markdown ol,
+.card-note-tip.note-markdown blockquote,
+.card-note-tip.note-markdown pre { margin-bottom: 6px; }
+
+.card-note-flag:focus-visible + .card-note-tip,
+.card-note-flag.open + .card-note-tip {
+  display: block;
+}
+
 /* Hover only reveals it on devices that can really hover. On touch, :hover
    sticks to whatever was last tapped, so the tooltip would never close -
    there it opens on tap (.open) and closes on the next touch instead. */
 @media (hover: hover) {
-  .missing-chapters-flag:hover + .missing-chapters-tip {
+  .missing-chapters-flag:hover + .missing-chapters-tip,
+  .card-note-flag:hover + .card-note-tip {
     display: block;
   }
 }
@@ -1648,6 +1739,66 @@ html {
 .button-group.single-group button svg {
   width: 14px;
   height: 14px;
+}
+
+/* "» Max" popup above the card's + button. Hover-only devices get it after a
+   short delay; the popup sits inside .inc-wrap (with a padding bridge down to
+   the +) so moving the mouse onto it keeps it open. */
+.inc-wrap {
+  position: relative;
+  display: flex;
+}
+
+.inc-max-popup {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .inc-max-popup {
+    display: block;
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    padding-bottom: 6px;
+    z-index: 5;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.12s, visibility 0s linear 0.12s;
+  }
+
+  .inc-wrap:hover .inc-max-popup {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.12s 0.2s, visibility 0s linear 0.2s;
+  }
+}
+
+/* Already on the latest chapter: + is disabled, nothing to jump to */
+.inc-wrap .btn-inc:disabled + .inc-max-popup {
+  display: none;
+}
+
+.button-group.single-group .inc-max-popup .btn-inc-max {
+  width: auto;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+  background: #0f1626;
+  border-color: #334155;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+.button-group.single-group .inc-max-popup .btn-inc-max:hover {
+  background: #1a2436;
+  color: #e2e8f0;
 }
 
 .card-buttons-bottom .btn-next {
@@ -2388,6 +2539,258 @@ html {
 
 .settings-cover-upload-btn:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ─── Series Settings modal: note button + note dialog ─── */
+/* Opens #note-modal (Write / Preview). */
+.settings-note-btn {
+  width: 100%;
+  height: 36px;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #94a3b8;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.settings-note-btn:hover {
+  border-color: #678ec9;
+  color: #e2e8f0;
+}
+
+.settings-note-btn.has-note {
+  color: #e2e8f0;
+}
+
+.settings-note-btn svg {
+  flex-shrink: 0;
+}
+
+/* Desktop only: the modal is pinned to the cover's height, so room for the
+   Notes row comes from every field and button being a little shorter (32px
+   instead of 36-40px, Save 36px) and the 6px gaps used everywhere else in
+   the column. Phones scroll the modal instead and keep their own sizes. */
+@media (min-width: 769px) {
+  #edit-series-modal .settings-chapter-col .settings-source-selector,
+  #edit-series-modal .settings-tags-selector,
+  #edit-series-modal .settings-stepper,
+  #edit-series-modal .settings-note-btn,
+  #edit-series-modal .settings-action-btn {
+    height: 32px;
+  }
+
+  #edit-series-modal .settings-save-btn {
+    height: 36px;
+  }
+
+  #edit-series-modal .settings-actions-buttons-secondary {
+    margin-top: 6px;
+  }
+}
+
+/* Opens on top of Series Settings (same .modal z-index otherwise) but
+   under showConfirmDialog's overlay (5000). */
+#note-modal {
+  z-index: 1200;
+}
+
+#note-modal .note-modal-content {
+  width: min(460px, calc(100% - 32px));
+  max-width: none;
+  box-sizing: border-box;
+  padding: 16px;
+  background: #141b2f;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.note-modal-tabs {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 3px;
+  background: #0f1626;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+}
+
+.note-modal-tab {
+  padding: 5px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #94a3b8;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.note-modal-tab:hover {
+  color: #e2e8f0;
+}
+
+.note-modal-tab.active {
+  background: #1a2436;
+  color: #e2e8f0;
+}
+
+.note-modal-input,
+.note-modal-preview {
+  width: 100%;
+  height: 180px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.note-modal-input {
+  resize: vertical;
+  min-height: 100px;
+  max-height: 60vh;
+}
+
+.note-modal-input:focus {
+  outline: none;
+  border-color: #678ec9;
+}
+
+.note-modal-input::placeholder {
+  color: #64748b;
+}
+
+.note-modal-preview {
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.note-modal-preview.hidden,
+.note-modal-input.hidden {
+  display: none;
+}
+
+.note-modal-preview-empty {
+  color: #64748b;
+  font-style: italic;
+}
+
+/* Rendered note markdown (see renderNoteMarkdown in dashboard.js): the
+   note dialog's Preview tab and the card's note tooltip */
+.note-markdown > :first-child { margin-top: 0; }
+.note-markdown > :last-child { margin-bottom: 0; }
+.note-markdown p,
+.note-markdown ul,
+.note-markdown ol,
+.note-markdown blockquote,
+.note-markdown pre { margin: 0 0 8px; }
+.note-markdown h3,
+.note-markdown h4,
+.note-markdown h5 { margin: 10px 0 6px; line-height: 1.3; color: white; }
+.note-markdown h3 { font-size: 17px; }
+.note-markdown h4 { font-size: 15px; }
+.note-markdown h5 { font-size: 14px; }
+.note-markdown ul,
+.note-markdown ol { padding-left: 22px; }
+.note-markdown a { color: #678ec9; }
+.note-markdown blockquote {
+  padding-left: 10px;
+  border-left: 3px solid #334155;
+  color: #94a3b8;
+}
+.note-markdown code {
+  padding: 1px 5px;
+  background: #0f1626;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.note-markdown pre {
+  padding: 8px 10px;
+  background: #0f1626;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.note-markdown pre code { padding: 0; background: none; }
+.note-markdown hr {
+  border: none;
+  border-top: 1px solid #334155;
+  margin: 10px 0;
+}
+
+.note-modal-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #64748b;
+}
+
+.note-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.note-modal-count {
+  margin-right: auto;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.note-modal-count.over {
+  color: #f87171;
+}
+
+.note-modal-btn {
+  height: 38px;
+  padding: 0 18px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.note-modal-btn-secondary {
+  background: #1a2436;
+  border: 1px solid #334155;
+  color: #e2e8f0;
+}
+
+.note-modal-btn-secondary:hover {
+  border-color: #678ec9;
+}
+
+.note-modal-btn-primary {
+  background: rgb(2, 60, 191);
+  border: 1px solid rgb(2, 60, 191);
+  color: white;
+}
+
+.note-modal-btn-primary:hover:not(:disabled) {
+  background: rgb(18, 80, 220);
+}
+
+.note-modal-btn-primary:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 

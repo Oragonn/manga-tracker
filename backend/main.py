@@ -292,6 +292,9 @@ def api_undo_log(log_id):
                             except Exception as e:
                                 print(f"[Undo] Failed to restore created_at for '{old_value.get('title')}': {e}")
 
+                        if old_value.get('notes'):
+                            update_series(series_id, {'notes': old_value['notes']})
+
                         # Restore chapter progress if available
                         if 'current_chapter' in source and source['current_chapter'] is not None:
                             update_series(series_id, {'current_chapter': source['current_chapter']})
@@ -396,6 +399,8 @@ def api_undo_log(log_id):
                         updates['source_type'] = old_value['source_type']
                     if 'content_rating' in old_value:
                         updates['content_rating'] = old_value['content_rating']
+                    if 'notes' in old_value:
+                        updates['notes'] = old_value['notes']
                     if 'genres' in old_value:
                         # The log holds the tag list; the column holds its JSON text
                         updates['genres'] = json.dumps(old_value['genres'], ensure_ascii=False) if old_value['genres'] else None
@@ -731,6 +736,9 @@ def api_undo_bulk(bulk_id):
                             except Exception as e:
                                 print(f"[Undo Bulk] Failed to restore created_at for '{old_value.get('title')}': {e}")
 
+                        if old_value.get('notes'):
+                            update_series(new_series_id, {'notes': old_value['notes']})
+
                         if 'current_chapter' in source and source['current_chapter'] is not None:
                             update_series(new_series_id, {'current_chapter': source['current_chapter']})
 
@@ -810,6 +818,8 @@ def api_undo_bulk(bulk_id):
                             updates['source_type'] = old_value['source_type']
                         if 'content_rating' in old_value:
                             updates['content_rating'] = old_value['content_rating']
+                        if 'notes' in old_value:
+                            updates['notes'] = old_value['notes']
                         if 'genres' in old_value:
                             updates['genres'] = json.dumps(old_value['genres'], ensure_ascii=False) if old_value['genres'] else None
                         if updates:

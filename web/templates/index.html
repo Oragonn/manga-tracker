@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel62" />
+  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel74" />
   <style>
     /* style.css only defines .mobile-menu/.mobile-menu-overlay inside its
        @media(max-width:768px) block - on a desktop-width viewport they have
@@ -31,7 +31,7 @@
   </style>
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
-  <script src="/static/js/notifications.js?v=mobilepanel62"></script>
+  <script src="/static/js/notifications.js?v=mobilepanel74"></script>
 </head>
 <body>
 
@@ -675,6 +675,17 @@
           </div>
         </div>
 
+        <div class="form-group settings-note-group">
+        <label for="settings-note-btn">Notes</label>
+        <button type="button" class="settings-note-btn" id="settings-note-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/>
+            <path d="M15 3v4a2 2 0 0 0 2 2h4"/>
+          </svg>
+          <span id="settings-note-btn-text">Click to add a note</span>
+        </button>
+        </div>
+
         <div class="settings-actions-row">
           <label>Actions</label>
           <div class="settings-actions-buttons">
@@ -692,6 +703,24 @@
   </div>
 </div>
 
+
+<!-- Series note (opened from Series Settings' note button) -->
+<div id="note-modal" class="modal hidden">
+  <div class="modal-content note-modal-content" role="dialog" aria-modal="true" aria-label="Series note">
+    <div class="note-modal-tabs" role="tablist">
+      <button type="button" class="note-modal-tab active" data-tab="write" role="tab" aria-selected="true">Write</button>
+      <button type="button" class="note-modal-tab" data-tab="preview" role="tab" aria-selected="false">Preview</button>
+    </div>
+    <textarea id="note-modal-input" class="note-modal-input" maxlength="2000" placeholder="Write a note about this series…" spellcheck="true"></textarea>
+    <div id="note-modal-preview" class="note-modal-preview note-markdown hidden"></div>
+    <p class="note-modal-hint">Notes are only visible to you. Markdown is partially supported: headings, **bold**, *italic*, ~~strike~~, `code`, links, lists and quotes.</p>
+    <div class="note-modal-footer">
+      <span class="note-modal-count" id="note-modal-count">0 / 2000</span>
+      <button type="button" class="note-modal-btn note-modal-btn-secondary" id="note-modal-close">Close</button>
+      <button type="button" class="note-modal-btn note-modal-btn-primary" id="note-modal-save">Update notes</button>
+    </div>
+  </div>
+</div>
 
 <!-- Bulk Confirm Read Modal -->
 <div id="bulk-read-modal" class="modal confirm-modal hidden">
@@ -963,7 +992,7 @@
   </svg>
 </button>
 
-<script src="/static/js/dashboard.js?v=mobilepanel62"></script>
+<script src="/static/js/dashboard.js?v=mobilepanel74"></script>
   <!-- ADDED: Initialize notifications -->
   <script>
   // Initialize notification system on page load

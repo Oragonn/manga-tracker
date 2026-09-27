@@ -185,7 +185,8 @@ def get_series_snapshot(series_id):
             'source_type': series_dict.get('source_type'),
             'alt_titles': series_dict.get('alt_titles'),
             'genres': series_dict.get('genres'),
-            'content_rating': series_dict.get('content_rating', 'unknown')
+            'content_rating': series_dict.get('content_rating', 'unknown'),
+            'notes': series_dict.get('notes')
         }
 
         release_db(conn)

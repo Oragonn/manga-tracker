@@ -680,6 +680,9 @@ function getLogDetails(log) {
         if (oldVal && 'genres' in oldVal) {
           parts.push(describeSeriesTagEdit(oldVal.genres, newVal));
         }
+        if (oldVal && 'notes' in oldVal) {
+          parts.push(!oldVal.notes ? 'Note added' : (!newVal?.notes ? 'Note removed' : 'Note edited'));
+        }
         return parts.length ? escapeHtml(parts.join(' · ')) : 'Metadata updated';
       }
       case 'source_added': {

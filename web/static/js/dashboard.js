@@ -1172,6 +1172,9 @@ function saveChapter(seriesId, chapter, oldChapter = null) {
 }
 
 let currentSeriesIdForEdit = null;
+// The series object the modal was opened with, so saving a note can update
+// it in place and reopening shows the new note without a reload.
+let currentSeriesForEdit = null;
 // Store original values for comparison
 let originalSeriesValues = null;
 // Staged cover pick from the settings modal's cover-edit menu -- null means
@@ -1235,6 +1238,7 @@ let manualVolumeValue = null;
 // which needs the matching restore or the page is left unscrollable.
 function closeEditSeriesModal() {
 	document.getElementById('edit-series-modal')?.classList.add('hidden');
+	hideNoteModal();
 	// The Tags popover gets reparented to <body> while open (see
 	// openTagsMenu) to escape the modal's overflow clipping, so it's no
 	// longer a descendant that hiding the modal auto-hides.
@@ -1267,6 +1271,7 @@ function closeEditSeriesModal() {
 
 function openEditModal(series) {
 	currentSeriesIdForEdit = series.id;
+	currentSeriesForEdit = series;
 	pendingCoverUrl = null;
 
 	const fixChaptersLink = document.getElementById('settings-fix-chapters-link');
@@ -1288,6 +1293,7 @@ function openEditModal(series) {
 		// Kept as stored -- 'unknown' or nothing means unrated (no button selected)
 		content_rating: series.content_rating ?? null
 	};
+	syncNoteButton();
 	pendingContentType = originalSeriesValues.source_type;
 	pendingContentRating = originalSeriesValues.content_rating;
 	syncContentTypeUI();
@@ -1578,6 +1584,172 @@ function updateSaveButtonState() {
 	const seriesTagsEdited = seriesTagsChanged();
 
 	btn.disabled = !(chapterChanged || volumeChanged || titleChanged || coverChanged || statusChanged || tagsChanged || primarySourceChanged || typeChanged || ratingChanged || seriesTagsEdited);
+}
+
+// ─── Series note (button in Series Settings + #note-modal) ───────
+// Unlike the rest of Series Settings, the note saves straight away from
+// its own dialog ("Update notes") instead of waiting for the modal's Save.
+const NOTE_MAX_LENGTH = 2000;
+
+function syncNoteButton() {
+	const hasNote = !!(currentSeriesForEdit?.notes || '').trim();
+	document.getElementById('settings-note-btn')?.classList.toggle('has-note', hasNote);
+	const text = document.getElementById('settings-note-btn-text');
+	if (text) text.textContent = hasNote ? 'Note available' : 'Click to add a note';
+}
+
+// Small markdown subset for notes. Everything is HTML-escaped first, so the
+// only markup that can come out is what the rules below build; links are
+// limited to http(s).
+function renderNoteMarkdown(text) {
+	const inline = (str) => {
+		// Code spans and links are set aside first so bold/italic can't
+		// reach inside them (e.g. the underscores in a URL).
+		const stash = [];
+		const keep = (html) => `\u0000${stash.push(html) - 1}\u0000`;
+		let out = str
+			.replace(/`([^`]+)`/g, (_, code) => keep(`<code>${code}</code>`))
+			.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => keep(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`));
+		out = out
+			.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+			.replace(/__(.+?)__/g, '<strong>$1</strong>')
+			.replace(/~~(.+?)~~/g, '<del>$1</del>')
+			.replace(/(^|[^*\w])\*(?!\s)(.+?)\*(?![*\w])/g, '$1<em>$2</em>')
+			.replace(/(^|[^_\w])_(?!\s)(.+?)_(?![_\w])/g, '$1<em>$2</em>');
+		return out.replace(/\u0000(\d+)\u0000/g, (_, i) => stash[i]);
+	};
+
+	const lines = escapeHtml(text).split('\n');
+	const html = [];
+	let para = [];
+	let list = null; // { tag, items }
+	let quote = [];
+	const flushPara = () => { if (para.length) html.push(`<p>${para.map(inline).join('<br>')}</p>`); para = []; };
+	const flushList = () => { if (list) html.push(`<${list.tag}>${list.items.map(i => `<li>${inline(i)}</li>`).join('')}</${list.tag}>`); list = null; };
+	const flushQuote = () => { if (quote.length) html.push(`<blockquote>${quote.map(inline).join('<br>')}</blockquote>`); quote = []; };
+	const flushAll = () => { flushPara(); flushList(); flushQuote(); };
+
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (/^```/.test(line.trim())) {
+			flushAll();
+			const code = [];
+			while (++i < lines.length && !/^```/.test(lines[i].trim())) code.push(lines[i]);
+			html.push(`<pre><code>${code.join('\n')}</code></pre>`);
+			continue;
+		}
+		let m;
+		if (!line.trim()) { flushAll(); continue; }
+		if ((m = line.match(/^(#{1,3})\s+(.*)$/))) {
+			flushAll();
+			const level = m[1].length + 2; // # -> h3, keeps headings note-sized
+			html.push(`<h${level}>${inline(m[2])}</h${level}>`);
+		} else if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) {
+			flushAll();
+			html.push('<hr>');
+		} else if ((m = line.match(/^&gt;\s?(.*)$/))) {
+			flushPara(); flushList();
+			quote.push(m[1]);
+		} else if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+			flushPara(); flushQuote();
+			if (list && list.tag !== 'ul') flushList();
+			if (!list) list = { tag: 'ul', items: [] };
+			list.items.push(m[1]);
+		} else if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
+			flushPara(); flushQuote();
+			if (list && list.tag !== 'ol') flushList();
+			if (!list) list = { tag: 'ol', items: [] };
+			list.items.push(m[1]);
+		} else {
+			flushList(); flushQuote();
+			para.push(line);
+		}
+	}
+	flushAll();
+	return html.join('');
+}
+
+function setNoteModalTab(tab) {
+	const input = document.getElementById('note-modal-input');
+	const preview = document.getElementById('note-modal-preview');
+	document.querySelectorAll('#note-modal .note-modal-tab').forEach(btn => {
+		const active = btn.dataset.tab === tab;
+		btn.classList.toggle('active', active);
+		btn.setAttribute('aria-selected', String(active));
+	});
+	if (tab === 'preview') {
+		const text = input.value.trim();
+		preview.innerHTML = text ? renderNoteMarkdown(text) : '<p class="note-modal-preview-empty">Nothing to preview</p>';
+	}
+	input.classList.toggle('hidden', tab === 'preview');
+	preview.classList.toggle('hidden', tab !== 'preview');
+	if (tab === 'write') input.focus();
+}
+
+function syncNoteModalFooter() {
+	const input = document.getElementById('note-modal-input');
+	const count = document.getElementById('note-modal-count');
+	const len = input.value.trim().length;
+	count.textContent = `${len} / ${NOTE_MAX_LENGTH}`;
+	count.classList.toggle('over', len > NOTE_MAX_LENGTH);
+	const unchanged = input.value.trim() === (currentSeriesForEdit?.notes || '').trim();
+	document.getElementById('note-modal-save').disabled = unchanged || len > NOTE_MAX_LENGTH;
+}
+
+function openNoteModal() {
+	if (!currentSeriesForEdit) return;
+	const input = document.getElementById('note-modal-input');
+	input.value = currentSeriesForEdit.notes || '';
+	syncNoteModalFooter();
+	document.getElementById('note-modal').classList.remove('hidden');
+	setNoteModalTab('write');
+	input.setSelectionRange(input.value.length, input.value.length);
+	input.scrollTop = input.scrollHeight;
+}
+
+function hideNoteModal() {
+	document.getElementById('note-modal')?.classList.add('hidden');
+}
+
+// Close / Escape / backdrop: ask first if the text differs from the saved note.
+async function requestCloseNoteModal() {
+	const input = document.getElementById('note-modal-input');
+	if (input.value.trim() !== (currentSeriesForEdit?.notes || '').trim()) {
+		if (!(await confirmDiscardChanges('Your note changes haven\'t been saved.'))) return;
+	}
+	hideNoteModal();
+}
+
+async function saveNoteFromModal() {
+	const series = currentSeriesForEdit;
+	const saveBtn = document.getElementById('note-modal-save');
+	if (!series || saveBtn.disabled) return;
+	const note = document.getElementById('note-modal-input').value.trim();
+	saveBtn.disabled = true;
+	try {
+		const res = await fetch(`/api/series/${series.id}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ notes: note })
+		});
+		if (!res.ok) {
+			const failure = await res.json().catch(() => ({}));
+			showNotification(failure.error || 'Failed to save note - check your connection and try again', 'error');
+			syncNoteModalFooter();
+			return;
+		}
+		series.notes = note || null;
+		const listed = Array.isArray(state.allSeries) ? state.allSeries.find(s => s.id === series.id) : null;
+		if (listed) listed.notes = series.notes;
+		syncNoteButton();
+		hideNoteModal();
+		// Redraw the card so its Notes pill appears / updates / goes away.
+		refreshSeriesCardInPlace(series.id);
+		showNotification(note ? 'Note saved' : 'Note removed', 'edit');
+	} catch (e) {
+		showNotification('Failed to save note - check your connection and try again', 'error');
+		syncNoteModalFooter();
+	}
 }
 
 function formatManualStepperValues() {
@@ -3058,10 +3230,12 @@ function describeMissingChapterGaps(gaps) {
 // tooltip there, since touch has no hover; touching anywhere else closes it.
 // touchstart is listened for as well as click because a tap on a mobile card
 // preventDefault()s its touchend, which suppresses the click entirely.
+// The card's Notes pill (renderCardNoteFlag) works the same way.
+const CARD_TIP_FLAGS = '.missing-chapters-flag, .card-note-flag';
 function closeMissingChapterTips(e) {
-	if (e.target.closest && e.target.closest('.missing-chapters-flag')) return;
-	if (e.type === 'click' && lastMouseDownTarget?.closest?.('.missing-chapters-flag.open')) return;
-	document.querySelectorAll('.missing-chapters-flag.open').forEach(f => f.classList.remove('open'));
+	if (e.target.closest && e.target.closest(CARD_TIP_FLAGS)) return;
+	if (e.type === 'click' && lastMouseDownTarget?.closest?.('.missing-chapters-flag.open, .card-note-flag.open')) return;
+	document.querySelectorAll('.missing-chapters-flag.open, .card-note-flag.open').forEach(f => f.classList.remove('open'));
 }
 document.addEventListener('click', closeMissingChapterTips);
 document.addEventListener('touchstart', closeMissingChapterTips, { passive: true });
@@ -3092,6 +3266,7 @@ function renderSeriesCard(series, chapters = null) {
 <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
 </svg>
 </div>
+<div class="card-cover-badges"></div>
 <img class="series-cover loading" src="${placeholderUrl}" data-src="${cleanCoverUrl}" loading="lazy" referrerpolicy="no-referrer" onerror="this.src='/static/placeholder.png'">
 ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.title)}</span></div>` : ''}
@@ -3129,12 +3304,23 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 <path d="M5 12h14"></path>
 </svg>
 </button>
+<span class="inc-wrap">
 <button class="btn-inc" title="Next">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 <path d="M5 12h14"></path>
 <path d="M12 5v14"></path>
 </svg>
 </button>
+<span class="inc-max-popup">
+<button type="button" class="btn-inc-max" title="Jump to latest chapter">
+<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<path d="m6 17 5-5-5-5"></path>
+<path d="m13 17 5-5-5-5"></path>
+</svg>
+Max
+</button>
+</span>
+</span>
 <button class="btn-accept" title="Confirm">
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 <path d="M18 6 7 17l-5-5"></path>
@@ -3155,6 +3341,10 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 	const btnInc = card.querySelector('.btn-inc');
 	const btnAccept = card.querySelector('.btn-accept');
 	const btnNext = card.querySelector('.btn-next');
+	// Declared this early because updateButtonState() can run synchronously
+	// from the chapters IIFE below (when chapters are passed in).
+	let holdInterval = null;
+	let holdTimeout = null;
 
 	function makeChapterComparator(useVolume) {
 		return (a, b) => {
@@ -3277,6 +3467,41 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 		}
 	})();
 
+	// "Notes" pill right of the unread count when the series has a note;
+	// hover (or tap, on touch) shows it, rendered like the note dialog's
+	// Preview. The tooltip is the pill's next sibling for the CSS.
+	function renderCardNoteFlag() {
+		const badges = card.querySelector('.card-cover-badges');
+		badges.querySelectorAll('.card-note-flag, .card-note-tip').forEach(el => el.remove());
+		const note = (series.notes || '').trim();
+		if (!note) return;
+
+		const flag = document.createElement('button');
+		flag.type = 'button';
+		flag.className = 'card-note-flag';
+		flag.setAttribute('aria-label', `Note: ${note}`);
+		flag.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+<path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/>
+<path d="M15 3v4a2 2 0 0 0 2 2h4"/>
+</svg><span>Notes</span>`;
+
+		const tip = document.createElement('div');
+		tip.className = 'card-note-tip note-markdown';
+		tip.setAttribute('role', 'tooltip');
+		tip.innerHTML = renderNoteMarkdown(note);
+
+		flag.addEventListener('click', (e) => {
+			e.stopPropagation();
+			const wasOpen = flag.classList.contains('open');
+			document.querySelectorAll('.missing-chapters-flag.open, .card-note-flag.open').forEach(f => f.classList.remove('open'));
+			if (!wasOpen) flag.classList.add('open');
+		});
+
+		badges.appendChild(flag);
+		badges.appendChild(tip);
+	}
+	renderCardNoteFlag();
+
 	// Yellow warning at the cover's top right when the series is missing
 	// chapters in between - hover (or tap, on touch) for which ones.
 	function updateMissingChaptersFlag(chaptersData) {
@@ -3328,8 +3553,8 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 	function updateUnreadBadge() {
 		const sorted = card.sortedChapters || [];
 		const pendingIndex = card.pendingIndex;
-		const coverContainer = card.querySelector('.series-cover-container');
-		const existingBadge = coverContainer.querySelector('.unread-badge');
+		const badges = card.querySelector('.card-cover-badges');
+		const existingBadge = badges.querySelector('.unread-badge');
 		if (existingBadge) existingBadge.remove();
 		let unreadCount = 0;
 		if (sorted.length > 0) {
@@ -3348,7 +3573,7 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 			const badge = document.createElement('div');
 			badge.className = 'unread-badge';
 			badge.textContent = String(unreadCount);
-			coverContainer.insertBefore(badge, coverContainer.firstChild);
+			badges.insertBefore(badge, badges.firstChild);
 		}
 	}
 
@@ -3460,12 +3685,17 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 	function updateButtonState() {
 		const hasChanged = card.pendingIndex !== card.originalIndex;
 		btnAccept.disabled = !hasChanged;
+		// Grey out -/+ at the ends. A disabled button never gets its
+		// mouseup/mouseleave, so kill any hold-repeat that just hit the end.
+		const sorted = card.sortedChapters || [];
+		const atStart = card.pendingIndex === -1;
+		const atEnd = card.pendingIndex >= sorted.length - 1;
+		if ((atStart && !btnDec.disabled) || (atEnd && !btnInc.disabled)) stopHoldRepeat();
+		btnDec.disabled = atStart;
+		btnInc.disabled = atEnd;
 	}
 
-	// Hold-to-repeat functionality
-	let holdInterval = null;
-	let holdTimeout = null;
-
+	// Hold-to-repeat functionality (timers declared up by the button lookups)
 	function startHoldRepeat(callback, initialDelay = 500, repeatInterval = 100) {
 	// Clear any existing intervals
 	if (holdInterval) clearInterval(holdInterval);
@@ -3554,6 +3784,17 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 
 	btnInc.addEventListener('mouseup', stopHoldRepeat);
 	btnInc.addEventListener('mouseleave', stopHoldRepeat);
+
+	// Hover popup over "+" (desktop only, see .inc-max-popup): stages the
+	// latest chapter just like +, so it still needs the ✓ to save.
+	card.querySelector('.btn-inc-max').addEventListener('click', (e) => {
+		e.preventDefault();
+		const sorted = card.sortedChapters || [];
+		if (sorted.length === 0) return;
+		card.pendingIndex = sorted.length - 1;
+		updateChapterDisplay();
+		updateButtonState();
+	});
 
 	// Also add touch support for mobile devices
 	btnDec.addEventListener('touchstart', (e) => {
@@ -5684,6 +5925,28 @@ document.addEventListener('DOMContentLoaded', () => {
 	initSeriesTagsEditor();
 	document.getElementById('edit-current-chapter')?.addEventListener('change', updateSaveButtonState);
 	document.getElementById('edit-status')?.addEventListener('change', updateSaveButtonState);
+
+	// Series note dialog
+	document.getElementById('settings-note-btn')?.addEventListener('click', openNoteModal);
+	document.querySelectorAll('#note-modal .note-modal-tab').forEach(btn => {
+		btn.addEventListener('click', () => setNoteModalTab(btn.dataset.tab));
+	});
+	document.getElementById('note-modal-input')?.addEventListener('input', syncNoteModalFooter);
+	document.getElementById('note-modal-close')?.addEventListener('click', requestCloseNoteModal);
+	document.getElementById('note-modal-save')?.addEventListener('click', saveNoteFromModal);
+	const noteModal = document.getElementById('note-modal');
+	noteModal?.addEventListener('click', (e) => {
+		if (e.target === noteModal && mousedownStartedOnBackdrop(e)) requestCloseNoteModal();
+	});
+	noteModal?.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			requestCloseNoteModal();
+		} else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault();
+			saveNoteFromModal();
+		}
+	});
 
 	document.getElementById('btn-save-chapter')?.addEventListener('click', async () => {
 		if (!currentSeriesIdForEdit) return;

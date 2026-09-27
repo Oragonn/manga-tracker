@@ -1980,6 +1980,9 @@ def api_get_single_series(series_id):
     return jsonify(dict(row))
 
 
+MAX_SERIES_NOTE_LENGTH = 2000
+
+
 @app.route('/api/series/<int:series_id>', methods=['PATCH'])
 def api_update_series(series_id):
     data = request.get_json()
@@ -1989,8 +1992,18 @@ def api_update_series(series_id):
     _is_bulk = data.pop('_is_bulk', False)
     
     # REMOVE 'source_url' from allowed_fields
-    allowed_fields = {'current_chapter', 'current_volume', 'status', 'cover_url', 'title', 'source_type', 'content_rating'}
+    allowed_fields = {'current_chapter', 'current_volume', 'status', 'cover_url', 'title', 'source_type', 'content_rating', 'notes'}
     updates = {k: v for k, v in data.items() if k in allowed_fields}
+
+    # The Series Settings note: blank (or whitespace) clears it
+    if 'notes' in updates:
+        note = updates['notes']
+        if note is not None and not isinstance(note, str):
+            return jsonify({'error': 'notes must be text'}), 400
+        note = (note or '').strip()
+        if len(note) > MAX_SERIES_NOTE_LENGTH:
+            return jsonify({'error': f'Note is too long (max {MAX_SERIES_NOTE_LENGTH} characters)'}), 400
+        updates['notes'] = note or None
 
     # source_type here is the series' content type (what the dashboard's
     # Content Type filter uses), not one of its source sites
@@ -2019,12 +2032,12 @@ def api_update_series(series_id):
     try:
         conn_old = get_db()
         cursor_old = conn_old.cursor()
-        cursor_old.execute("SELECT title, current_chapter, status, cover_url, source_type, content_rating FROM series WHERE id = ?", (series_id,))
+        cursor_old.execute("SELECT title, current_chapter, status, cover_url, source_type, content_rating, notes FROM series WHERE id = ?", (series_id,))
         old_row = cursor_old.fetchone()
         release_db(conn_old)
         
         if old_row:
-            old_title, old_chapter, old_status, old_cover, old_type, old_rating = old_row
+            old_title, old_chapter, old_status, old_cover, old_type, old_rating, old_notes = old_row
             
             # One entry per kind of change, so a save that changes several
             # at once (Series Settings sends chapter, status, title and
@@ -2091,6 +2104,17 @@ def api_update_series(series_id):
                     series_title=old_title,
                     old_value=classification_old,
                     new_value=classification_new,
+                    is_bulk=_is_bulk,
+                    bulk_id=_bulk_id
+                )
+
+            if 'notes' in updates and old_notes != updates['notes']:
+                log_activity(
+                    action_type='edited',
+                    series_id=series_id,
+                    series_title=old_title,
+                    old_value={'notes': old_notes},
+                    new_value={'notes': updates['notes']},
                     is_bulk=_is_bulk,
                     bulk_id=_bulk_id
                 )
