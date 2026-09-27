@@ -588,6 +588,27 @@
       margin-left: auto;
     }
 
+    /* Long merge/ban lists: the first rows show in full and the next one
+       peeks out under a fade, cut off, until Show all is clicked */
+    .tag-collapsible {
+      position: relative;  /* rows' offsetTop is measured from here */
+    }
+
+    .tag-collapsible.collapsed {
+      overflow: hidden;
+      -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade, 56px)), transparent);
+      mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade, 56px)), transparent);
+    }
+
+    .tag-collapse-toggle:empty {
+      display: none;
+    }
+
+    .tag-collapse-toggle .picker-show-more {
+      border-radius: 8px;
+      margin-top: 4px;
+    }
+
     .tag-empty-note {
       color: #64748b;
       font-size: 13px;
@@ -1074,7 +1095,8 @@
         <button type="button" class="control-button primary" id="btn-merge-save">Merge</button>
       </div>
     </div>
-    <div id="merge-list"></div>
+    <div id="merge-list" class="tag-collapsible"></div>
+    <div class="tag-collapse-toggle" id="merge-list-toggle"></div>
   </div>
 
   <div class="fixes-section">
@@ -1090,7 +1112,8 @@
         <button type="button" class="control-button danger" id="btn-ban-save">Ban</button>
       </div>
     </div>
-    <div class="tag-chips" id="ban-list"></div>
+    <div class="tag-chips tag-collapsible" id="ban-list"></div>
+    <div class="tag-collapse-toggle" id="ban-list-toggle"></div>
   </div>
 
   <div class="fixes-section">
@@ -1431,6 +1454,19 @@
       currentChaptersMore.append(more);
       if (remaining > CHAPTERS_PAGE_SIZE) currentChaptersMore.append(all);
     }
+    if (chaptersVisible > CHAPTERS_PAGE_SIZE && sorted.length > CHAPTERS_PAGE_SIZE) {
+      const hide = document.createElement('button');
+      hide.type = 'button';
+      hide.className = 'picker-show-more chapters-show-more';
+      hide.textContent = 'Hide all';
+      hide.addEventListener('click', () => {
+        chaptersVisible = CHAPTERS_PAGE_SIZE;
+        renderCurrentChapters();
+        // The table just got much shorter: bring its end back on screen
+        currentChaptersMore.scrollIntoView({ block: 'nearest' });
+      });
+      currentChaptersMore.append(hide);
+    }
   }
 
   // ---------- Providers (ban one for this series) ----------
@@ -1708,6 +1744,67 @@
     else sorted.sort((a, b) => countOf(b) - countOf(a) || nameCollator.compare(nameOf(a), nameOf(b)));
     return sorted;
   }
+
+  // Folds a long list away: everything above the cut shows in full, the row
+  // below it peeks out under a fade, and Show all / Hide all sits underneath.
+  // `measure()` returns {cut, fade, hidden} in px from the list's top (rows'
+  // offsetTop, which ignores the folding), or null when the list is short
+  // enough to show whole. Call the returned function after each render; it
+  // also re-runs on width changes, since chips re-wrap.
+  function makeCollapsible(list, toggle, measure) {
+    let expanded = false;
+    let lastWidth = 0;
+    function update() {
+      toggle.innerHTML = '';
+      const m = list.offsetWidth ? measure() : null;  // hidden tab: nothing to measure
+      const folded = !!m && !expanded;
+      list.classList.toggle('collapsed', folded);
+      list.style.maxHeight = folded ? `${m.cut}px` : '';
+      list.style.setProperty('--fade', folded ? `${m.fade}px` : '');
+      if (!m) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'picker-show-more';
+      btn.textContent = expanded ? 'Hide all' : `Show all (${m.hidden} more)`;
+      btn.addEventListener('click', () => {
+        expanded = !expanded;
+        update();
+        // Folding a long list up can leave the page scrolled far below it
+        if (!expanded) toggle.scrollIntoView({ block: 'nearest' });
+      });
+      toggle.appendChild(btn);
+    }
+    new ResizeObserver(() => {
+      if (list.offsetWidth === lastWidth) return;
+      lastWidth = list.offsetWidth;
+      update();
+    }).observe(list);
+    return update;
+  }
+
+  const MERGE_CARDS_SHOWN = 4;
+  const BAN_LINES_SHOWN = 10;
+
+  const updateMergeFold = makeCollapsible(mergeList, document.getElementById('merge-list-toggle'), () => {
+    const cards = mergeList.children;
+    if (cards.length <= MERGE_CARDS_SHOWN) return null;
+    const peek = cards[MERGE_CARDS_SHOWN];
+    const shown = Math.min(56, peek.offsetHeight);
+    return { cut: peek.offsetTop + shown, fade: shown + 10, hidden: cards.length - MERGE_CARDS_SHOWN };
+  });
+
+  const updateBanFold = makeCollapsible(banList, document.getElementById('ban-list-toggle'), () => {
+    const chips = [...banList.children];
+    const lineTops = [...new Set(chips.map(chip => chip.offsetTop))].sort((a, b) => a - b);
+    if (lineTops.length <= BAN_LINES_SHOWN) return null;
+    const peekTop = lineTops[BAN_LINES_SHOWN];
+    const peekHeight = chips.find(chip => chip.offsetTop === peekTop).offsetHeight;
+    return {
+      cut: peekTop + peekHeight,
+      fade: peekHeight + 6,  // the whole peeking line fades, the gap above it too
+      hidden: chips.filter(chip => chip.offsetTop >= peekTop).length
+    };
+  });
 
   const pickers = [];  // every tag picker, so a sort change can refresh an open list
 
@@ -2020,10 +2117,11 @@
     mergeList.innerHTML = '';
     if (!merges.length) {
       mergeList.innerHTML = '<div class="tag-empty-note">No merges yet.</div>';
-      return;
+    } else {
+      // "Most used" ranks a group by how many series it covers
+      for (const group of sortTags(merges, g => g.target, g => g.count)) mergeList.appendChild(makeMergeCard(group));
     }
-    // "Most used" ranks a group by how many series it covers
-    for (const group of sortTags(merges, g => g.target, g => g.count)) mergeList.appendChild(makeMergeCard(group));
+    updateMergeFold();
   }
 
   function makeMergeCard(group) {
@@ -2132,6 +2230,7 @@
     banList.innerHTML = '';
     if (!bans.length) {
       banList.innerHTML = '<div class="tag-empty-note">Nothing banned.</div>';
+      updateBanFold();
       return;
     }
     for (const ban of sortTags(bans, b => b.tag, b => b.count)) {
@@ -2146,6 +2245,7 @@
         }
       }));
     }
+    updateBanFold();
   }
 
   // ---------- Recent changes (from the Activity Log), with undo ----------
