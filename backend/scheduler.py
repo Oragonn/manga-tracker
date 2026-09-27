@@ -460,6 +460,90 @@ class MangaScheduler:
         finally:
             release_db(conn)
 
+    @staticmethod
+    def _merge_chapters(all_chapters, primary_source=None):
+        """
+        Deduplicate every source's chapters by chapter_number, sorted.
+
+        The primary source's copy of a chapter always wins, so its links
+        are the ones used wherever it has the chapter; other sources only
+        fill in chapter numbers the primary doesn't have. Among candidates
+        of equal standing (several non-primary sources, or one source's
+        own repost duplicates) the most recent one wins outright - both
+        its link and its own release_date - so a different source picking
+        up the latest chapter correctly updates last-release to that
+        source's date.
+
+        The "use the earliest date" smoothing only applies *within* a
+        single source's own repost duplicates (e.g. a second Atsumaru
+        scanlator group reposting a chapter that's been out for a while
+        under the same chapter number) so that repost can't make an
+        already-released chapter look freshly dropped - it must not reach
+        across sources, or a source with an earlier (or just
+        differently-timestamped) copy can hijack last-release even when a
+        different source's copy is the one actually chosen.
+        """
+        def is_primary(ch):
+            if not primary_source:
+                return False
+            if ch.get('source_id') is not None:
+                return ch['source_id'] == primary_source['id']
+            # Chapter Fixes overrides carry no source_id, only the type.
+            return ch.get('source_type') == primary_source['source_type']
+
+        def is_newer(ch, existing):
+            # Safe comparison: treat None/empty as oldest; on a tie (both
+            # undated, or the new one undated) keep the existing one.
+            ch_date = ch.get('release_date') or ''
+            existing_date = existing.get('release_date') or ''
+            return bool(ch_date) and (not existing_date or ch_date > existing_date)
+
+        merged_chapters = {}
+        # What the merge would pick ignoring the primary preference - only
+        # used to borrow a release date when the primary's copy has none
+        # (Kagane often reports no dates), so preferring the primary's link
+        # doesn't blank out a date another source knows.
+        newest_by_date = {}
+        earliest_dates = {}
+        for ch in all_chapters:
+            ch_num = ch['chapter_number']
+            ch_date = ch.get('release_date') or ''
+            dkey = (ch['source_type'], ch_num)
+            if ch_date and (dkey not in earliest_dates or ch_date < earliest_dates[dkey]):
+                earliest_dates[dkey] = ch_date
+
+            if ch_num not in newest_by_date or is_newer(ch, newest_by_date[ch_num]):
+                newest_by_date[ch_num] = ch
+
+            if ch_num not in merged_chapters:
+                merged_chapters[ch_num] = ch
+                continue
+
+            existing = merged_chapters[ch_num]
+            if is_primary(ch) != is_primary(existing):
+                if is_primary(ch):
+                    merged_chapters[ch_num] = ch
+                continue
+
+            # Keep the one with the most recent release date
+            if is_newer(ch, existing):
+                if existing.get('release_date'):
+                    print(f"[Scheduler] Ch.{ch_num}: Using {ch['source_type']} "
+                          f"(newer: {ch_date} vs {existing['release_date']})")
+                merged_chapters[ch_num] = ch
+
+        for ch_num, ch in merged_chapters.items():
+            dkey = (ch['source_type'], ch_num)
+            if dkey not in earliest_dates:
+                fallback = newest_by_date[ch_num]
+                dkey = (fallback['source_type'], ch_num)
+            if dkey in earliest_dates:
+                ch['release_date'] = earliest_dates[dkey]
+
+        final_chapters = list(merged_chapters.values())
+        final_chapters.sort(key=lambda x: x['chapter_number'])
+        return final_chapters
+
     def scan_series(self, series_id):
         """
         Scan all sources for a series and merge chapters.
@@ -687,53 +771,8 @@ class MangaScheduler:
                     release_db(conn)
                 return
             
-            # Merge chapters (deduplicate by chapter_number). Across
-            # *different* sources, the most recent candidate wins outright -
-            # both its link and its own release_date - so a different
-            # source picking up the latest chapter correctly updates
-            # last-release to that source's date. The "use the earliest
-            # date" smoothing only applies *within* a single source's own
-            # repost duplicates (e.g. a second Atsumaru scanlator group
-            # reposting a chapter that's been out for a while under the
-            # same chapter number) so that repost can't make an
-            # already-released chapter look freshly dropped - it must not
-            # reach across sources, or a source with an earlier (or just
-            # differently-timestamped) copy can hijack last-release even
-            # when a different source's copy is the one actually chosen.
-            merged_chapters = {}
-            earliest_dates = {}
-            for ch in all_chapters:
-                ch_num = ch['chapter_number']
-                ch_date = ch.get('release_date') or ''
-                dkey = (ch['source_type'], ch_num)
-                if ch_date and (dkey not in earliest_dates or ch_date < earliest_dates[dkey]):
-                    earliest_dates[dkey] = ch_date
-
-                if ch_num not in merged_chapters:
-                    merged_chapters[ch_num] = ch
-                else:
-                    # Keep the one with the most recent release date
-                    existing = merged_chapters[ch_num]
-                    existing_date = existing.get('release_date') or ''
-
-                    # Safe comparison: treat None/empty as oldest
-                    if ch_date and existing_date:
-                        if ch_date > existing_date:
-                            print(f"[Scheduler] Ch.{ch_num}: Using {ch['source_type']} (newer: {ch_date} vs {existing_date})")
-                            merged_chapters[ch_num] = ch
-                    elif ch_date and not existing_date:
-                        # New chapter has date, existing doesn't -> prefer new
-                        merged_chapters[ch_num] = ch
-                    # else: keep existing (either both have no date, or existing has date and new doesn't)
-
-            for ch_num, ch in merged_chapters.items():
-                dkey = (ch['source_type'], ch_num)
-                if dkey in earliest_dates:
-                    ch['release_date'] = earliest_dates[dkey]
-
-            # Convert back to list and sort
-            final_chapters = list(merged_chapters.values())
-            final_chapters.sort(key=lambda x: x['chapter_number'])
+            primary = next((s for s in sources if s.get('is_primary')), None)
+            final_chapters = self._merge_chapters(all_chapters, primary)
             
             print(f"[Scheduler] Final merged chapters: {len(final_chapters)}")
             

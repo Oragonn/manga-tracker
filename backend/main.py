@@ -15,6 +15,7 @@ import os
 import json
 import csv
 import io
+import threading
 
 @app.route('/errors')
 def errors_page():
@@ -1386,7 +1387,21 @@ def api_set_primary_source(series_id, source_id):
                     )
             except Exception as log_err:
                 print(f"[Set Primary] Logging failed: {log_err}")
-            
+
+            # The primary source's links win the chapter merge, but the
+            # stored chapters are already merged under the old primary -
+            # rescan so the new primary's links replace them now rather
+            # than at the next scheduled check. In the background, since a
+            # full multi-source fetch (Kagane especially) is slow.
+            try:
+                from . import api
+                if hasattr(api, 'manga_scheduler'):
+                    threading.Thread(
+                        target=api.manga_scheduler.scan_series, args=(series_id,), daemon=True
+                    ).start()
+            except Exception as e:
+                print(f"[Set Primary] Failed to trigger scan: {e}")
+
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Failed to set primary source'}), 500
