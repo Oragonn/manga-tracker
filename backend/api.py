@@ -1756,6 +1756,50 @@ def api_delete_custom_tag(tag_id):
     return jsonify({'error': 'Tag not found'}), 404
 
 
+@app.route('/api/series/custom-tags/bulk', methods=['POST'])
+def api_bulk_series_custom_tags():
+    """The dashboard's bulk Edit > Custom Tags. Logs one 'custom_tags' entry
+    per series actually changed, all under one bulk_id, so the whole Apply
+    can be undone as one from the Activity Log."""
+    from .database import bulk_change_series_custom_tags
+    data = request.get_json() or {}
+
+    def id_list(key):
+        return [int(v) for v in (data.get(key) or []) if str(v).isdigit()]
+
+    series_ids = id_list('series_ids')
+    add_ids = id_list('add_tag_ids')
+    remove_ids = id_list('remove_tag_ids')
+    if not series_ids or not (add_ids or remove_ids):
+        return jsonify({'error': 'series_ids and a tag to add or remove are required'}), 400
+
+    changes = bulk_change_series_custom_tags(series_ids, add_ids, remove_ids)
+    if changes is None:
+        return jsonify({'error': 'Failed to update tags'}), 500
+
+    # The Activity Log shows a bulk group through its first entry only, so
+    # every entry also carries what the Apply did as a whole -- one series'
+    # own added/removed can be partial (it may already have had a tag)
+    bulk_added = sorted({t for c in changes for t in c['added']}, key=str.lower)
+    bulk_removed = sorted({t for c in changes for t in c['removed']}, key=str.lower)
+
+    bulk_id = 'bulk_' + uuid.uuid4().hex[:12]
+    for change in changes:
+        after = [t for t in change['before'] if t not in change['removed']] + change['added']
+        log_activity(
+            action_type='custom_tags',
+            series_id=change['series_id'],
+            series_title=change['title'],
+            old_value={'tags': change['before']},
+            new_value={'tags': sorted(after, key=str.lower),
+                       'added': change['added'], 'removed': change['removed'],
+                       'bulk_added': bulk_added, 'bulk_removed': bulk_removed},
+            is_bulk=True,
+            bulk_id=bulk_id
+        )
+    return jsonify({'success': True, 'changed_series': len(changes)})
+
+
 @app.route('/api/series/<int:series_id>/custom-tags')
 def api_get_series_custom_tags(series_id):
     from .database import get_series_custom_tag_ids
@@ -2130,9 +2174,24 @@ def api_delete_uploaded_cover(series_id, cover_id):
 
 @app.route('/api/series/<int:series_id>/check-now', methods=['POST'])
 def api_check_now(series_id):
+    from .database import get_db, release_db
+
+    def latest_chapter():
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT latest_chapter FROM series WHERE id = ?", (series_id,))
+        row = cursor.fetchone()
+        release_db(conn)
+        return row[0] if row else None
+
     try:
+        before = latest_chapter()
         manga_scheduler.scan_series(series_id)
-        return jsonify({'success': True, 'message': 'Checked successfully'})
+        after = latest_chapter()
+        # before/after let the dashboard's bulk Check Now count how many
+        # series actually got a new chapter
+        return jsonify({'success': True, 'message': 'Checked successfully',
+                        'latest_before': before, 'latest_after': after})
     except Exception as e:
         print(f"[Check Now] Error: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500

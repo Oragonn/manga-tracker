@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel58" />
+  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel61" />
   <style>
     /* style.css only defines .mobile-menu/.mobile-menu-overlay inside its
        @media(max-width:768px) block - on a desktop-width viewport they have
@@ -31,7 +31,7 @@
   </style>
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
-  <script src="/static/js/notifications.js?v=mobilepanel58"></script>
+  <script src="/static/js/notifications.js?v=mobilepanel61"></script>
 </head>
 <body>
 
@@ -761,7 +761,20 @@
         </svg>
         Change Status
       </button>
-      <!-- Add more options here later -->
+      <button class="bulk-edit-option" data-action="custom-tags">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>
+          <circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/>
+        </svg>
+        Custom Tags
+      </button>
+      <button class="bulk-edit-option" data-action="check-now">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/>
+          <path d="M21 3v5h-5"/>
+        </svg>
+        Check for New Chapters
+      </button>
     </div>
     <div class="modal-buttons">
       <button id="btn-bulk-edit-cancel">Close</button>
@@ -782,6 +795,25 @@
     </div>
     <div class="modal-buttons">
       <button id="btn-status-back">Back</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bulk Custom Tags Sub-Modal -->
+<div id="bulk-tags-modal" class="modal hidden">
+  <div class="modal-content" style="max-width: 320px;">
+    <h3>Custom Tags</h3>
+    <p class="bulk-tags-hint">Tick to add to every selected series, untick to remove. A dash means only some have it.</p>
+    <div class="settings-tags-list" id="bulk-tags-list">
+      <p class="settings-cover-menu-empty">Loading…</p>
+    </div>
+    <div class="settings-cover-url-row">
+      <input type="text" id="bulk-tags-new-input" class="settings-cover-url-input" placeholder="New tag name" maxlength="40" />
+      <button type="button" class="settings-cover-url-apply" id="bulk-tags-new-submit">Add</button>
+    </div>
+    <div class="modal-buttons">
+      <button id="btn-bulk-tags-back">Back</button>
+      <button id="btn-bulk-tags-apply" class="btn-primary" disabled>Apply</button>
     </div>
   </div>
 </div>
@@ -931,7 +963,7 @@
   </svg>
 </button>
 
-<script src="/static/js/dashboard.js?v=mobilepanel58"></script>
+<script src="/static/js/dashboard.js?v=mobilepanel61"></script>
   <!-- ADDED: Initialize notifications -->
   <script>
   // Initialize notification system on page load

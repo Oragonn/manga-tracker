@@ -236,6 +236,7 @@
     .log-icon.tag_unmerged { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
     .log-icon.tag_banned { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
     .log-icon.tag_unbanned { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+    .log-icon.custom_tags { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
 
     .log-content {
       flex: 1;
@@ -471,6 +472,7 @@
       <option value="progress">Progress</option>
       <option value="status">Status Changed</option>
       <option value="edited">Edited</option>
+      <option value="custom_tags">Custom Tags</option>
       <option value="source">Sources</option>
       <option value="bookmark">Bookmarks</option>
       <option value="tag">Tags</option>
@@ -602,7 +604,8 @@ function getLogIcon(type) {
     chapter_override_removed: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>',
     bookmark_added: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
     bookmark_updated: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
-    bookmark_deleted: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>'
+    bookmark_deleted: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>',
+    custom_tags: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>'
   };
   if (isTagActivity(type)) return TAG_ACTIVITY_ICONS[type];
   return icons[type] || icons.edited;
@@ -617,7 +620,8 @@ function getLogTitle(log) {
     const typeLabels = {
       deleted: 'Deleted',
       status: 'Changed status for',
-      progress: 'Updated progress for'
+      progress: 'Updated progress for',
+      custom_tags: 'Changed custom tags for'
     };
     return `${typeLabels[log.action_type] || 'Modified'} ${log.affected_count || 'multiple'} series`;
   }
@@ -708,6 +712,16 @@ function getLogDetails(log) {
           ? `Un-banned ${label}'s copy of Ch.${oldVal?.chapter_number}`
           : `Removed Ch.${oldVal?.chapter_number} correction (${label})`;
       }
+      case 'custom_tags': {
+        // A bulk group is shown through its first entry, so use what the
+        // whole Apply did (that one series may have already had a tag)
+        const added = (log.is_bulk && newVal?.bulk_added) || newVal?.added || [];
+        const removed = (log.is_bulk && newVal?.bulk_removed) || newVal?.removed || [];
+        const parts = [];
+        if (added.length) parts.push(`added ${formatTagNames(added, 3)}`);
+        if (removed.length) parts.push(`removed ${formatTagNames(removed, 3)}`);
+        return escapeHtml(parts.length ? `Custom tags: ${parts.join(', ')}` : 'Custom tags updated');
+      }
       case 'bookmark_added':
         return 'Saved view created';
       case 'bookmark_updated':
@@ -780,7 +794,8 @@ function getUndoMessage(actionType, name) {
     chapter_override_removed: n => `Restored chapter correction for ${n}`,
     bookmark_added: n => `Removed view "${n}"`,
     bookmark_updated: n => `Reverted view "${n}"`,
-    bookmark_deleted: n => `Restored view "${n}"`
+    bookmark_deleted: n => `Restored view "${n}"`,
+    custom_tags: n => `Reverted custom tags for ${n}`
   };
   return (templates[actionType] || (n => `Undone: ${n}`))(name);
 }
@@ -791,7 +806,8 @@ function getBulkUndoMessage(actionType, count) {
     progress: c => `Reverted progress for ${c} series`,
     status: c => `Reverted status for ${c} series`,
     edited: c => `Reverted changes for ${c} series`,
-    source_cleanup: c => `Restored removed sources' titles/tags for ${c} series`
+    source_cleanup: c => `Restored removed sources' titles/tags for ${c} series`,
+    custom_tags: c => `Reverted custom tags for ${c} series`
   };
   return (templates[actionType] || (c => `Undone for ${c} series`))(count);
 }

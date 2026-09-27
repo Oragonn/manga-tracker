@@ -938,6 +938,79 @@ def add_custom_tag_to_series(series_id, tag_id):
         return False
 
 
+def bulk_change_series_custom_tags(series_ids, add_tag_ids, remove_tag_ids):
+    """Add/remove custom tags across many series in one transaction (the
+    dashboard's bulk Edit). Only touches series that actually change.
+    Returns one dict per changed series -- id, title, and the tag names
+    before/added/removed -- for the caller to log (logging opens its own
+    connection, so it can't happen while this one holds the lock)."""
+    conn = get_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT id, name FROM custom_tags")
+        tag_names = dict(cursor.fetchall())
+        add_ids = [t for t in add_tag_ids if t in tag_names]
+        remove_ids = [t for t in remove_tag_ids if t in tag_names and t not in add_ids]
+
+        changes = []
+        for series_id in series_ids:
+            cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+            row = cursor.fetchone()
+            if not row:
+                continue
+            cursor.execute("SELECT tag_id FROM series_custom_tags WHERE series_id = ?", (series_id,))
+            current = {r[0] for r in cursor.fetchall()}
+            to_add = [t for t in add_ids if t not in current]
+            to_remove = [t for t in remove_ids if t in current]
+            if not to_add and not to_remove:
+                continue
+            for tag_id in to_add:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO series_custom_tags (series_id, tag_id) VALUES (?, ?)",
+                    (series_id, tag_id)
+                )
+            for tag_id in to_remove:
+                cursor.execute(
+                    "DELETE FROM series_custom_tags WHERE series_id = ? AND tag_id = ?",
+                    (series_id, tag_id)
+                )
+            changes.append({
+                'series_id': series_id,
+                'title': row[0],
+                'before': sorted((tag_names[t] for t in current if t in tag_names), key=str.lower),
+                'added': [tag_names[t] for t in to_add],
+                'removed': [tag_names[t] for t in to_remove],
+            })
+        release_db(conn)
+        return changes
+    except Exception as e:
+        print(f"[Database] Bulk custom tag change failed: {e}")
+        try:
+            release_db(conn, commit=False)
+        except:
+            pass
+        return None
+
+
+def revert_custom_tag_change(series_id, new_value):
+    """Undo one 'custom_tags' Activity Log entry: take off the tags it added
+    and put back the ones it removed. Goes by name, so a removed tag that
+    has since been deleted outright is recreated."""
+    new_value = new_value or {}
+    for name in new_value.get('added', []):
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM custom_tags WHERE name = ? COLLATE NOCASE", (name,))
+        row = cursor.fetchone()
+        release_db(conn)
+        if row:
+            remove_custom_tag_from_series(series_id, row[0])
+    for name in new_value.get('removed', []):
+        tag_id = create_custom_tag(name)
+        if tag_id is not None:
+            add_custom_tag_to_series(series_id, tag_id)
+
+
 def remove_custom_tag_from_series(series_id, tag_id):
     conn = get_db()
     cursor = conn.cursor()

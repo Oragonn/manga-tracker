@@ -2708,6 +2708,249 @@ async function createAndApplyCustomTag(name) {
 	}
 }
 
+// ─── Bulk Edit: custom Tags ──────────────────────────────────────
+// Each tag is shown tri-state across the selection: 'all' (every selected
+// series has it), 'none', or 'mixed'. Clicking cycles all/none, plus back
+// to mixed for a tag that started mixed (= leave it as it is). Nothing is
+// written until Apply, which only touches the series that need changing.
+const bulkTagsState = {
+	loaded: false,
+	seriesTags: new Map(), // series id -> Set of tag ids
+	original: new Map(),   // tag id -> 'all' | 'none' | 'mixed'
+	target: new Map()
+};
+
+// Runs fn over items a few at a time, so a big selection doesn't fire
+// hundreds of requests at the server at once.
+async function runLimited(items, fn, limit = 6) {
+	const results = [];
+	let next = 0;
+	const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+		while (next < items.length) {
+			const i = next++;
+			results[i] = await fn(items[i]);
+		}
+	});
+	await Promise.all(workers);
+	return results;
+}
+
+async function openBulkTagsModal() {
+	const list = document.getElementById('bulk-tags-list');
+	const applyBtn = document.getElementById('btn-bulk-tags-apply');
+	bulkTagsState.loaded = false;
+	bulkTagsState.seriesTags = new Map();
+	bulkTagsState.original = new Map();
+	bulkTagsState.target = new Map();
+	applyBtn.disabled = true;
+	list.innerHTML = '<p class="settings-cover-menu-empty">Loading…</p>';
+
+	const ids = Array.from(bulkState.selectedIds);
+	try {
+		const [tags, perSeries] = await Promise.all([
+			fetch('/api/custom-tags').then(r => r.ok ? r.json() : Promise.reject()),
+			runLimited(ids, id => fetch(`/api/series/${id}/custom-tags`)
+				.then(r => r.ok ? r.json() : Promise.reject()))
+		]);
+		allCustomTagsCache = tags;
+		ids.forEach((id, i) => bulkTagsState.seriesTags.set(id, new Set(perSeries[i].tag_ids || [])));
+	} catch (err) {
+		list.innerHTML = '<p class="settings-cover-menu-empty">Failed to load tags -- close and try again.</p>';
+		return;
+	}
+
+	allCustomTagsCache.forEach(t => {
+		let have = 0;
+		bulkTagsState.seriesTags.forEach(set => { if (set.has(t.id)) have++; });
+		const state = have === 0 ? 'none' : have === ids.length ? 'all' : 'mixed';
+		bulkTagsState.original.set(t.id, state);
+		bulkTagsState.target.set(t.id, state);
+	});
+	bulkTagsState.loaded = true;
+	renderBulkTagsList();
+}
+
+function renderBulkTagsList() {
+	const list = document.getElementById('bulk-tags-list');
+	if (!list) return;
+
+	if (allCustomTagsCache.length === 0) {
+		list.innerHTML = '<p class="settings-cover-menu-empty">No tags yet -- create one below.</p>';
+	} else {
+		list.innerHTML = allCustomTagsCache.map(t => {
+			const state = bulkTagsState.target.get(t.id) || 'none';
+			const mark = state === 'all'
+				? '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>'
+				: state === 'mixed'
+					? '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M6 12h12"/></svg>'
+					: '';
+			return `
+				<div class="settings-tag-item ${state === 'all' ? 'checked' : ''} ${state === 'mixed' ? 'mixed' : ''}" data-tag-id="${t.id}">
+					<span class="settings-tag-checkbox">${mark}</span>
+					<span class="settings-tag-item-name">${escapeHtml(t.name)}</span>
+					<button type="button" class="btn-icon danger settings-tag-delete" data-tag-id="${t.id}" title="Delete tag">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+						</svg>
+					</button>
+				</div>
+			`;
+		}).join('');
+
+		list.querySelectorAll('.settings-tag-item').forEach(item => {
+			item.addEventListener('click', (e) => {
+				if (e.target.closest('.settings-tag-delete')) return;
+				cycleBulkTag(parseInt(item.dataset.tagId, 10));
+			});
+		});
+		list.querySelectorAll('.settings-tag-delete').forEach(btn => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				deleteBulkTag(parseInt(btn.dataset.tagId, 10));
+			});
+		});
+	}
+
+	const changed = [...bulkTagsState.target].some(([id, s]) => bulkTagsState.original.get(id) !== s);
+	document.getElementById('btn-bulk-tags-apply').disabled = !changed;
+}
+
+function cycleBulkTag(tagId) {
+	const current = bulkTagsState.target.get(tagId) || 'none';
+	let next;
+	if (current === 'mixed') next = 'all';
+	else if (current === 'all') next = 'none';
+	else next = bulkTagsState.original.get(tagId) === 'mixed' ? 'mixed' : 'all';
+	bulkTagsState.target.set(tagId, next);
+	renderBulkTagsList();
+}
+
+async function createBulkTag(name) {
+	try {
+		const res = await fetch('/api/custom-tags', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name })
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) {
+			showNotification(data.error || 'Failed to create tag', 'error');
+			return;
+		}
+		if (!allCustomTagsCache.find(t => t.id === data.id)) {
+			allCustomTagsCache = [...allCustomTagsCache, { id: data.id, name: data.name }]
+				.sort((a, b) => a.name.localeCompare(b.name));
+			bulkTagsState.original.set(data.id, 'none');
+		}
+		// Typing a tag's name means "put this on them" -- also when the name
+		// matched an existing tag (create is idempotent by name)
+		bulkTagsState.target.set(data.id, 'all');
+		renderBulkTagsList();
+		if (typeof loadCustomTagsFilterSection === 'function') loadCustomTagsFilterSection();
+		if (typeof loadMobileCustomTagsFilterSection === 'function') loadMobileCustomTagsFilterSection();
+	} catch (err) {
+		showNotification('Failed to create tag', 'error');
+	}
+}
+
+// Deleting a tag is immediate and global (same as the Series Settings
+// trash button) -- it also drops out of any staged Apply.
+async function deleteBulkTag(tagId) {
+	const tag = allCustomTagsCache.find(t => t.id === tagId);
+	if (!(await showConfirmDialog({
+			title: `Delete the tag "${tag ? tag.name : ''}"?`,
+			message: 'This removes it from every series, not just the selected ones.',
+			confirmText: 'Delete',
+			danger: true
+		}))) return;
+
+	try {
+		const res = await fetch(`/api/custom-tags/${tagId}`, { method: 'DELETE' });
+		if (!res.ok) {
+			showNotification('Failed to delete tag', 'error');
+			return;
+		}
+		allCustomTagsCache = allCustomTagsCache.filter(t => t.id !== tagId);
+		bulkTagsState.original.delete(tagId);
+		bulkTagsState.target.delete(tagId);
+		bulkTagsState.seriesTags.forEach(set => set.delete(tagId));
+		renderBulkTagsList();
+		if (typeof loadCustomTagsFilterSection === 'function') loadCustomTagsFilterSection();
+		if (typeof loadMobileCustomTagsFilterSection === 'function') loadMobileCustomTagsFilterSection();
+	} catch (err) {
+		showNotification('Failed to delete tag', 'error');
+	}
+}
+
+async function applyBulkTags() {
+	const applyBtn = document.getElementById('btn-bulk-tags-apply');
+	if (!bulkTagsState.loaded || applyBtn.disabled) return;
+	applyBtn.disabled = true;
+
+	const addIds = [];
+	const removeIds = [];
+	bulkTagsState.target.forEach((state, tagId) => {
+		if (state === bulkTagsState.original.get(tagId) || state === 'mixed') return;
+		(state === 'all' ? addIds : removeIds).push(tagId);
+	});
+
+	// One request for the whole change, so the server can log it as a single
+	// bulk entry that the Activity Log undoes in one go
+	try {
+		const res = await fetch('/api/series/custom-tags/bulk', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				series_ids: [...bulkTagsState.seriesTags.keys()],
+				add_tag_ids: addIds,
+				remove_tag_ids: removeIds
+			})
+		});
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) {
+			showNotification(data.error || 'Failed to update custom tags - try again', 'error');
+			applyBtn.disabled = false;
+			return;
+		}
+		showNotification(`Custom tags updated on ${data.changed_series} series`, 'edit');
+	} catch (err) {
+		showNotification('Failed to update custom tags - try again', 'error');
+		applyBtn.disabled = false;
+		return;
+	}
+
+	document.getElementById('bulk-tags-modal').classList.add('hidden');
+	exitBulkMode();
+	loadPage();
+}
+
+// ─── Bulk Edit: Check for New Chapters ───────────────────────────
+// Runs the same per-series check-now as Series Settings, a few at a time
+// (each one can take a while, and Kagane's are serialised server-side
+// anyway). Bulk mode is left straight away so the page stays usable
+// while the checks run.
+async function bulkCheckNow() {
+	const ids = Array.from(bulkState.selectedIds);
+	if (ids.length === 0) return;
+	exitBulkMode();
+	showNotification(`Checking ${ids.length} series for new chapters...`, 'edit');
+
+	const results = await runLimited(ids, id =>
+		fetch(`/api/series/${id}/check-now`, { method: 'POST' })
+			.then(r => r.ok ? r.json() : null)
+			.catch(() => null), 4);
+
+	const failCount = results.filter(r => !r).length;
+	const newCount = results.filter(r => r && r.latest_after != null && r.latest_after !== r.latest_before).length;
+	const found = newCount > 0 ? `${newCount} with new chapters` : 'no new chapters';
+	if (failCount > 0) {
+		showNotification(`Checked ${ids.length - failCount}/${ids.length} series, ${found} (${failCount} failed - try again)`, 'error');
+	} else {
+		showNotification(`Checked ${ids.length} series, ${found}`, 'read');
+	}
+	loadPage();
+}
+
 // ─── Skeleton Card Creation ──────────────────────────────────────
 // Mobile cards hide .card-info entirely (title is overlaid on the cover
 // instead, see renderSeriesCard) -- skip that content block here too, or
@@ -6056,6 +6299,34 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('bulk-edit-modal').classList.remove('hidden');
 	});
 
+	// ─── Bulk Custom Tags ─────────────────────────────────────────
+	document.querySelector('.bulk-edit-option[data-action="custom-tags"]')?.addEventListener('click', () => {
+		document.getElementById('bulk-edit-modal').classList.add('hidden');
+		document.getElementById('bulk-tags-modal').classList.remove('hidden');
+		openBulkTagsModal();
+	});
+	document.getElementById('btn-bulk-tags-back')?.addEventListener('click', () => {
+		document.getElementById('bulk-tags-modal').classList.add('hidden');
+		document.getElementById('bulk-edit-modal').classList.remove('hidden');
+	});
+	document.getElementById('btn-bulk-tags-apply')?.addEventListener('click', applyBulkTags);
+
+	// ─── Bulk Check Now ───────────────────────────────────────────
+	document.querySelector('.bulk-edit-option[data-action="check-now"]')?.addEventListener('click', () => {
+		document.getElementById('bulk-edit-modal').classList.add('hidden');
+		bulkCheckNow();
+	});
+	document.getElementById('bulk-tags-new-submit')?.addEventListener('click', async () => {
+		const input = document.getElementById('bulk-tags-new-input');
+		const name = input.value.trim();
+		if (!name || !bulkTagsState.loaded) return;
+		input.value = '';
+		await createBulkTag(name);
+	});
+	document.getElementById('bulk-tags-new-input')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') { e.preventDefault(); document.getElementById('bulk-tags-new-submit')?.click(); }
+	});
+
 	// Close modals when clicking outside
 	document.getElementById('bulk-edit-modal')?.addEventListener('click', (e) => {
 		if (e.target.id === 'bulk-edit-modal' && mousedownStartedOnBackdrop(e)) {
@@ -6065,6 +6336,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.getElementById('bulk-status-modal')?.addEventListener('click', (e) => {
 		if (e.target.id === 'bulk-status-modal' && mousedownStartedOnBackdrop(e)) {
 			document.getElementById('bulk-status-modal').classList.add('hidden');
+		}
+	});
+	document.getElementById('bulk-tags-modal')?.addEventListener('click', (e) => {
+		if (e.target.id === 'bulk-tags-modal' && mousedownStartedOnBackdrop(e)) {
+			document.getElementById('bulk-tags-modal').classList.add('hidden');
 		}
 	});
 	document.getElementById('bulk-read-modal')?.addEventListener('click', (e) => {

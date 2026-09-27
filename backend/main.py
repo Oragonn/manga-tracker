@@ -404,6 +404,15 @@ def api_undo_log(log_id):
                     print(f"[Undo] Failed to revert edits: {e}")
                     return jsonify({'error': f'Failed to revert edits: {str(e)}'}), 500
 
+        elif action_type == 'custom_tags' and series_id:
+            # Take back the custom tags this added, put back the ones it removed
+            try:
+                from .database import revert_custom_tag_change
+                revert_custom_tag_change(series_id, new_value)
+            except Exception as e:
+                print(f"[Undo] Failed to revert custom tags: {e}")
+                return jsonify({'error': f'Failed to revert custom tags: {str(e)}'}), 500
+
         elif action_type == 'source_removed' and series_id:
             # Re-add the removed source, unless something already re-added
             # the same URL in the meantime (source_url is unique table-wide).
@@ -796,6 +805,13 @@ def api_undo_bulk(bulk_id):
                         restore_removed_source(series_id, None, old_value)
                     except Exception as e:
                         print(f"[Undo Bulk] Failed to revert source cleanup for series {series_id}: {e}")
+
+            elif action_type == 'custom_tags' and series_id:
+                try:
+                    from .database import revert_custom_tag_change
+                    revert_custom_tag_change(series_id, new_value)
+                except Exception as e:
+                    print(f"[Undo Bulk] Failed to revert custom tags for series {series_id}: {e}")
         
         # Mark entire bulk as undone
         mark_log_undone(bulk_id=bulk_id)

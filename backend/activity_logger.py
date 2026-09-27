@@ -70,7 +70,8 @@ def log_activity(action_type, series_id=None, series_title=None, old_value=None,
         action_type: 'added', 'deleted', 'progress', 'status', 'edited',
                      'source_added', 'source_removed', 'source_cleanup',
                      'bookmark_added', 'bookmark_updated', 'bookmark_deleted',
-                     'tag_merged', 'tag_unmerged', 'tag_banned', 'tag_unbanned'
+                     'tag_merged', 'tag_unmerged', 'tag_banned', 'tag_unbanned',
+                     'custom_tags'
         series_id: ID of the series (None if deleted, or not series-scoped)
         series_title: Title of the series (or bookmark name, for bookmark events;
                       the tag name(s), for tag events)
