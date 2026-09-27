@@ -2159,6 +2159,15 @@ html {
   display: none;
 }
 
+/* Applied once openCoverMenu() reparents the menu to <body>, same as
+   .settings-typetags-menu-portal: inside the modal it was clipped and gave
+   the modal a scrollbar. Position is set inline from the pencil button. */
+.settings-cover-menu-portal {
+  position: fixed;
+  z-index: 1001;
+  overflow-y: auto;
+}
+
 .settings-cover-menu-section + .settings-cover-menu-section {
   margin-top: 0;
 }
@@ -5478,16 +5487,12 @@ html {
     top: max(16px, env(safe-area-inset-top));
   }
 
-  /* Fixed 260px could run past a narrow phone's edge, anchored as it is
-     to the cover's own right edge (now the screen's right edge). */
-  #edit-series-modal .settings-cover-menu {
-    max-width: calc(100vw - 20px);
-  }
-
   /* Same :hover-gated-visibility issue as the cover-edit button above --
      the delete X on a previously-uploaded cover thumbnail never showed
-     on touch, so there was no way to remove an uploaded cover on mobile. */
-  #edit-series-modal .settings-cover-upload-delete {
+     on touch, so there was no way to remove an uploaded cover on mobile.
+     Scoped to the menu, not #edit-series-modal: openCoverMenu() moves it
+     to <body> (its width is capped to the screen there too). */
+  .settings-cover-menu .settings-cover-upload-delete {
     opacity: 1;
   }
 

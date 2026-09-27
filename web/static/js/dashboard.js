@@ -1239,8 +1239,10 @@ function closeEditSeriesModal() {
 	// openTagsMenu) to escape the modal's overflow clipping, so it's no
 	// longer a descendant that hiding the modal auto-hides.
 	document.getElementById('settings-tags-menu')?.classList.add('hidden');
-	// Same for the Content Type & Tags menu.
+	// Same for the Content Type & Tags menu and the cover menu.
 	closeTypeTagsMenu();
+	document.getElementById('settings-cover-menu')?.classList.add('hidden');
+	document.getElementById('settings-cover-col')?.classList.remove('cover-menu-open');
 
 	// html itself (not body) is the page's actual scrolling element --
 	// style.css sets `html { overflow-y: scroll }` with no height/overflow
@@ -4793,8 +4795,35 @@ document.addEventListener('DOMContentLoaded', () => {
 // Uploading is the one exception: the file has to reach the server to get a
 // URL at all, so that upload happens immediately, but the series row itself
 // is still untouched until Save.
+	// Moved to <body> and positioned from the pencil button's live
+	// coordinates, like openTypeTagsMenu(): left inside the modal, a menu
+	// taller than the cover was clipped by the modal and gave it a scrollbar.
+	// Opens downwards unless there's clearly more room above, never taller
+	// than the room it has.
 	function openCoverMenu() {
-		document.getElementById('settings-cover-menu')?.classList.remove('hidden');
+		const menu = document.getElementById('settings-cover-menu');
+		const trigger = document.getElementById('settings-cover-edit-btn');
+		if (!menu || !trigger) return;
+		if (menu.parentElement !== document.body) {
+			document.body.appendChild(menu);
+			menu.classList.add('settings-cover-menu-portal');
+		}
+		const rect = trigger.getBoundingClientRect();
+		const width = Math.min(260, window.innerWidth - 16);
+		menu.style.width = `${width}px`;
+		menu.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+		const below = window.innerHeight - rect.bottom - 16;
+		const above = rect.top - 16;
+		if (below >= 400 || below >= above) {
+			menu.style.top = `${rect.bottom + 6}px`;
+			menu.style.bottom = 'auto';
+			menu.style.maxHeight = `${Math.max(below, 200)}px`;
+		} else {
+			menu.style.top = 'auto';
+			menu.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+			menu.style.maxHeight = `${Math.max(above, 200)}px`;
+		}
+		menu.classList.remove('hidden');
 		document.getElementById('settings-cover-col')?.classList.add('cover-menu-open');
 		renderCoverSourceList();
 		renderGalleryCoversList();
@@ -5021,6 +5050,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 
 	document.getElementById('settings-cover-menu')?.addEventListener('click', (e) => e.stopPropagation());
+	// Scrolling the modal would leave the fixed-position menu floating where the button was
+	document.querySelector('#edit-series-modal .settings-modal')?.addEventListener('scroll', closeCoverMenu, { passive: true });
 
 	document.addEventListener('click', (e) => {
 		const menu = document.getElementById('settings-cover-menu');
