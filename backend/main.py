@@ -464,6 +464,16 @@ def api_undo_log(log_id):
                     print(f"[Undo] Failed to remove source: {e}")
                     return jsonify({'error': f'Failed to remove source: {str(e)}'}), 500
 
+        elif action_type == 'source_cleanup' and series_id:
+            # Put back what scripts/clean_removed_sources.py took out
+            if old_value:
+                try:
+                    from .source_metadata import restore_removed_source
+                    restore_removed_source(series_id, None, old_value)
+                except Exception as e:
+                    print(f"[Undo] Failed to revert source cleanup: {e}")
+                    return jsonify({'error': f'Failed to revert source cleanup: {str(e)}'}), 500
+
         elif action_type in ('chapter_ban', 'chapter_override') and series_id:
             # Revert a ban/edit/manual-add: restore the prior correction
             # state if there was one, or remove the row this action created.
@@ -777,6 +787,14 @@ def api_undo_bulk(bulk_id):
                             update_series(series_id, updates)
                     except Exception as e:
                         print(f"[Undo Bulk] Failed to revert edits for series {series_id}: {e}")
+
+            elif action_type == 'source_cleanup' and series_id:
+                if old_value:
+                    try:
+                        from .source_metadata import restore_removed_source
+                        restore_removed_source(series_id, None, old_value)
+                    except Exception as e:
+                        print(f"[Undo Bulk] Failed to revert source cleanup for series {series_id}: {e}")
         
         # Mark entire bulk as undone
         mark_log_undone(bulk_id=bulk_id)

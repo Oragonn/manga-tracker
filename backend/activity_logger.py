@@ -68,7 +68,7 @@ def log_activity(action_type, series_id=None, series_title=None, old_value=None,
 
     Args:
         action_type: 'added', 'deleted', 'progress', 'status', 'edited',
-                     'source_added', 'source_removed',
+                     'source_added', 'source_removed', 'source_cleanup',
                      'bookmark_added', 'bookmark_updated', 'bookmark_deleted',
                      'tag_merged', 'tag_unmerged', 'tag_banned', 'tag_unbanned'
         series_id: ID of the series (None if deleted, or not series-scoped)
@@ -259,7 +259,7 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
         # Type filter. 'source', 'bookmark' and 'tag' are grouped filters
         # covering multiple underlying action_type values (added/removed/updated).
         if type_filter == 'source':
-            where_parts.append("action_type IN ('source_added', 'source_removed')")
+            where_parts.append("action_type IN ('source_added', 'source_removed', 'source_cleanup')")
         elif type_filter == 'bookmark':
             where_parts.append("action_type IN ('bookmark_added', 'bookmark_updated', 'bookmark_deleted')")
         elif type_filter == 'tag':

@@ -225,6 +225,7 @@
     .log-icon.bulk { background: rgba(249, 115, 22, 0.15); color: #f97316; }
     .log-icon.source_added { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
     .log-icon.source_removed { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .log-icon.source_cleanup { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
     .log-icon.chapter_override { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
     .log-icon.chapter_ban { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
     .log-icon.chapter_override_removed { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
@@ -595,6 +596,7 @@ function getLogIcon(type) {
     edited: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
     source_added: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
     source_removed: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+    source_cleanup: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
     chapter_ban: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M6 6l12 12"/></svg>',
     chapter_override: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
     chapter_override_removed: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>',
@@ -680,6 +682,18 @@ function getLogDetails(log) {
         const label = sourceTypeLabel(oldVal?.source_type);
         return `Removed ${label} as a source`;
       }
+      case 'source_cleanup': {
+        // What scripts/clean_removed_sources.py took out for a source
+        // removed before removals cleaned up after themselves
+        const label = sourceTypeLabel(oldVal?.source_type);
+        const removed = oldVal?.removed || {};
+        const parts = [];
+        if (removed.alt_titles?.length) parts.push(`${removed.alt_titles.length} title${removed.alt_titles.length > 1 ? 's' : ''}`);
+        if (removed.genres?.length) parts.push(`tags ${formatTagNames(removed.genres, 3)}`);
+        if (removed.content_rating) parts.push(`rating ${contentRatingLabel(removed.content_rating.old)} → ${contentRatingLabel(removed.content_rating.new)}`);
+        if (removed.gallery_covers?.length) parts.push(`${removed.gallery_covers.length} gallery cover${removed.gallery_covers.length > 1 ? 's' : ''}`);
+        return escapeHtml(`Cleaned up after removed ${label} source` + (parts.length ? `: ${parts.join(', ')}` : ''));
+      }
       case 'chapter_ban': {
         const label = sourceTypeLabel(newVal?.source_type);
         return `Banned ${label}'s copy of Ch.${newVal?.chapter_number}`;
@@ -760,6 +774,7 @@ function getUndoMessage(actionType, name) {
     edited: n => `Reverted changes to ${n}`,
     source_added: n => `Removed source from ${n}`,
     source_removed: n => `Restored source to ${n}`,
+    source_cleanup: n => `Restored removed source's titles/tags to ${n}`,
     chapter_ban: n => `Reverted chapter ban for ${n}`,
     chapter_override: n => `Reverted chapter correction for ${n}`,
     chapter_override_removed: n => `Restored chapter correction for ${n}`,
@@ -775,7 +790,8 @@ function getBulkUndoMessage(actionType, count) {
     deleted: c => `Restored ${c} series`,
     progress: c => `Reverted progress for ${c} series`,
     status: c => `Reverted status for ${c} series`,
-    edited: c => `Reverted changes for ${c} series`
+    edited: c => `Reverted changes for ${c} series`,
+    source_cleanup: c => `Restored removed sources' titles/tags for ${c} series`
   };
   return (templates[actionType] || (c => `Undone for ${c} series`))(count);
 }

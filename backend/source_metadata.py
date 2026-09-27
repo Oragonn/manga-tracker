@@ -89,7 +89,7 @@ def _metadata_for(source):
     return metadata_from_info(info) if info else None
 
 
-def strip_removed_source(series_id, removed):
+def strip_removed_source(series_id, removed, apply=True):
     """Take out of a series what `removed` (the deleted series_sources row,
     as a dict with source_url/source_type/metadata) contributed and no
     remaining source also provides. Call after the row is deleted.
@@ -100,7 +100,10 @@ def strip_removed_source(series_id, removed):
     Returns {'removed': {...}} describing exactly what was taken out (for
     the activity log, so undo can put it back), plus 'metadata' - the
     removed source's own metadata, so an undo can store it again - and
-    'warning' if the titles/tags/rating had to be left alone."""
+    'warning' if the titles/tags/rating had to be left alone.
+
+    With apply=False nothing is written: it only reports what it would do
+    (scripts/clean_removed_sources.py's dry run)."""
     from .database import get_db, release_db, series_search_titles
     from .search_utils import build_searchable_text
 
@@ -128,9 +131,10 @@ def strip_removed_source(series_id, removed):
                 WHERE series_id = ? AND source_type = ?
             """, (series_id, removed['source_type']))
             covers = [dict(zip(('cover_url', 'volume', 'locale', 'note'), r)) for r in cursor.fetchall()]
-            if covers:
+            if covers and apply:
                 cursor.execute("DELETE FROM gallery_covers WHERE series_id = ? AND source_type = ?",
                                (series_id, removed['source_type']))
+            if covers:
                 result['removed']['gallery_covers'] = covers
         finally:
             release_db(conn)
@@ -154,7 +158,7 @@ def strip_removed_source(series_id, removed):
         cursor = conn.cursor()
         # Remember what was fetched, so the next removal needn't fetch again.
         for s in remaining:
-            if load_source_metadata(s['metadata']) is None:
+            if apply and load_source_metadata(s['metadata']) is None:
                 save_source_metadata(cursor, s['id'], remaining_meta[s['id']])
 
         cursor.execute("""
@@ -200,16 +204,17 @@ def strip_removed_source(series_id, removed):
         if gone_titles or gone_genres or new_rating != rating:
             alt_titles = [t for t in alt_titles if t not in gone_titles]
             genres = [g for g in genres if g not in gone_genres]
-            cursor.execute("""
-                UPDATE series SET alt_titles = ?, genres = ?, content_rating = ?, searchable_text = ?
-                WHERE id = ?
-            """, (
-                json.dumps(alt_titles, ensure_ascii=False) if alt_titles else None,
-                json.dumps(genres, ensure_ascii=False) if genres else None,
-                new_rating,
-                build_searchable_text(series_search_titles(title, title_en, title_romaji, title_native, alt_titles)),
-                series_id,
-            ))
+            if apply:
+                cursor.execute("""
+                    UPDATE series SET alt_titles = ?, genres = ?, content_rating = ?, searchable_text = ?
+                    WHERE id = ?
+                """, (
+                    json.dumps(alt_titles, ensure_ascii=False) if alt_titles else None,
+                    json.dumps(genres, ensure_ascii=False) if genres else None,
+                    new_rating,
+                    build_searchable_text(series_search_titles(title, title_en, title_romaji, title_native, alt_titles)),
+                    series_id,
+                ))
             if gone_titles:
                 result['removed']['alt_titles'] = gone_titles
             if gone_genres:
@@ -219,6 +224,14 @@ def strip_removed_source(series_id, removed):
     finally:
         release_db(conn)
     return result
+
+
+def _add_missing(current, extra):
+    """`current` untouched (old rows can hold case variants of one name -
+    merge_tag_lists would collapse those too), plus whatever of `extra`
+    isn't in it yet."""
+    have = {v.casefold() for v in current}
+    return current + [v for v in merge_tag_lists(extra) if v.casefold() not in have]
 
 
 def restore_removed_source(series_id, source_id, log_old_value):
@@ -254,8 +267,8 @@ def restore_removed_source(series_id, source_id, log_old_value):
             genres = normalize_tag_list(json.loads(genres_raw)) if genres_raw else []
         except (ValueError, TypeError):
             genres = []
-        alt_titles = merge_tag_lists(alt_titles, removed.get('alt_titles'))
-        genres = merge_tag_lists(genres, removed.get('genres'))
+        alt_titles = _add_missing(alt_titles, removed.get('alt_titles'))
+        genres = _add_missing(genres, removed.get('genres'))
         # Only revert the rating if nothing has changed it since.
         change = removed.get('content_rating')
         if change and rating == change.get('new'):
