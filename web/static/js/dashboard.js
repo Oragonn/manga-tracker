@@ -1883,7 +1883,18 @@ async function removeSource(seriesId, sourceId) {
 		if (res.ok) {
 			// ADDED: Show notification for source removed
 			const seriesTitle = document.getElementById('edit-title')?.value || 'Series';
-			showNotification(`Source removed from ${seriesTitle}`, 'source_removed');
+			const data = await res.json().catch(() => ({}));
+			// What only this source had brought in is taken out with it
+			const removed = data.removed || {};
+			const parts = [];
+			if (removed.alt_titles?.length) parts.push(`${removed.alt_titles.length} title${removed.alt_titles.length > 1 ? 's' : ''}`);
+			if (removed.genres?.length) parts.push(`${removed.genres.length} tag${removed.genres.length > 1 ? 's' : ''}`);
+			if (removed.content_rating) parts.push('its content rating');
+			if (removed.gallery_covers?.length) parts.push(`${removed.gallery_covers.length} gallery cover${removed.gallery_covers.length > 1 ? 's' : ''}`);
+			showNotification(`Source removed from ${seriesTitle}` + (parts.length ? ` (also removed ${parts.join(', ')})` : ''), 'source_removed');
+			if (data.warning) {
+				showNotification(`Source removed, but ${data.warning}`, 'error');
+			}
 			await loadSeriesSources(seriesId);
 		} else {
 			const data = await res.json();

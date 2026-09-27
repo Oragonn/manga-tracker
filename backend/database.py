@@ -147,6 +147,11 @@ def migrate_to_multi_source():
                 cursor.execute("ALTER TABLE series_sources ADD COLUMN last_error TEXT")
                 cursor.execute("ALTER TABLE series_sources ADD COLUMN last_failure_at DATETIME")
                 print("[Migration] Added source-health columns to series_sources")
+            if "metadata" not in existing_columns:
+                # What each source contributes to its series (titles, tags,
+                # content rating) - see backend/source_metadata.py
+                cursor.execute("ALTER TABLE series_sources ADD COLUMN metadata TEXT")
+                print("[Migration] Added metadata column to series_sources")
             print("[Migration] Multi-source tables already exist, skipping migration")
             release_db(conn)
             return
@@ -167,6 +172,7 @@ def migrate_to_multi_source():
                 consecutive_failures INTEGER DEFAULT 0,
                 last_error TEXT,
                 last_failure_at DATETIME,
+                metadata TEXT,
                 FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
             )
         """)

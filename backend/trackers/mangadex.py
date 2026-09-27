@@ -82,6 +82,31 @@ def get_titles_for_manga(manga_ids):
             found[item['id']] = collect_titles(item['attributes'])
     return found
 
+def get_covers_for_manga(manga_ids):
+    """{manga_id: main cover url} for many manga at once - up to 100 per
+    request, with the cover filename included in the same response instead
+    of a separate /cover lookup each. The cover picked is the same main
+    cover_art get_manga_info() uses. Ids MangaDex doesn't return (or that
+    have no cover) are simply absent; raises if a request fails."""
+    ids = list(dict.fromkeys(manga_ids))
+    found = {}
+    for start in range(0, len(ids), 100):
+        resp = _delayed_get("https://api.mangadex.org/manga", params={
+            'ids[]': ids[start:start + 100],
+            'limit': 100,
+            'includes[]': ['cover_art'],
+            'contentRating[]': ['safe', 'suggestive', 'erotica', 'pornographic'],
+        })
+        if resp.status_code != 200:
+            raise Exception(f"MangaDex API returned HTTP {resp.status_code} for a batch of {len(ids[start:start + 100])} manga")
+        for item in resp.json()['data']:
+            for rel in item.get('relationships') or []:
+                filename = (rel.get('attributes') or {}).get('fileName')
+                if rel.get('type') == 'cover_art' and filename:
+                    found[item['id']] = f"https://uploads.mangadex.org/covers/{item['id']}/{filename}"
+                    break
+    return found
+
 _STATUS_MAP = {
     'ongoing': 'reading',
     'completed': 'completed',

@@ -426,6 +426,11 @@ def api_undo_log(log_id):
                         )
                         if new_source_id is None:
                             return jsonify({'error': 'Failed to restore source'}), 500
+                        try:
+                            from .source_metadata import restore_removed_source
+                            restore_removed_source(series_id, new_source_id, old_value)
+                        except Exception as e:
+                            print(f"[Undo] Failed to restore the source's titles/tags: {e}")
                         need_check_now = True
                         restored_series_id = series_id
                 except Exception as e:
@@ -439,7 +444,7 @@ def api_undo_log(log_id):
                     conn_check = get_db()
                     cursor_check = conn_check.cursor()
                     cursor_check.execute(
-                        "SELECT id FROM series_sources WHERE series_id = ? AND source_url = ?",
+                        "SELECT id, source_url, source_type, metadata FROM series_sources WHERE series_id = ? AND source_url = ?",
                         (series_id, clean_source_url(new_value['source_url']))
                     )
                     row_check = cursor_check.fetchone()
@@ -448,6 +453,13 @@ def api_undo_log(log_id):
                     if row_check:
                         if not remove_source(row_check[0]):
                             return jsonify({'error': 'Cannot remove primary or last source'}), 400
+                        try:
+                            from .source_metadata import strip_removed_source
+                            strip_removed_source(series_id, {
+                                'source_url': row_check[1], 'source_type': row_check[2], 'metadata': row_check[3],
+                            })
+                        except Exception as e:
+                            print(f"[Undo] Metadata cleanup failed: {e}")
                 except Exception as e:
                     print(f"[Undo] Failed to remove source: {e}")
                     return jsonify({'error': f'Failed to remove source: {str(e)}'}), 500
@@ -1098,6 +1110,16 @@ def api_add_source(series_id):
             _log_source_add_failure(series_id, source_url, 'Failed to add source')
             return jsonify({'error': 'Failed to add source'}), 500
 
+        # Remember what this source contributes, so removing it later can
+        # take exactly that back out (backend/source_metadata.py).
+        if new_metadata:
+            from .source_metadata import metadata_from_info, save_source_metadata
+            conn = get_db()
+            try:
+                save_source_metadata(conn.cursor(), source_id, metadata_from_info(new_metadata))
+            finally:
+                release_db(conn)
+
         # Best-effort: store the new source's cover gallery for the Series
         # Settings cover picker (MangaDex's was already saved above).
         try:
@@ -1187,7 +1209,7 @@ def api_add_source(series_id):
                 # first even when its rating is the more meaningful one).
                 # Only replace the stored rating if the source just added
                 # outranks every source already on the series.
-                SOURCE_RATING_PRIORITY = {'mangadex': 5, 'kagane': 4, 'atsu': 3, 'hive': 2, 'flame': 1, 'asura': 0}
+                from .source_metadata import SOURCE_RATING_PRIORITY
                 cursor.execute(
                     "SELECT source_type FROM series_sources WHERE series_id = ? AND id != ?",
                     (series_id, source_id)
@@ -1366,13 +1388,26 @@ def api_remove_source(series_id, source_id):
         cursor = conn.cursor()
         cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
         title_row = cursor.fetchone()
-        cursor.execute("SELECT source_url, source_type FROM series_sources WHERE id = ?", (source_id,))
+        cursor.execute("SELECT source_url, source_type, metadata FROM series_sources WHERE id = ?", (source_id,))
         source_row = cursor.fetchone()
         release_db(conn)
 
         success = remove_source(source_id)
 
         if success:
+            # Take back out the titles/tags/rating/cover gallery only this
+            # source brought in - may fetch the sources, so a few seconds.
+            cleanup = {}
+            if source_row:
+                try:
+                    from .source_metadata import strip_removed_source
+                    cleanup = strip_removed_source(series_id, {
+                        'source_url': source_row[0], 'source_type': source_row[1], 'metadata': source_row[2],
+                    })
+                except Exception as e:
+                    print(f"[Remove Source] Metadata cleanup failed: {e}")
+                    cleanup = {'warning': f'cleanup failed: {e}'}
+
             # Rescan chapters from remaining sources
             try:
                 from . import api
@@ -1388,12 +1423,16 @@ def api_remove_source(series_id, source_id):
                         action_type='source_removed',
                         series_id=series_id,
                         series_title=title_row[0],
-                        old_value={'source_url': source_row[0], 'source_type': source_row[1]}
+                        old_value={
+                            'source_url': source_row[0], 'source_type': source_row[1],
+                            'metadata': cleanup.get('metadata'), 'removed': cleanup.get('removed') or {},
+                        }
                     )
             except Exception as log_err:
                 print(f"[Remove Source] Logging failed: {log_err}")
 
-            return jsonify({'success': True})
+            return jsonify({'success': True, 'removed': cleanup.get('removed') or {},
+                            'warning': cleanup.get('warning')})
         else:
             return jsonify({'error': 'Cannot remove primary or last source'}), 400
             
