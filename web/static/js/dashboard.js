@@ -7439,6 +7439,63 @@ function resetMobileFilters() {
 // ================================
 // BOTTOM SHEET
 // ================================
+
+// The sheet menu's "Mark as Read": progress jumps to the latest chapter,
+// status becomes Reading, and the "want to read" custom tag comes off. Each
+// part goes through its usual endpoint, so each is logged and undoable on
+// its own in the Activity Log.
+const WANT_TO_READ_TAG = 'want to read';
+
+async function markSeriesFullyRead(series) {
+	const latest = series.latest_chapter;
+	const updates = {};
+	if (latest != null && latest > series.current_chapter) updates.current_chapter = latest;
+	if (series.status !== 'reading') updates.status = 'reading';
+
+	try {
+		if (Object.keys(updates).length) {
+			const res = await fetch(`/api/series/${series.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(updates)
+			});
+			if (!res.ok) throw new Error('save failed');
+		}
+
+		const tags = await fetch('/api/custom-tags').then(r => r.ok ? r.json() : []);
+		const wantTag = tags.find(t => t.name.trim().toLowerCase() === WANT_TO_READ_TAG);
+		let tagRemoved = false;
+		if (wantTag) {
+			const res = await fetch('/api/series/custom-tags/bulk', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ series_ids: [series.id], remove_tag_ids: [wantTag.id] })
+			});
+			if (!res.ok) throw new Error('tag removal failed');
+			tagRemoved = (await res.json()).changed_series > 0;
+		}
+
+		if (!Object.keys(updates).length && !tagRemoved) {
+			showNotification(`${series.title} is already read`, 'edit');
+			return;
+		}
+
+		// Already saved above, so closing the sheet mustn't re-save a chapter
+		// picked with its +/- over the top of it
+		mobileState.pendingChapter = null;
+		showNotification(`${series.title} marked as read`, 'read');
+		await closeBottomSheet();
+		// A card-only refresh only drops cards that left the status filter,
+		// not ones that left a "want to read" custom-tag filter
+		if (tagRemoved && state.customTags.includes(wantTag.id)) loadPage();
+		else refreshSeriesCardInPlace(series.id);
+		if (tagRemoved && typeof loadGenres === 'function') loadGenres();
+	} catch (err) {
+		console.error('Mark as read failed:', err);
+		showNotification('Failed to mark as read - check your connection and try again', 'error');
+	}
+}
+
 function createBottomSheet() {
   const existingSheet = document.getElementById('bottom-sheet-overlay');
   if (existingSheet) return;
@@ -7473,7 +7530,15 @@ function createBottomSheet() {
 				</svg>
 				Go to Source
 			</button>
-			
+
+			<button class="sheet-settings-option" data-action="mark-read">
+				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M18 6L7 17l-5-5"/>
+				<path d="M22 10l-7.5 7.5L13 16"/>
+				</svg>
+				Mark as Read
+			</button>
+
 			<button class="sheet-settings-option" data-action="copy-name">
 				<svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
 				<path d="M2.5 1C1.676 1 1 1.676 1 2.5v8c0 .824.676 1.5 1.5 1.5H4v.5c0 .824.676 1.5 1.5 1.5h8c.824 0 1.5-.676 1.5-1.5v-8c0-.824-.676-1.5-1.5-1.5H12v-.5c0-.824-.676-1.5-1.5-1.5Zm0 1h8c.281 0 .5.219.5.5v8c0 .281-.219.5-.5.5h-8a.494.494 0 0 1-.5-.5v-8c0-.281.219-.5.5-.5M12 4h1.5c.281 0 .5.219.5.5v8c0 .281-.219.5-.5.5h-8a.494.494 0 0 1-.5-.5V12h5.5c.824 0 1.5-.676 1.5-1.5Z" transform="translate(.56 1.275)scale(1.43)"/>
@@ -7617,6 +7682,10 @@ function createBottomSheet() {
 		case 'go-to-source':		// CHANGED: Use pre-fetched URL
 		const sourceUrl = mobileState.primarySourceUrl || series.source_url;
 		if (isSafeUrl(sourceUrl)) window.open(sourceUrl, '_blank');
+		break;
+
+		case 'mark-read':
+		await markSeriesFullyRead(series);
 		break;
 
 		case 'copy-name':

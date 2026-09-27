@@ -1783,7 +1783,10 @@ def api_bulk_series_custom_tags():
     bulk_added = sorted({t for c in changes for t in c['added']}, key=str.lower)
     bulk_removed = sorted({t for c in changes for t in c['removed']}, key=str.lower)
 
-    bulk_id = 'bulk_' + uuid.uuid4().hex[:12]
+    # A lone series (the mobile sheet's Mark as Read) logs as a normal entry
+    # under its own title rather than a "1 series" bulk group
+    is_bulk = len(series_ids) > 1
+    bulk_id = 'bulk_' + uuid.uuid4().hex[:12] if is_bulk else None
     for change in changes:
         after = [t for t in change['before'] if t not in change['removed']] + change['added']
         log_activity(
@@ -1794,7 +1797,7 @@ def api_bulk_series_custom_tags():
             new_value={'tags': sorted(after, key=str.lower),
                        'added': change['added'], 'removed': change['removed'],
                        'bulk_added': bulk_added, 'bulk_removed': bulk_removed},
-            is_bulk=True,
+            is_bulk=is_bulk,
             bulk_id=bulk_id
         )
     return jsonify({'success': True, 'changed_series': len(changes)})
