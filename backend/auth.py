@@ -128,6 +128,11 @@ def init_auth(app):
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
     app.session_interface = _LanAwareSessionInterface()
 
+    # Pages read their CSRF token once, at load. Flask-WTF's default 1-hour
+    # expiry made every save on a page left open longer than that (or a phone
+    # tab come back to later) fail with a 400 until a manual reload. The token
+    # is already tied to the session, so let it live as long as the session.
+    app.config["WTF_CSRF_TIME_LIMIT"] = None
     CSRFProtect(app)
     limiter = Limiter(_client_ip, app=app, default_limits=[])
 
