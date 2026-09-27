@@ -370,7 +370,15 @@ class MangaScheduler:
                 series_id
             ))
         else:
-            self._update_last_check(series_id, conn)
+            # No chapters left (e.g. the only source that had any was just
+            # removed): reset the latest-chapter columns too, the way a
+            # series that never had chapters stores them - otherwise the old
+            # source's "Ch. 116" lingers in Series Settings with nothing behind it.
+            cursor.execute("""
+                UPDATE series
+                SET latest_chapter = NULL, latest_release = NULL, total_chapters = 0, last_check = ?
+                WHERE id = ?
+            """, (datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'), series_id))
         conn.commit()
 
     def _fetch_source_chapters(self, source):

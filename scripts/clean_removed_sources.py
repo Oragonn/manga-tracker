@@ -5,8 +5,8 @@ Those series still carry what the removed source had merged in.
 
 Which sources were removed is found in:
   - the activity log's old 'source_removed' entries (it keeps ~30 days)
-  - a database backup: a source in the backup that no series has any more,
-    on a series that still exists. By default the oldest backup in
+  - a database backup: a source in the backup that its series (still
+    there) doesn't have any more - even if it was moved to another series. By default the oldest backup in
     backups/database/; pass --backup <file> (repeatable) to use others,
     e.g. an older one downloaded from Discord.
 Removals older than all of that can't be traced - nothing recorded which
@@ -112,8 +112,10 @@ def main():
         print(f"{len(rows)} sources in {b.name} (checking which are gone)")
         candidates += rows
 
-    # Keep the ones really gone: series still here, and no series has that
-    # link any more in any form (re-added / moved / URL just rewritten).
+    # Keep the ones really gone from that series: it still exists and
+    # doesn't have the link again in any form (re-added / URL just
+    # rewritten). A link moved to ANOTHER series still counts - what it had
+    # merged into this one is still here.
     todo, seen = [], set()
     conn = get_db()
     try:
@@ -124,7 +126,7 @@ def main():
             if key in seen or series_id not in live_series or (series_id, url) in done:
                 continue
             seen.add(key)
-            if not link or find_series_ids(cursor, *link):
+            if not link or series_id in find_series_ids(cursor, *link):
                 continue
             todo.append((series_id, url, source_type or link[0]))
     finally:
