@@ -89,6 +89,14 @@ function getVolumeKey(vol) {
 	}
 	return [2, vol];
 }
+// Chapter number the "Search Ch." button googles after `current`: the next
+// whole number, not the next tracked chapter (a gap - ch.9 not tracked yet,
+// ch.10 is - should still search 9) and not current + 1 (7.01 -> 8, not
+// 8.01). -1/null means not started.
+function searchChapterAfter(current) {
+	if (current == null || current < 0) return 1;
+	return Math.floor(current) + 1;
+}
 function compareChapters(a, b) {
 	const volA = getVolumeKey(a.volume);
 	const volB = getVolumeKey(b.volume);
@@ -3373,37 +3381,32 @@ ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.t
 		if (e.button === 1) e.preventDefault();
 	});
 
+	// Googles the chapter after whatever the card currently shows (the same
+	// manual-fallback rule as updateChapterDisplay: a manually-set number
+	// with no tracked match counts until the user starts clicking +/-).
+	function openNextChapterSearch() {
+		const sorted = card.sortedChapters || [];
+		const showingManualFallback = card.pendingChapterNumber != null
+			&& !card.pendingHasExactMatch
+			&& card.pendingIndex === card.originalIndex;
+		let current = -1;
+		if (showingManualFallback) current = card.pendingChapterNumber;
+		else if (card.pendingIndex !== -1 && sorted[card.pendingIndex]) current = sorted[card.pendingIndex].chapter_number;
+		const query = encodeURIComponent(`${series.title} chapter ${searchChapterAfter(current)}`);
+		window.open(`https://www.google.com/search?q=${query}`, '_blank');
+	}
+
 	// Search Google button - handle left-click
 	btnSearchGoogle.addEventListener('click', (e) => {
 		e.preventDefault();
-		const sorted = card.sortedChapters || [];
-		let nextChapterNum;
-		if (card.pendingIndex === -1) {
-			nextChapterNum = sorted.length > 0 ? sorted[0].chapter_number : 1;
-		} else if (card.pendingIndex < sorted.length - 1) {
-			nextChapterNum = sorted[card.pendingIndex + 1].chapter_number;
-		} else {
-			nextChapterNum = sorted[sorted.length - 1].chapter_number + 1;
-		}
-		const query = encodeURIComponent(`${series.title} chapter ${nextChapterNum}`);
-		window.open(`https://www.google.com/search?q=${query}`, '_blank');
+		openNextChapterSearch();
 	});
-	
+
 	// Search Google button - handle middle-click
 	btnSearchGoogle.addEventListener('auxclick', (e) => {
 		if (e.button === 1) { // Middle click
 			e.preventDefault();
-			const sorted = card.sortedChapters || [];
-			let nextChapterNum;
-			if (card.pendingIndex === -1) {
-				nextChapterNum = sorted.length > 0 ? sorted[0].chapter_number : 1;
-			} else if (card.pendingIndex < sorted.length - 1) {
-				nextChapterNum = sorted[card.pendingIndex + 1].chapter_number;
-			} else {
-				nextChapterNum = sorted[sorted.length - 1].chapter_number + 1;
-			}
-			const query = encodeURIComponent(`${series.title} chapter ${nextChapterNum}`);
-			window.open(`https://www.google.com/search?q=${query}`, '_blank');
+			openNextChapterSearch();
 		}
 	});
 	
@@ -7565,7 +7568,7 @@ function openBottomSheet(series) {
   }
 
   // FIXED: Calculate nextChapter BEFORE passing to setupBottomSheetButtons
-  const nextChapter = series.current_chapter === -1 ? 1 : series.current_chapter + 1;
+  const nextChapter = searchChapterAfter(series.current_chapter);
   document.getElementById('sheet-search-chapter').textContent = nextChapter;
 
   // FIXED: Now pass the calculated nextChapter value
@@ -7612,13 +7615,6 @@ function setupBottomSheetButtons(series, nextChapter) {
         if (chapters.length === 0) {
           newContinueBtn.textContent = 'No chapters';
           newContinueBtn.disabled = true;
-          // ADDED: Search button still works for chapter 1
-          if (searchBtn) {
-            const searchChapterSpan = searchBtn.querySelector('#sheet-search-chapter');
-            if (searchChapterSpan) {
-              searchChapterSpan.textContent = '1';
-            }
-          }
           return;
         }
 
@@ -7789,20 +7785,28 @@ function stopHoldRepeat() {
 	const continueBtn = document.getElementById('sheet-continue-btn');
 	const searchChapterSpan = document.getElementById('sheet-search-chapter');
 	
+	// Search always targets the whole chapter after what's shown as current
+	// (see searchChapterAfter), independent of which chapter Continue opens.
+	const showingManualFallback = currentChapterNumber != null
+		&& !currentChapterHasExactMatch
+		&& currentChapterIndex === currentChapterOriginalIndex;
+	let shownCurrent = -1;
+	if (showingManualFallback) shownCurrent = currentChapterNumber;
+	else if (currentChapterIndex !== -1 && sortedChapters[currentChapterIndex]) shownCurrent = sortedChapters[currentChapterIndex].chapter_number;
+	if (searchBtn && searchChapterSpan) {
+		searchBtn.style.display = 'flex';
+		searchChapterSpan.textContent = searchChapterAfter(shownCurrent);
+	}
+
 	// Determine next chapter to read
 	let nextChapterNumber = null;
 	let nextChapterUrl = null;
-	
+
 	if (sortedChapters.length === 0) {
 		// No chapters available
 		if (continueBtn) {
 		continueBtn.textContent = 'No chapters';
 		continueBtn.disabled = true;
-		}
-		// CHANGED: Always show search button, default to chapter 1
-		if (searchBtn && searchChapterSpan) {
-		searchBtn.style.display = 'flex';
-		searchChapterSpan.textContent = '1';
 		}
 		return;
 	}
@@ -7821,21 +7825,9 @@ function stopHoldRepeat() {
 		continueBtn.textContent = 'All caught up';
 		continueBtn.disabled = true;
 		}
-		if (searchBtn) {
-		searchBtn.style.display = 'flex';
-		// Search for next chapter number (current + 1)
-		const searchNext = sortedChapters[currentChapterIndex].chapter_number + 1;
-		searchChapterSpan.textContent = searchNext;
-		}
 		return;
 	}
-	
-	// Update Search button
-	if (searchBtn && searchChapterSpan) {
-		searchBtn.style.display = 'flex';
-		searchChapterSpan.textContent = nextChapterNumber;
-	}
-	
+
 	// Update Continue button
 	if (continueBtn) {
 		continueBtn.textContent = `Continue to Ch.${nextChapterNumber}`;
