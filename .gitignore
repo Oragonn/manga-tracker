@@ -6,6 +6,9 @@ backups/
 .chief/
 .claude/
 
+# program
+opencode.exe
+
 # Local task/bug notes
 Task.txt
 Bugs.txt

@@ -188,22 +188,17 @@ def get_manga_info(manga_id):
 
 def get_manga_info_with_anilist(manga_id):
     """
-    Fetch manga info from MangaDex, then enrich with AniList if possible.
+    Fetch manga info from MangaDex, then enrich titles/synonyms with AniList
+    if possible. Covers always come from MangaDex (no AniList fallback).
     Returns combined data.
     """
     md_data = get_manga_info(manga_id)  # raises on real failure, no None case anymore
 
-    # Try AniList enrichment
+    # Try AniList enrichment (titles/synonyms only - covers always come from MangaDex)
     try:
         from .anilist import search_manga_by_title  # relative import
         anilist_data = search_manga_by_title(md_data['title'])
         if anilist_data:
-            # Cover & banner
-            if anilist_data.get('cover_url'):
-                md_data['cover_url'] = anilist_data['cover_url']
-            if anilist_data.get('banner_url'):
-                md_data['banner_url'] = anilist_data['banner_url']
-            
             # Titles
             if not md_data.get('title_en') and anilist_data.get('title_en'):
                 md_data['title_en'] = anilist_data['title_en']
