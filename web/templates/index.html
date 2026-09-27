@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel74" />
+  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel75" />
   <style>
     /* style.css only defines .mobile-menu/.mobile-menu-overlay inside its
        @media(max-width:768px) block - on a desktop-width viewport they have
@@ -31,7 +31,7 @@
   </style>
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
-  <script src="/static/js/notifications.js?v=mobilepanel74"></script>
+  <script src="/static/js/notifications.js?v=mobilepanel75"></script>
 </head>
 <body>
 
@@ -379,11 +379,141 @@
     </div>
 
     <div id="add-series-url-view">
-      <label>
+      <label id="add-series-url-label">
         Series URL:
-        <input type="text" id="new-series-url" placeholder="https://mangadex.org/title/..., https://kagane.to/series/..." required />
+        <input type="text" id="new-series-url" placeholder="Paste a series link - paste more to add other sources" autocomplete="off" required />
       </label>
-      <label>
+      <!-- A recognised link is fetched right away and previewed here, with
+           its Last Read chapter, status and custom tags set before the
+           series is added. Phones reflow it full-screen, Kenmei-style
+           (style.css, "ADD SERIES MODAL - MOBILE"). -->
+      <p class="add-preview-message hidden" id="add-preview-message"></p>
+      <div class="add-preview hidden" id="add-preview">
+        <div class="add-preview-cover-col">
+          <img id="add-preview-cover" class="settings-cover-img" src="/static/placeholder.png" alt="" referrerpolicy="no-referrer" />
+          <button type="button" class="add-preview-back" id="add-preview-back" title="Close">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+          </button>
+        </div>
+        <div class="settings-chapter-col add-preview-fields">
+          <div class="add-preview-title" id="add-preview-title"></div>
+          <div class="add-preview-subtitle" id="add-preview-subtitle"></div>
+          <!-- Every link in the field is a source; the first is the primary.
+               The row opens a list to pick the primary, drop one, or add
+               another link. -->
+          <div class="form-group add-preview-source-group">
+            <label>Source</label>
+            <!-- .add-menu-anchor: button + its menu, so the menu is placed
+                 against the button, not the label above it (phones open
+                 these upwards) -->
+            <div class="add-menu-anchor">
+            <button type="button" class="settings-source-selector add-preview-source" id="add-source-selector">
+              <span class="settings-source-dot" id="add-preview-source-dot"></span>
+              <span class="settings-source-name" id="add-preview-source-name"></span>
+              <span class="add-source-more hidden" id="add-source-more"></span>
+              <span class="settings-source-chapter" id="add-preview-source-chapter"></span>
+              <svg class="settings-source-chevron add-source-chevron hidden" id="add-source-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            </button>
+            <div class="settings-source-menu hidden" id="add-source-menu">
+              <div class="settings-source-list add-source-list" id="add-source-list"></div>
+              <div class="settings-cover-menu-divider"></div>
+              <div class="settings-cover-url-row">
+                <input type="text" id="add-source-new-input" class="settings-cover-url-input" placeholder="Paste another source link" autocomplete="off" />
+                <button type="button" class="settings-cover-url-apply" id="add-source-new-submit">Add</button>
+              </div>
+            </div>
+            </div>
+            <!-- other links that are already tracked: skipped by the add -->
+            <p class="add-preview-warning add-source-warning hidden" id="add-source-warning"></p>
+          </div>
+          <div class="add-preview-controls" id="add-preview-controls">
+            <div class="form-group add-chapter-select-group" id="add-chapter-select-group">
+              <label>Last Read Chapter</label>
+              <button type="button" class="settings-source-selector" id="add-chapter-trigger">
+                <span class="settings-source-name" id="add-chapter-trigger-text">Not started</span>
+                <svg class="settings-source-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M6 9l6 6 6-6"/>
+                </svg>
+              </button>
+              <div class="settings-source-menu hidden" id="add-chapter-menu">
+                <input type="text" class="settings-dropdown-search" id="add-chapter-search" placeholder="Search or type a chapter number…" autocomplete="off" />
+                <div class="settings-dropdown-list" id="add-chapter-list"></div>
+              </div>
+            </div>
+            <div class="form-group settings-manual-group hidden" id="add-chapter-manual-group">
+              <div class="settings-stepper-row">
+                <div class="settings-stepper-col">
+                  <label>Volume</label>
+                  <div class="settings-stepper">
+                    <button type="button" class="settings-stepper-btn" id="add-manual-volume-minus">−</button>
+                    <input type="text" inputmode="numeric" autocomplete="off" class="settings-stepper-value settings-stepper-input settings-stepper-value-muted" id="add-manual-volume-value" value="" placeholder="—" />
+                    <button type="button" class="settings-stepper-btn" id="add-manual-volume-plus">+</button>
+                  </div>
+                </div>
+                <div class="settings-stepper-col">
+                  <label>Chapter</label>
+                  <div class="settings-stepper">
+                    <button type="button" class="settings-stepper-btn" id="add-manual-chapter-minus">−</button>
+                    <input type="text" inputmode="decimal" autocomplete="off" class="settings-stepper-value settings-stepper-input" id="add-manual-chapter-value" value="0" />
+                    <button type="button" class="settings-stepper-btn" id="add-manual-chapter-plus">+</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="settings-manual-hint">Or track chapter <a href="#" id="add-chapter-mode-toggle">manually</a></p>
+
+            <div class="settings-status-tags-row">
+              <div class="form-group settings-status-col">
+                <label>Status</label>
+                <div class="add-menu-anchor">
+                <button type="button" class="settings-source-selector" id="add-status-selector">
+                  <span class="settings-source-name" id="add-status-selector-text">Reading</span>
+                  <svg class="settings-source-chevron" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M6 9l6 6 6-6"/>
+                  </svg>
+                </button>
+                <div class="settings-source-menu settings-dropdown-menu-narrow hidden" id="add-status-menu">
+                  <div class="settings-dropdown-list" id="add-status-list">
+                    <div class="settings-dropdown-item" data-value="reading">Reading</div>
+                    <div class="settings-dropdown-item" data-value="plan_to_read">Plan to Read</div>
+                    <div class="settings-dropdown-item" data-value="on_hold">On Hold</div>
+                    <div class="settings-dropdown-item" data-value="dropped">Dropped</div>
+                    <div class="settings-dropdown-item" data-value="completed">Completed</div>
+                  </div>
+                </div>
+                </div>
+              </div>
+              <div class="form-group settings-tags-col">
+                <label>Custom Tags</label>
+                <div class="add-menu-anchor">
+                <button type="button" class="settings-tags-selector" id="add-tags-selector">
+                  <span class="settings-tags-selector-text settings-tags-selector-muted" id="add-tags-selector-text">Choose a custom tag</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M6 9l6 6 6-6"/>
+                  </svg>
+                </button>
+                <div class="settings-tags-menu hidden" id="add-tags-menu">
+                  <div class="settings-tags-list" id="add-tags-list">
+                    <p class="settings-cover-menu-empty">Loading…</p>
+                  </div>
+                  <div class="settings-cover-menu-divider"></div>
+                  <div class="settings-cover-url-row">
+                    <input type="text" id="add-tags-new-input" class="settings-cover-url-input" placeholder="New tag name" maxlength="40" />
+                    <button type="button" class="settings-cover-url-apply" id="add-tags-new-submit">Add</button>
+                  </div>
+                </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="add-preview-warning hidden" id="add-preview-warning"></p>
+        </div>
+      </div>
+      <label id="new-series-status-label">
         Status:
         <select id="new-series-status">
           <option value="reading">Reading</option>
@@ -992,7 +1122,7 @@
   </svg>
 </button>
 
-<script src="/static/js/dashboard.js?v=mobilepanel74"></script>
+<script src="/static/js/dashboard.js?v=mobilepanel75"></script>
   <!-- ADDED: Initialize notifications -->
   <script>
   // Initialize notification system on page load

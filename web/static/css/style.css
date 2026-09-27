@@ -2079,6 +2079,257 @@ html {
   }
 }
 
+/* Add Series modal link preview. The modal widens to Series Settings' size
+   once there's a preview to show (phones: see "ADD SERIES MODAL - MOBILE").
+   Status is picked in the preview, so the plain Status select is only its
+   hidden value holder. */
+#add-series-modal .modal-content.add-series-wide {
+  max-width: 720px;
+}
+
+/* Desktop, with a preview showing: Cancel/Add move into the details column,
+   their bottom level with the cover's. The link view becomes a two-column
+   grid (the preview's own flex box dissolved into it) where the cover spans
+   the details row and the buttons row - whatever height the cover adds to
+   those rows, the buttons sit at the bottom of it. Phones reflow this same
+   markup their own way (see "ADD SERIES MODAL - MOBILE"). */
+@media (min-width: 769px) {
+  .add-series-wide #add-series-url-view {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    column-gap: 20px;
+  }
+
+  .add-series-wide #add-series-url-label { grid-column: 1 / -1; grid-row: 1; }
+  .add-series-wide #add-preview-message { grid-column: 1 / -1; grid-row: 2; }
+  .add-series-wide #add-preview { display: contents; }
+  .add-series-wide .add-preview-cover-col { grid-column: 1; grid-row: 3 / span 2; align-self: start; }
+  .add-series-wide .add-preview-fields { grid-column: 2; grid-row: 3; }
+
+  .add-series-wide .modal-buttons {
+    grid-column: 2;
+    grid-row: 4;
+    align-self: end;
+    margin-top: 12px;
+  }
+}
+
+#new-series-status-label {
+  display: none;
+}
+
+#add-series-modal #btn-add-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.add-preview-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 12px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.add-preview-message.hidden {
+  display: none;
+}
+
+.add-preview-message.error {
+  color: #f87171;
+}
+
+.add-preview-message a {
+  color: #678ec9;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.add-preview-message a:hover {
+  text-decoration: underline;
+}
+
+.add-preview-spinner {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: 2px solid #334155;
+  border-top-color: #678ec9;
+  border-radius: 50%;
+  animation: add-preview-spin 0.8s linear infinite;
+}
+
+@keyframes add-preview-spin {
+  to { transform: rotate(360deg); }
+}
+
+.add-preview {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.add-preview.hidden {
+  display: none;
+}
+
+.add-preview-cover-col {
+  flex-shrink: 0;
+  width: 220px;
+}
+
+.add-preview.loading .settings-cover-img {
+  animation: add-preview-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes add-preview-pulse {
+  50% { opacity: 0.5; }
+}
+
+.add-preview-title {
+  margin-bottom: 2px;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: white;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.add-preview-subtitle {
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+/* Shows which site the link is from - not a picker here, so no hover */
+.add-preview-source,
+.add-preview-source:hover {
+  cursor: default;
+  border-color: #334155;
+}
+
+/* ...until there's more than one link: then it opens the list of them */
+.add-preview-source.has-choices {
+  cursor: pointer;
+}
+
+.add-preview-source.has-choices:hover {
+  border-color: #678ec9;
+}
+
+/* Source / Status / Custom Tags menus are positioned against their button
+   (not the whole field with its label) - which matters on phones, where
+   they open upwards and would otherwise sit above the label */
+.add-menu-anchor {
+  position: relative;
+}
+
+.add-source-more {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.add-source-list {
+  margin-bottom: 0;
+}
+
+.add-source-item-choice {
+  cursor: pointer;
+}
+
+.add-source-item-status {
+  margin-left: auto;
+  font-size: 12px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.add-source-item-status.warn {
+  color: #fbbf24;
+}
+
+.add-source-item .settings-source-item-actions {
+  margin-left: 0;
+}
+
+/* The "open source" icons here and in Series Settings are real links (so
+   middle-click / Ctrl+click open a tab) - no link underline */
+a.btn-icon {
+  text-decoration: none;
+}
+
+.add-preview-cover-col {
+  position: relative;
+}
+
+.add-preview-back {
+  display: none;
+}
+
+.add-chapter-select-group {
+  position: relative;
+}
+
+/* Chevrons at the right edge of the Last Read / Status pickers (Source's
+   chapter number already pushes right, and "+N" stays beside the name) */
+.add-preview .settings-source-selector:not(.add-preview-source) .settings-source-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-preview-controls.hidden {
+  display: none;
+}
+
+/* Tags sits in the right-hand column here, so its wide popover opens
+   leftwards instead of running past the modal's edge. */
+#add-tags-menu {
+  left: auto;
+  right: 0;
+}
+
+.add-preview-warning {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #fbbf24;
+}
+
+.add-preview-warning.hidden {
+  display: none;
+}
+
+.add-preview-warning-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.add-preview-warning button {
+  margin-left: 6px;
+  padding: 2px 10px;
+  border: 1px solid #678ec9;
+  border-radius: 4px;
+  background: none;
+  color: #678ec9;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.add-preview-warning-actions button {
+  margin-left: 0;
+}
+
+.add-preview-warning button:hover {
+  background: #1a2436;
+}
+
 /* Confirmation modal specific styles */
 .confirm-modal .modal-content {
   max-width: 400px;
@@ -5961,6 +6212,145 @@ html {
      the rhythm between sections stays even the rest of the way down. */
   #edit-series-modal .settings-save-btn {
     margin-top: 8px;
+  }
+
+  /* ================================
+     ADD SERIES MODAL - MOBILE (Kenmei-style)
+     Until a link is recognised it's the plain compact card with the link
+     field. Once its preview shows (.add-series-wide, set by the dashboard's
+     syncAddModalWidth) it goes full-screen: the cover edge-to-edge on top
+     and the details as a sheet overlapping its bottom edge. Same DOM as
+     desktop, reflowed: the wrapper boxes get display:contents so their
+     pieces become flex items of .modal-content and can be put in Kenmei's
+     order, with the link field (always shown) between Last Read and
+     Source: title, Last Read, link, Source, Status/Tags, Add.
+     ================================ */
+  #add-series-modal .modal-content.add-series-wide {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: 100%;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    padding: 0 20px max(20px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .add-series-wide .add-series-modal-header {
+    display: none;
+  }
+
+  .add-series-wide #add-series-url-view,
+  .add-series-wide #add-preview,
+  .add-series-wide .add-preview-fields,
+  .add-series-wide #add-preview-controls {
+    display: contents;
+  }
+
+  .add-series-wide #add-preview-controls.hidden {
+    display: none;
+  }
+
+  /* Those pieces are the column's flex items now, and the column is taller
+     than the screen (it scrolls): without this they shrink to fit it - the
+     title (overflow:hidden for its line clamp) all the way to nothing. */
+  .add-series-wide #add-series-url-view > *,
+  .add-series-wide #add-preview > *,
+  .add-series-wide .add-preview-fields > *,
+  .add-series-wide #add-preview-controls > * {
+    flex-shrink: 0;
+  }
+
+  .add-series-wide .add-preview-cover-col {
+    order: 1;
+    width: auto;
+    flex-shrink: 0;
+    /* edge to edge, and tucked under the sheet's rounded top */
+    margin: 0 -20px -24px;
+  }
+
+  .add-series-wide .add-preview-cover-col .settings-cover-img {
+    border: none;
+    border-radius: 0;
+  }
+
+  .add-series-wide .add-preview-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: max(16px, env(safe-area-inset-top));
+    left: 16px;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.6);
+    color: white;
+    cursor: pointer;
+  }
+
+  /* The sheet's top edge: the title carries the rounded, solid top that
+     overlaps the cover; everything after it sits on .modal-content's own
+     (same) background */
+  .add-series-wide .add-preview-title {
+    order: 2;
+    position: relative;
+    margin: 0 -20px;
+    padding: 20px 20px 0;
+    background: #141b2f;
+    border-radius: 16px 16px 0 0;
+    font-size: 22px;
+    -webkit-line-clamp: 3;
+    /* still covers the cover's tucked-under 24px while it's empty
+       (loading, or a fetch that failed) - border-box, so padding included */
+    min-height: 32px;
+  }
+
+  .add-series-wide .add-preview-subtitle { order: 3; }
+  /* labelled like the fields under it (Last Read, Source...) */
+  .add-series-wide #add-series-url-label { order: 7; margin-bottom: 6px; font-size: 14px; color: #cbd5e1; }
+  /* "Fetching from..." / a fetch error, right under the link it's about */
+  .add-series-wide #add-preview-message { order: 8; margin: 0 0 6px; }
+  .add-series-wide #add-chapter-select-group { order: 4; }
+
+  /* A shorter Last Read list than desktop's 240px: ~4.5 rows, the half row
+     showing there's more to scroll */
+  .add-series-wide #add-chapter-list {
+    max-height: 176px;
+  }
+  .add-series-wide #add-chapter-manual-group { order: 5; }
+  .add-series-wide #add-preview-controls > .settings-manual-hint { order: 6; margin-bottom: 6px; }
+  .add-series-wide .add-preview-source-group { order: 9; }
+  .add-series-wide .settings-status-tags-row { order: 10; margin-top: 6px; }
+
+  /* Source / Status / Custom Tags sit near the bottom of the sheet: opening
+     their menus downwards ran past the end and stretched the page to make
+     room (a 3+ link Source list also covered Add), so they open upwards,
+     over the fields above instead */
+  .add-series-wide #add-source-menu,
+  .add-series-wide #add-status-menu,
+  .add-series-wide #add-tags-menu {
+    top: auto;
+    bottom: calc(100% + 4px);
+  }
+  .add-series-wide #add-preview-warning { order: 11; }
+  .add-series-wide .modal-buttons { order: 12; }
+
+  /* The back button closes it instead of Cancel; Add goes full width */
+  .add-series-wide #btn-add-cancel {
+    display: none;
+  }
+
+  .add-series-wide #btn-add-submit {
+    flex: 1;
+    padding: 12px;
+    font-size: 15px;
+    font-weight: 600;
   }
 
   /* ================================

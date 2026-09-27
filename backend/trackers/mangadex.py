@@ -219,7 +219,14 @@ def get_manga_info_with_anilist(manga_id):
     Returns combined data.
     """
     md_data = get_manga_info(manga_id)  # raises on real failure, no None case anymore
+    return enrich_with_anilist(md_data, manga_id)
 
+
+def enrich_with_anilist(md_data, manga_id):
+    """Fill in get_manga_info()'s missing titles and extra synonyms from
+    AniList, in place (and returned). Best-effort: a failed look-up leaves it
+    as it was. Split out so the Add Series preview can show a series without
+    waiting on AniList, and the add does this step itself afterwards."""
     # Try AniList enrichment (titles/synonyms only - covers always come from MangaDex)
     try:
         from .anilist import search_manga_by_title  # relative import

@@ -1411,49 +1411,11 @@ function openEditModal(series) {
 			if (!stillOpen()) return;
 			const select = document.getElementById('edit-current-chapter');
 			select.innerHTML = '<option value="-1">Not started</option>';
-			const hasAnyNullVolume = chapters.some(ch => ch.volume == null || ch.volume === '');
-			const useVolumeLabels = !hasAnyNullVolume;
-			const comparator = useVolumeLabels
-				? (a, b) => {
-					const volA = getVolumeKey(a.volume);
-					const volB = getVolumeKey(b.volume);
-					if (volA[0] !== volB[0]) return volA[0] - volB[0];
-					if (volA[0] === 1) {
-						if (volA[1] !== volB[1]) return volA[1] - volB[1];
-					} else {
-						if (volA[1] !== volB[1]) return volA[1].localeCompare(volB[1]);
-					}
-					return a.chapter_number - b.chapter_number;
-				}
-				: (a, b) => a.chapter_number - b.chapter_number;
-			const sortedChapters = [...chapters].sort(comparator);
-			const numeric = sortedChapters.filter(ch => !ch.is_oneshot).reverse();
-			const oneshots = sortedChapters.filter(ch => ch.is_oneshot);
-			function formatLabel(ch) {
-				if (ch.is_oneshot) {
-					return oneshots.length === 1 ? "Oneshot" : `Oneshot ${oneshots.indexOf(ch) + 1}`;
-				}
-				if (useVolumeLabels && ch.volume) {
-					return `Vol.${ch.volume} Ch.${ch.chapter_number}`;
-				}
-				return `Ch.${ch.chapter_number}`;
-			}
 			let hasExactMatch = false;
-			numeric.forEach(ch => {
+			chapterPickerOptions(chapters).forEach(({ chapter: ch, label }) => {
 				const opt = document.createElement('option');
 				opt.value = ch.chapter_number;
-				opt.textContent = formatLabel(ch);
-				if (ch.release_date) opt.dataset.releaseDate = ch.release_date;
-				if (ch.chapter_number === parseFloat(series.current_chapter)) {
-					opt.selected = true;
-					hasExactMatch = true;
-				}
-				select.appendChild(opt);
-			});
-			oneshots.forEach(ch => {
-				const opt = document.createElement('option');
-				opt.value = ch.chapter_number;
-				opt.textContent = formatLabel(ch);
+				opt.textContent = label;
 				if (ch.release_date) opt.dataset.releaseDate = ch.release_date;
 				if (ch.chapter_number === parseFloat(series.current_chapter)) {
 					opt.selected = true;
@@ -1488,6 +1450,41 @@ function openEditModal(series) {
 	// dropped in wherever the last series' modal happened to be scrolled.
 	const editModalContent = document.querySelector('#edit-series-modal .modal-content');
 	if (editModalContent) editModalContent.scrollTop = 0;
+}
+
+// The Last Read Chapter picker's rows for a chapter list, in the order it
+// shows them: numbered chapters newest first, then oneshots. Labels carry
+// the volume only when every chapter has one. Shared by Series Settings and
+// the Add Series preview.
+function chapterPickerOptions(chapters) {
+	const hasAnyNullVolume = chapters.some(ch => ch.volume == null || ch.volume === '');
+	const useVolumeLabels = !hasAnyNullVolume;
+	const comparator = useVolumeLabels
+		? (a, b) => {
+			const volA = getVolumeKey(a.volume);
+			const volB = getVolumeKey(b.volume);
+			if (volA[0] !== volB[0]) return volA[0] - volB[0];
+			if (volA[0] === 1) {
+				if (volA[1] !== volB[1]) return volA[1] - volB[1];
+			} else {
+				if (volA[1] !== volB[1]) return volA[1].localeCompare(volB[1]);
+			}
+			return a.chapter_number - b.chapter_number;
+		}
+		: (a, b) => a.chapter_number - b.chapter_number;
+	const sortedChapters = [...chapters].sort(comparator);
+	const numeric = sortedChapters.filter(ch => !ch.is_oneshot).reverse();
+	const oneshots = sortedChapters.filter(ch => ch.is_oneshot);
+	function formatLabel(ch) {
+		if (ch.is_oneshot) {
+			return oneshots.length === 1 ? "Oneshot" : `Oneshot ${oneshots.indexOf(ch) + 1}`;
+		}
+		if (useVolumeLabels && ch.volume) {
+			return `Vol.${ch.volume} Ch.${ch.chapter_number}`;
+		}
+		return `Ch.${ch.chapter_number}`;
+	}
+	return [...numeric, ...oneshots].map(ch => ({ chapter: ch, label: formatLabel(ch) }));
 }
 
 // Builds the Title picker's option list from every title field the series
@@ -2204,11 +2201,13 @@ function renderSourceList(sources) {
 							</svg>
 						</button>
 					` : ''}
-					<button type="button" class="btn-icon" data-action="open" data-url="${escapeHtml(s.source_url)}" title="Open source">
-						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
-						</svg>
-					</button>
+					${isSafeUrl(s.source_url) ? `
+						<a class="btn-icon" data-action="open" href="${escapeHtml(s.source_url)}" target="_blank" rel="noopener noreferrer" title="Open source">
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+							</svg>
+						</a>
+					` : ''}
 					${!s.is_primary ? `
 						<button type="button" class="btn-icon danger" data-action="remove" data-source-id="${s.id}" title="Remove source">
 							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2221,11 +2220,10 @@ function renderSourceList(sources) {
 		`;
 	}).join('');
 
-	list.querySelectorAll('[data-action="open"]').forEach(btn => {
-		btn.addEventListener('click', (e) => {
-			e.stopPropagation();
-			if (isSafeUrl(btn.dataset.url)) window.open(btn.dataset.url, '_blank');
-		});
+	// A real link (middle-click / Ctrl+click / "Open in new tab" work): the
+	// browser opens it, this only keeps the click from reaching the row
+	list.querySelectorAll('[data-action="open"]').forEach(link => {
+		link.addEventListener('click', (e) => e.stopPropagation());
 	});
 	list.querySelectorAll('[data-action="primary"]').forEach(btn => {
 		btn.addEventListener('click', (e) => {
@@ -4621,11 +4619,39 @@ function addSourcesToSeries(seriesId, urls) {
 	));
 }
 
-// The series was added: attach any further links that were pasted with it
-// and say so.
-async function announceAddedSeries(statusData, extraUrls) {
+// The Last Read chapter and custom tags picked in the Add Series preview
+// ({chapter, volume, tagIds}), saved onto the series once it exists - the
+// same requests Series Settings' Save sends, so they're logged the same way.
+// True when everything saved (or there was nothing to save).
+async function applyAddSeriesExtras(seriesId, extras) {
+	if (!extras || !seriesId) return true;
+	const requests = [];
+	if (extras.chapter >= 0) {
+		const payload = { current_chapter: extras.chapter };
+		if (extras.volume !== null) payload.current_volume = extras.volume;
+		requests.push(fetch(`/api/series/${seriesId}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(payload)
+		}));
+	}
+	extras.tagIds.forEach(tagId => {
+		requests.push(fetch(`/api/series/${seriesId}/custom-tags/${tagId}`, { method: 'POST' }));
+	});
+	const results = await Promise.all(requests.map(request => request.catch(() => null)));
+	return results.every(res => res && res.ok);
+}
+
+// The series was added: save the chapter/tags picked for it, attach any
+// further links that were pasted with it, and say so.
+async function announceAddedSeries(statusData, extraUrls, extras = null) {
 	const status = statusData.series?.status || document.getElementById('new-series-status')?.value || 'plan_to_read';
 	const statusText = STATUS_LABELS_FOR_BOOKMARKS[status] || status;
+
+	const extrasSaved = await applyAddSeriesExtras(statusData.id, extras);
+	const chapterMsg = extrasSaved && extras?.chapter >= 0 ? ` at Ch. ${extras.chapter}` : '';
+	const skipped = extras?.skippedSources || 0;
+	const skippedMsg = skipped ? `, ${skipped} already-tracked link${skipped > 1 ? 's' : ''} skipped` : '';
 
 	if (extraUrls.length && statusData.id) {
 		const results = await addSourcesToSeries(statusData.id, extraUrls);
@@ -4633,9 +4659,12 @@ async function announceAddedSeries(statusData, extraUrls) {
 		const extraMsg = failedCount === 0
 			? `, +${results.length} source${results.length > 1 ? 's' : ''} added`
 			: `, ${results.length - failedCount}/${results.length} extra source(s) added`;
-		showNotification(`Series added to ${statusText}${extraMsg}`, 'added');
+		showNotification(`Series added to ${statusText}${chapterMsg}${extraMsg}${skippedMsg}`, 'added');
 	} else {
-		showNotification(`Series added to ${statusText}`, 'added');
+		showNotification(`Series added to ${statusText}${chapterMsg}${skippedMsg}`, 'added');
+	}
+	if (!extrasSaved) {
+		showNotification("The series was added, but its Last Read chapter or custom tags didn't save - set them in Series Settings", 'error', 8000);
 	}
 	loadGenres();
 }
@@ -4667,8 +4696,9 @@ async function addSeriesToQueue(body) {
 
 // The add stopped because the new series shares a title with one that is
 // already tracked (statusData.possible_duplicates, best match first): offer to
-// attach the link to that series as another source, or add it as its own.
-async function resolvePossibleDuplicate(statusData, url, extraUrls, status) {
+// attach the link to that series as another source, or add it as its own
+// (with the chapter/tags picked in the Add Series preview, `extras`).
+async function resolvePossibleDuplicate(statusData, url, extraUrls, status, extras = null) {
 	const [match, ...others] = statusData.possible_duplicates;
 	// "Title" (Status): the status tells apart tracked series that share a name
 	const describe = (series) => {
@@ -4706,7 +4736,7 @@ async function resolvePossibleDuplicate(statusData, url, extraUrls, status) {
 		} else if (data.duplicate) {
 			showNotification('Series already exists in your library', 'error');
 		} else {
-			await announceAddedSeries(data, extraUrls);
+			await announceAddedSeries(data, extraUrls, extras);
 		}
 	}
 }
@@ -5097,12 +5127,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		// height/overflow constraint on body), so body.style.overflow alone
 		// never actually blocked scrolling while this modal was open.
 		document.documentElement.style.overflow = '';
+		resetAddPreview();
 	}
 
 	if (btnAddSeries) {
 		btnAddSeries.addEventListener('click', () => {
 			const input = document.getElementById('new-series-url');
 			if (input) input.value = '';
+			resetAddPreview();
+			loadAddPreviewTags();
 			resetAddSeriesModalView();
 			addModal.classList.remove('hidden');
 			document.body.style.overflow = 'hidden';
@@ -5173,6 +5206,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		addSeriesSearchToggleBtn.title = 'Search across sources';
 		if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Add New Series';
 		if (addSeriesSearchTitleInput) addSeriesSearchTitleInput.value = '';
+		syncAddModalWidth();
 	}
 
 	if (addSeriesUrlView && addSeriesSearchView && addSeriesSearchToggleBtn) {
@@ -5183,6 +5217,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				addSeriesSearchToggleBtn.innerHTML = ADD_SERIES_BACK_ICON;
 				addSeriesSearchToggleBtn.title = 'Back to paste a URL';
 				if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Search Series';
+				syncAddModalWidth();
 				addSeriesSearchTitleInput.focus();
 			} else {
 				resetAddSeriesModalView();
@@ -5213,6 +5248,898 @@ document.addEventListener('DOMContentLoaded', () => {
 			addSeriesSearchCancelBtn.addEventListener('click', closeAddSeriesModal);
 		}
 	}
+
+// ─── Add Series modal: link preview ──────────────────────────────
+// A recognised link is fetched as soon as it's pasted (/api/series/preview,
+// which keeps what it fetched for the add that follows) and shown with the
+// same Last Read / Status / Custom Tags controls as Series Settings; the
+// chapter and tags are saved onto the series once it's added. Phones get the
+// same thing reflowed full-screen (style.css, "ADD SERIES MODAL - MOBILE").
+	const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+	// Mirrors the add worker's accepted links (_source_for_add in api.py);
+	// `pattern`'s capture is the link without its scheme or "www.", and `id`
+	// finds the site's own series id in it (as parse_source_link reads it -
+	// AsuraScans' rotating -<hash> left out).
+	const ADD_PREVIEW_SOURCES = [
+		{ label: 'MangaDex', pattern: new RegExp(`^(?:https?://)?(?:www\\.)?(mangadex\\.org/title/${UUID_PATTERN}.*)$`, 'i'), id: new RegExp(`/title/(${UUID_PATTERN})`, 'i') },
+		{ label: 'Kagane', pattern: new RegExp(`^(?:https?://)?(?:www\\.)?(kagane\\.(?:to|org)/series/${UUID_PATTERN}.*)$`, 'i'), id: new RegExp(`/series/(${UUID_PATTERN})`, 'i') },
+		{ label: 'Atsumaru', pattern: /^(?:https?:\/\/)?(?:www\.)?(atsu\.moe\/(?:manga|read)\/[A-Za-z0-9_-]+.*)$/i, id: /\/(?:manga|read)\/([A-Za-z0-9_-]+)/ },
+		{ label: 'AsuraScans', pattern: /^(?:https?:\/\/)?(?:www\.)?(asurascans\.com\/comics\/[A-Za-z0-9-]+.*)$/i, id: /\/comics\/([A-Za-z0-9-]+?)(?:-[0-9a-f]{8})?(?=[\/?#]|$)/i },
+		{ label: 'HiveToons', pattern: /^(?:https?:\/\/)?(?:www\.)?(hivetoons\.org\/series\/[A-Za-z0-9-]+.*)$/i, id: /\/series\/([A-Za-z0-9-]+)/ },
+		{ label: 'Flame Comics', pattern: /^(?:https?:\/\/)?(?:www\.)?(flamecomics\.xyz\/series\/\d+.*)$/i, id: /\/series\/(\d+)/ },
+	];
+	// The trackers store a series' publication status in reading-status
+	// words (MangaDex's _STATUS_MAP: ongoing -> reading, hiatus -> on_hold...)
+	const ADD_PUBLICATION_STATUS_LABELS = {
+		reading: 'Ongoing', completed: 'Completed', on_hold: 'Hiatus', dropped: 'Cancelled'
+	};
+	const ADD_TAG_CHECK_SVG ='<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>';
+
+	const addPreviewEl = document.getElementById('add-preview');
+	const addPreviewMessageEl = document.getElementById('add-preview-message');
+	const addPreviewWarningEl = document.getElementById('add-preview-warning');
+	let addPreviewState = 'idle'; // idle | loading | ready | tracked | error
+	let addPreviewUrl = null;     // the link shown, or being fetched
+	let addPreviewAbort = null;
+	let addPreviewTimer = null;
+	let addChapterRows = [];      // [{value, label, date}], "Not started" last
+	let addChapterPick = -1;      // the Last Read number picked (-1 = not started)
+	let addChapterPickLabel = 'Not started';
+	let addPanelLink = null;      // the series (addLinkSeriesKey) the panel's picks were made for
+	let addChapterMode = 'select';
+	let addManualChapter = 0;
+	let addManualVolume = null;
+	let addTagIds = [];
+	let addAllTags = [];
+	// Every link pasted is a source (the first the primary); what its preview
+	// said, by addLinkSeriesKey: {status: loading|ready|tracked|error, latest}
+	const addSourceInfo = new Map();
+	let addSourcesTimer = null;
+
+	// A supported series link in the form the add accepts (https://, no
+	// "www.", lower-case site name), or null.
+	function normalizeAddLink(text) {
+		const trimmed = (text || '').trim();
+		for (const { pattern } of ADD_PREVIEW_SOURCES) {
+			const match = trimmed.match(pattern);
+			if (match) {
+				const slash = match[1].indexOf('/');
+				return `https://${match[1].slice(0, slash).toLowerCase()}${match[1].slice(slash)}`;
+			}
+		}
+		return null;
+	}
+
+	// Which series a normalised link points at (site + its own id), so the
+	// same series linked differently - with or without its title slug, a
+	// ?tab=, a newer Asura hash - still counts as the same one.
+	function addLinkSeriesKey(link) {
+		for (const { label, pattern, id } of ADD_PREVIEW_SOURCES) {
+			if (!pattern.test(link)) continue;
+			const match = link.match(id);
+			// Atsumaru's short ids are case-sensitive; the rest aren't
+			if (!match) return link;
+			return `${label}:${label === 'Atsumaru' ? match[1] : match[1].toLowerCase()}`;
+		}
+		return link;
+	}
+
+	// The link field's parts. The extension fills it comma-separated, but by
+	// hand links may just as well be separated by spaces or new lines - or
+	// pasted straight after one another ("...seriesAhttps://...seriesB").
+	function addUrlParts(text) {
+		return (text || '').replace(/(\S)(?=https?:\/\/)/gi, '$1 ').split(/[\s,]+/).filter(Boolean);
+	}
+
+	function firstAddUrl() {
+		return addUrlParts(document.getElementById('new-series-url')?.value)[0] || '';
+	}
+
+	function syncAddModalWidth() {
+		const content = addModal?.querySelector('.modal-content');
+		if (!content || !addPreviewEl) return;
+		const showing = !addPreviewEl.classList.contains('hidden')
+			&& !document.getElementById('add-series-url-view')?.classList.contains('hidden');
+		content.classList.toggle('add-series-wide', showing);
+	}
+
+	// Add only needs a supported link that isn't tracked already. It doesn't
+	// wait for the preview: the add picks up the preview's fetch (waiting for
+	// it if it's still running), and one that failed makes the add fetch for
+	// itself and report its own error.
+	function syncAddSubmitState() {
+		const btn = document.getElementById('btn-add-submit');
+		if (!btn) return;
+		btn.disabled = !normalizeAddLink(firstAddUrl()) || addPreviewState === 'tracked';
+	}
+
+	// The line under the URL field: 'loading' (spinner), 'error' or 'info'.
+	// `html` must already be escaped.
+	function showAddMessage(html, kind = 'info') {
+		if (!addPreviewMessageEl) return;
+		if (!html) {
+			addPreviewMessageEl.classList.add('hidden');
+			addPreviewMessageEl.innerHTML = '';
+			return;
+		}
+		addPreviewMessageEl.className = `add-preview-message${kind === 'error' ? ' error' : ''}`;
+		addPreviewMessageEl.innerHTML = `${kind === 'loading' ? '<span class="add-preview-spinner"></span>' : ''}<span>${html}</span>`;
+	}
+
+	// The chapter/tags picked here, for announceAddedSeries() to save once the
+	// series exists - null unless the panel is showing for the link (they can
+	// be set before its preview has come back, or after it failed).
+	function getAddSeriesExtras() {
+		if (!['loading', 'ready', 'error'].includes(addPreviewState)) return null;
+		if (addChapterMode === 'manual') {
+			return { chapter: addManualChapter, volume: addManualVolume, tagIds: [...addTagIds] };
+		}
+		return { chapter: addChapterPick, volume: null, tagIds: [...addTagIds] };
+	}
+
+	// ── Last Read Chapter ──
+	// Only the number is saved, so the picker also takes a typed number that
+	// isn't in the site's list (or before the list has arrived).
+	function resetAddChapterPick() {
+		addChapterPick = -1;
+		addChapterPickLabel = 'Not started';
+		setAddChapterMode('select');
+	}
+
+	// Rows for a newly fetched chapter list; whatever was picked stays picked
+	// (taking the list's own label when it's one of its chapters).
+	function setAddChapterRows(chapters) {
+		addChapterRows = [
+			...chapterPickerOptions(chapters).map(({ chapter, label }) => ({ value: chapter.chapter_number, label, date: chapter.release_date })),
+			{ value: -1, label: 'Not started', date: null }
+		];
+		const listed = addChapterRows.find(row => row.value === addChapterPick);
+		if (listed) addChapterPickLabel = listed.label;
+		renderAddChapterList();
+	}
+
+	function pickAddChapter(value, label) {
+		addChapterPick = value;
+		addChapterPickLabel = label;
+		renderAddChapterList();
+		closeAddPopovers();
+	}
+
+	function renderAddChapterList() {
+		const list = document.getElementById('add-chapter-list');
+		const query = (document.getElementById('add-chapter-search')?.value || '').trim().toLowerCase();
+		if (list) {
+			const rows = addChapterRows.filter(row => !query || row.label.toLowerCase().includes(query));
+			// A typed number that isn't one of the listed chapters is offered as-is
+			const typed = /^\d+(\.\d+)?$/.test(query) ? parseFloat(query) : null;
+			if (typed !== null && !addChapterRows.some(row => row.value === typed)) {
+				rows.unshift({ value: typed, label: `Ch.${typed}`, date: null });
+			}
+			const loadingNote = addPreviewState === 'loading' && addChapterRows.length === 1
+				? '<p class="settings-cover-menu-empty">Loading chapters… type a number to set it now</p>'
+				: '';
+			list.innerHTML = loadingNote + rows.map(row => `
+				<div class="settings-dropdown-item settings-dropdown-item-chapter${row.value === addChapterPick ? ' selected' : ''}" data-value="${row.value}" data-label="${escapeHtml(row.label)}">
+					<span class="settings-dropdown-item-label">${escapeHtml(row.label)}</span>
+					${row.date ? `<span class="settings-dropdown-item-date">${formatTimeAgo(row.date)}</span>` : ''}
+				</div>
+			`).join('');
+		}
+		const triggerText = document.getElementById('add-chapter-trigger-text');
+		if (triggerText) triggerText.textContent = addChapterPickLabel;
+	}
+
+	function formatAddManualValues() {
+		const chapEl = document.getElementById('add-manual-chapter-value');
+		if (chapEl) chapEl.value = String(addManualChapter);
+		const volEl = document.getElementById('add-manual-volume-value');
+		if (volEl) {
+			volEl.value = addManualVolume === null ? '' : addManualVolume;
+			volEl.classList.toggle('settings-stepper-value-muted', addManualVolume === null);
+		}
+	}
+
+	// Manual mode starts from the chapter picked in the dropdown, if any.
+	function setAddChapterMode(mode) {
+		addChapterMode = mode;
+		if (mode === 'manual') {
+			addManualChapter = addChapterPick >= 0 ? addChapterPick : 0;
+			addManualVolume = null;
+			formatAddManualValues();
+		}
+		document.getElementById('add-chapter-select-group')?.classList.toggle('hidden', mode === 'manual');
+		document.getElementById('add-chapter-manual-group')?.classList.toggle('hidden', mode !== 'manual');
+		const toggle = document.getElementById('add-chapter-mode-toggle');
+		if (toggle) toggle.textContent = mode === 'manual' ? 'automatically' : 'manually';
+	}
+
+	// ── Status (the hidden #new-series-status select stays the value the add sends) ──
+	function syncAddStatusUI() {
+		const select = document.getElementById('new-series-status');
+		const option = select?.options[select.selectedIndex];
+		const text = document.getElementById('add-status-selector-text');
+		if (text) text.textContent = option ? option.textContent.trim() : 'Reading';
+		document.querySelectorAll('#add-status-list .settings-dropdown-item').forEach(item => {
+			item.classList.toggle('selected', item.dataset.value === select?.value);
+		});
+	}
+
+	// ── Custom Tags ──
+	async function loadAddPreviewTags() {
+		try {
+			const res = await fetch('/api/custom-tags');
+			addAllTags = res.ok ? await res.json() : [];
+		} catch (e) {
+			addAllTags = [];
+		}
+		renderAddTagsList();
+	}
+
+	function renderAddTagsList() {
+		const list = document.getElementById('add-tags-list');
+		if (list) {
+			list.innerHTML = addAllTags.length
+				? addAllTags.map(t => {
+					const checked = addTagIds.includes(t.id);
+					return `
+						<div class="settings-tag-item${checked ? ' checked' : ''}" data-tag-id="${t.id}">
+							<span class="settings-tag-checkbox">${checked ? ADD_TAG_CHECK_SVG : ''}</span>
+							<span class="settings-tag-item-name">${escapeHtml(t.name)}</span>
+						</div>
+					`;
+				}).join('')
+				: '<p class="settings-cover-menu-empty">No tags yet -- create one below.</p>';
+		}
+		const textEl = document.getElementById('add-tags-selector-text');
+		if (!textEl) return;
+		const names = addTagIds.map(id => addAllTags.find(t => t.id === id)?.name).filter(Boolean);
+		textEl.textContent = names.length === 0 ? 'Choose a custom tag'
+			: names.length === 1 ? names[0]
+			: `${names[0]} +${names.length - 1}`;
+		textEl.classList.toggle('settings-tags-selector-muted', names.length === 0);
+	}
+
+	async function createAddPreviewTag() {
+		const input = document.getElementById('add-tags-new-input');
+		const name = input?.value.trim();
+		if (!name) return;
+		input.value = '';
+		try {
+			const res = await fetch('/api/custom-tags', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name })
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				showNotification(data.error || 'Failed to create tag', 'error');
+				return;
+			}
+			if (!addAllTags.find(t => t.id === data.id)) {
+				addAllTags = [...addAllTags, { id: data.id, name: data.name }].sort((a, b) => a.name.localeCompare(b.name));
+			}
+			if (!addTagIds.includes(data.id)) addTagIds.push(data.id);
+			renderAddTagsList();
+			if (typeof loadCustomTagsFilterSection === 'function') loadCustomTagsFilterSection();
+			if (typeof loadMobileCustomTagsFilterSection === 'function') loadMobileCustomTagsFilterSection();
+		} catch (e) {
+			showNotification('Failed to create tag', 'error');
+		}
+	}
+
+	// ── Popovers (chapter, status, tags): one open at a time ──
+	const ADD_POPOVERS = [
+		{ menu: 'add-chapter-menu', trigger: 'add-chapter-trigger' },
+		{ menu: 'add-status-menu', trigger: 'add-status-selector' },
+		{ menu: 'add-tags-menu', trigger: 'add-tags-selector' },
+		{ menu: 'add-source-menu', trigger: 'add-source-selector' },
+	];
+
+	function closeAddPopovers() {
+		ADD_POPOVERS.forEach(({ menu, trigger }) => {
+			document.getElementById(menu)?.classList.add('hidden');
+			document.getElementById(trigger)?.classList.remove('open');
+		});
+	}
+
+	ADD_POPOVERS.forEach(({ menu, trigger }) => {
+		const menuEl = document.getElementById(menu);
+		const triggerEl = document.getElementById(trigger);
+		if (!menuEl || !triggerEl) return;
+		triggerEl.addEventListener('click', () => {
+			// Source opens once there's a link (its list + the add-a-link box)
+			if (menu === 'add-source-menu' && !addSourceLinks().length) return;
+			const wasHidden = menuEl.classList.contains('hidden');
+			closeAddPopovers();
+			if (!wasHidden) return;
+			menuEl.classList.remove('hidden');
+			triggerEl.classList.add('open');
+			// On a phone the full-screen modal scrolls and a menu near the
+			// bottom opens below the fold - bring it up into view
+			if (isMobileDevice()) menuEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			if (menu === 'add-chapter-menu') {
+				const search = document.getElementById('add-chapter-search');
+				search.value = '';
+				renderAddChapterList();
+				document.getElementById('add-chapter-list').scrollTop = 0;
+				// Not on phones: it would pop the keyboard up over the list
+				if (!isMobileDevice()) search.focus();
+			}
+		});
+		// Picking a row redraws the list, so by the time a click reaches the
+		// document its target is gone and would read as a click outside
+		menuEl.addEventListener('click', (e) => e.stopPropagation());
+	});
+
+	document.addEventListener('click', (e) => {
+		ADD_POPOVERS.forEach(({ menu, trigger }) => {
+			const menuEl = document.getElementById(menu);
+			if (!menuEl || menuEl.classList.contains('hidden')) return;
+			const triggerEl = document.getElementById(trigger);
+			if (!menuEl.contains(e.target) && !triggerEl?.contains(e.target) && !menuClickStartedInside(menuEl)) {
+				menuEl.classList.add('hidden');
+				triggerEl?.classList.remove('open');
+			}
+		});
+	});
+
+	document.getElementById('add-chapter-list')?.addEventListener('click', (e) => {
+		const item = e.target.closest('.settings-dropdown-item');
+		if (!item) return;
+		pickAddChapter(parseFloat(item.dataset.value), item.dataset.label);
+	});
+
+	const addChapterSearch = document.getElementById('add-chapter-search');
+	addChapterSearch?.addEventListener('input', renderAddChapterList);
+	// Enter takes the first row - a typed number that isn't listed, if any
+	addChapterSearch?.addEventListener('keydown', (e) => {
+		if (e.key !== 'Enter') return;
+		e.preventDefault();
+		const first = document.querySelector('#add-chapter-list .settings-dropdown-item');
+		if (first) pickAddChapter(parseFloat(first.dataset.value), first.dataset.label);
+	});
+
+	document.getElementById('add-chapter-mode-toggle')?.addEventListener('click', (e) => {
+		e.preventDefault();
+		setAddChapterMode(addChapterMode === 'select' ? 'manual' : 'select');
+	});
+
+	document.getElementById('add-manual-chapter-minus')?.addEventListener('click', () => {
+		addManualChapter = Math.max(0, addManualChapter - 1);
+		formatAddManualValues();
+	});
+	document.getElementById('add-manual-chapter-plus')?.addEventListener('click', () => {
+		addManualChapter = addManualChapter + 1;
+		formatAddManualValues();
+	});
+	document.getElementById('add-manual-volume-minus')?.addEventListener('click', () => {
+		if (addManualVolume === null) return;
+		const n = parseInt(addManualVolume, 10) - 1;
+		addManualVolume = n < 1 ? null : String(n);
+		formatAddManualValues();
+	});
+	document.getElementById('add-manual-volume-plus')?.addEventListener('click', () => {
+		const n = addManualVolume === null ? 0 : parseInt(addManualVolume, 10);
+		addManualVolume = String(n + 1);
+		formatAddManualValues();
+	});
+	// Typed values are tracked live but only clamped/reformatted on blur or
+	// Enter, same as Series Settings' steppers
+	document.getElementById('add-manual-chapter-value')?.addEventListener('input', (e) => {
+		const val = parseFloat(e.target.value);
+		if (!isNaN(val)) addManualChapter = val;
+	});
+	document.getElementById('add-manual-chapter-value')?.addEventListener('blur', () => {
+		addManualChapter = Math.max(0, addManualChapter || 0);
+		formatAddManualValues();
+	});
+	document.getElementById('add-manual-volume-value')?.addEventListener('input', (e) => {
+		const raw = e.target.value.trim();
+		if (raw === '') {
+			addManualVolume = null;
+		} else {
+			const n = parseInt(raw, 10);
+			if (!isNaN(n)) addManualVolume = String(n);
+		}
+	});
+	document.getElementById('add-manual-volume-value')?.addEventListener('blur', () => {
+		if (addManualVolume !== null) {
+			const n = parseInt(addManualVolume, 10);
+			addManualVolume = (isNaN(n) || n < 1) ? null : String(n);
+		}
+		formatAddManualValues();
+	});
+	['add-manual-chapter-value', 'add-manual-volume-value'].forEach(id => {
+		document.getElementById(id)?.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+		});
+	});
+
+	document.getElementById('add-status-list')?.addEventListener('click', (e) => {
+		const item = e.target.closest('.settings-dropdown-item');
+		const select = document.getElementById('new-series-status');
+		if (!item || !select) return;
+		select.value = item.dataset.value;
+		syncAddStatusUI();
+		closeAddPopovers();
+	});
+
+	document.getElementById('add-tags-list')?.addEventListener('click', (e) => {
+		const item = e.target.closest('.settings-tag-item');
+		if (!item) return;
+		const tagId = parseInt(item.dataset.tagId, 10);
+		addTagIds = addTagIds.includes(tagId) ? addTagIds.filter(id => id !== tagId) : [...addTagIds, tagId];
+		renderAddTagsList();
+	});
+
+	document.getElementById('add-tags-new-submit')?.addEventListener('click', createAddPreviewTag);
+	document.getElementById('add-tags-new-input')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') { e.preventDefault(); createAddPreviewTag(); }
+	});
+
+	// ── Fetching and showing the preview ──
+	function resetAddPreview() {
+		clearTimeout(addPreviewTimer);
+		addPreviewAbort?.abort();
+		addPreviewAbort = null;
+		addPreviewState = 'idle';
+		addPreviewUrl = null;
+		addPanelLink = null;
+		addSourceInfo.clear();
+		clearTimeout(addSourcesTimer);
+		addTagIds = [];
+		renderAddTagsList();
+		resetAddChapterPick();
+		setAddChapterRows([]);
+		closeAddPopovers();
+		addPreviewEl?.classList.add('hidden');
+		addPreviewWarningEl?.classList.add('hidden');
+		showAddMessage(null);
+		syncAddStatusUI();
+		syncAddModalWidth();
+		syncAddSubmitState();
+	}
+
+	// The preview panel with nothing shown (no link, or not a supported one)
+	function clearAddPreview(message) {
+		clearTimeout(addPreviewTimer);
+		addPreviewAbort?.abort();
+		addPreviewAbort = null;
+		addPreviewState = 'idle';
+		addPreviewUrl = null;
+		closeAddPopovers();
+		addPreviewEl?.classList.add('hidden');
+		showAddMessage(message ? escapeHtml(message) : null);
+		syncAddModalWidth();
+		syncAddSubmitState();
+	}
+
+	function handleAddUrlInput(e) {
+		syncAddExtraSources(e);
+		const text = firstAddUrl();
+		const link = normalizeAddLink(text);
+		if (!link) {
+			clearAddPreview(text ? 'Not a series link from MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons or Flame Comics' : null);
+			return;
+		}
+		// Already shown, or on its way (the timer below may still be pending)
+		if (link === addPreviewUrl) return;
+		clearTimeout(addPreviewTimer);
+		addPreviewUrl = link;
+		addPreviewState = 'loading';
+		syncAddSubmitState();
+		// A pasted link is fetched straight away; a typed one after a short
+		// pause, so it isn't fetched at every keystroke
+		if (e?.inputType === 'insertFromPaste') loadAddPreview(link);
+		else addPreviewTimer = setTimeout(() => loadAddPreview(link), 300);
+	}
+
+	async function loadAddPreview(link) {
+		addPreviewAbort?.abort();
+		const controller = new AbortController();
+		addPreviewAbort = controller;
+		addPreviewUrl = link;
+		addPreviewState = 'loading';
+		const sourceLabel = ADD_PREVIEW_SOURCES.find(s => s.pattern.test(link))?.label || 'the site';
+		// A different series starts from "Not started"; a retry of the same
+		// one keeps what was already picked for it
+		const seriesKey = addLinkSeriesKey(link);
+		if (seriesKey !== addPanelLink) resetAddChapterPick();
+		addPanelLink = seriesKey;
+
+		// Placeholder panel while the site answers - its controls already work
+		const img = document.getElementById('add-preview-cover');
+		img.onerror = null;
+		img.src = '/static/placeholder.png';
+		document.getElementById('add-preview-title').textContent = '';
+		document.getElementById('add-preview-subtitle').textContent = '';
+		addSourceInfo.set(seriesKey, { status: 'loading' });
+		renderAddSources();
+		document.getElementById('add-preview-controls')?.classList.remove('hidden');
+		addPreviewWarningEl?.classList.add('hidden');
+		setAddChapterRows([]);
+		addPreviewEl.classList.add('loading');
+		addPreviewEl.classList.remove('hidden');
+		showAddMessage(`Fetching from ${escapeHtml(sourceLabel)}…`, 'loading');
+		syncAddModalWidth();
+		syncAddSubmitState();
+
+		let data;
+		try {
+			const res = await fetch(`/api/series/preview?url=${encodeURIComponent(link)}`, { signal: controller.signal });
+			data = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(data.error || `Couldn't fetch this series from ${sourceLabel}`);
+		} catch (e) {
+			// A newer link (or closing the modal) took over
+			if (controller !== addPreviewAbort || e.name === 'AbortError') return;
+			addPreviewAbort = null;
+			// The panel stays, so what was already set still goes with the add
+			addPreviewState = 'error';
+			addSourceInfo.set(addLinkSeriesKey(link), { status: 'error' });
+			renderAddSources();
+			addPreviewEl.classList.remove('loading');
+			renderAddChapterList();
+			const message = e instanceof TypeError ? 'Network error - check your connection' : e.message;
+			showAddMessage(`${escapeHtml(message)} <a href="#" id="add-preview-retry">Retry</a>`, 'error');
+			document.getElementById('add-preview-retry')?.addEventListener('click', (ev) => {
+				ev.preventDefault();
+				loadAddPreview(link);
+			});
+			syncAddModalWidth();
+			syncAddSubmitState();
+			return;
+		}
+		if (controller !== addPreviewAbort) return;
+		addPreviewAbort = null;
+		renderAddPreview(data);
+	}
+
+	function renderAddPreview(data) {
+		const tracked = data.already_tracked;
+		addPreviewEl.classList.remove('loading');
+		showAddMessage(null);
+
+		const img = document.getElementById('add-preview-cover');
+		img.onerror = () => { img.onerror = null; img.src = '/static/placeholder.png'; };
+		img.src = ((tracked ? tracked.cover_url : data.cover_url) || '/static/placeholder.png').replace(/\s+/g, '');
+		img.alt = tracked ? tracked.title : data.title;
+		document.getElementById('add-preview-title').textContent = tracked ? tracked.title : data.title;
+		addSourceInfo.set(addLinkSeriesKey(addPreviewUrl), addSourceInfoFrom(data));
+		renderAddSources();
+		const subtitle = document.getElementById('add-preview-subtitle');
+		const controls = document.getElementById('add-preview-controls');
+
+		if (tracked) {
+			addPreviewState = 'tracked';
+			const parts = ['In your library', STATUS_LABELS_FOR_BOOKMARKS[tracked.status] || tracked.status];
+			if (tracked.current_chapter >= 0) parts.push(`read to Ch. ${tracked.current_chapter}`);
+			subtitle.textContent = parts.filter(Boolean).join(' · ');
+			controls?.classList.add('hidden');
+			addPreviewWarningEl.innerHTML = 'This link is already tracked. <button type="button" id="add-preview-open-tracked">Open its settings</button>';
+			addPreviewWarningEl.classList.remove('hidden');
+			document.getElementById('add-preview-open-tracked')?.addEventListener('click', () => openTrackedSeriesFromAdd(tracked.id));
+		} else {
+			addPreviewState = 'ready';
+			const parts = [];
+			const publication = ADD_PUBLICATION_STATUS_LABELS[data.publication_status];
+			if (publication) parts.push(publication);
+			const count = data.chapters.length;
+			parts.push(count ? `${count} chapter${count === 1 ? '' : 's'}` : 'No chapters yet');
+			subtitle.textContent = parts.join(' · ');
+			controls?.classList.remove('hidden');
+			setAddChapterRows(data.chapters);
+
+			// Same title as a tracked series: the add will ask whether this
+			// link is another source of it, so just say so up front
+			// (Open its settings; with more than one, Search shows them all)
+			const [match, ...others] = data.possible_duplicates || [];
+			if (match) {
+				const statusText = STATUS_LABELS_FOR_BOOKMARKS[match.status];
+				// Searched: the shared title most of them have in common (they
+				// can each match through a different one), main title on a tie
+				let searchTitle = match.title;
+				let bestCount = 0;
+				const matches = [match, ...others];
+				matches.flatMap(m => m.shared_titles || []).forEach(title => {
+					const count = matches.filter(m => (m.shared_titles || []).includes(title)).length;
+					if (count > bestCount) {
+						bestCount = count;
+						searchTitle = title;
+					}
+				});
+				addPreviewWarningEl.innerHTML = escapeHtml(`Shares a title with "${match.title}"${statusText ? ` (${statusText})` : ''}`
+					+ `${others.length ? ` and ${others.length} more` : ''}, which you already track - adding will ask whether this link is another source of it.`)
+					+ '<span class="add-preview-warning-actions">'
+					+ `<button type="button" id="add-preview-open-match" title="${escapeHtml(match.title)}">Open its settings</button>`
+					+ (others.length ? `<button type="button" id="add-preview-search-matches" title="Search &quot;${escapeHtml(searchTitle)}&quot; in every status">Search all ${matches.length}</button>` : '')
+					+ '</span>';
+				addPreviewWarningEl.classList.remove('hidden');
+				document.getElementById('add-preview-open-match')?.addEventListener('click', () => openTrackedSeriesFromAdd(match.id));
+				document.getElementById('add-preview-search-matches')?.addEventListener('click', () => searchDashboardFromAdd(searchTitle));
+			} else {
+				addPreviewWarningEl.classList.add('hidden');
+			}
+		}
+		syncAddModalWidth();
+		syncAddSubmitState();
+	}
+
+	async function openTrackedSeriesFromAdd(seriesId) {
+		try {
+			const res = await fetch(`/api/series/${seriesId}`);
+			if (!res.ok) throw new Error('not found');
+			const series = await res.json();
+			closeAddSeriesModal();
+			openEditModal(series);
+		} catch (e) {
+			showNotification('Failed to open that series', 'error');
+		}
+	}
+
+	// ── Sources: every link in the field ──
+	// The field's comma-separated parts that are supported links, in order -
+	// the first part is the primary (the one previewed and added; the rest
+	// are attached to the series once it exists).
+	function addSourceLinks() {
+		return addUrlParts(document.getElementById('new-series-url')?.value)
+			.map(raw => ({ raw, link: normalizeAddLink(raw) }))
+			.filter(source => source.link)
+			.map(source => ({ ...source, label: ADD_PREVIEW_SOURCES.find(s => s.pattern.test(source.link))?.label || '' }));
+	}
+
+	function addSourceInfoFrom(data) {
+		const tracked = data.already_tracked;
+		if (tracked) return { status: 'tracked', latest: tracked.latest_chapter, seriesId: tracked.id, seriesTitle: tracked.title };
+		return { status: 'ready', latest: data.latest_chapter };
+	}
+
+	// The links after the primary that are already tracked (on some series):
+	// a link belongs to one series, so the add skips them rather than fail
+	// to attach them - and they likely mean the series is tracked already
+	function trackedExtraSources() {
+		return addSourceLinks().slice(1)
+			.map(source => ({ ...source, info: addSourceInfo.get(addLinkSeriesKey(source.link)) }))
+			.filter(source => source.info?.status === 'tracked');
+	}
+
+	function renderTrackedExtrasWarning() {
+		const warning = document.getElementById('add-source-warning');
+		if (!warning) return;
+		const tracked = trackedExtraSources();
+		if (!tracked.length) {
+			warning.classList.add('hidden');
+			warning.innerHTML = '';
+			return;
+		}
+		const [first] = tracked;
+		const on = first.info.seriesTitle ? ` on "${first.info.seriesTitle}"` : '';
+		const text = tracked.length === 1
+			? `The ${first.label} link is already in your library${on} - adding will skip it.`
+			: `${tracked.length} of these links are already in your library${on ? ` (one${on})` : ''} - adding will skip them.`;
+		warning.dataset.seriesId = first.info.seriesId ?? '';
+		warning.innerHTML = escapeHtml(text)
+			+ '<span class="add-preview-warning-actions">'
+			+ (first.info.seriesId ? '<button type="button" data-action="open">Open its settings</button>' : '')
+			+ `<button type="button" data-action="remove">Remove from list</button>`
+			+ '</span>';
+		warning.classList.remove('hidden');
+	}
+
+	document.getElementById('add-source-warning')?.addEventListener('click', (e) => {
+		const action = e.target.closest('[data-action]')?.dataset.action;
+		if (action === 'open') {
+			const seriesId = parseInt(e.currentTarget.dataset.seriesId, 10);
+			if (seriesId) openTrackedSeriesFromAdd(seriesId);
+		} else if (action === 'remove') {
+			const input = document.getElementById('new-series-url');
+			const drop = new Set(trackedExtraSources().map(source => source.raw));
+			if (!input || !drop.size) return;
+			input.value = addUrlParts(input.value).filter(part => !drop.has(part)).join(', ');
+			handleAddUrlInput({ inputType: 'insertFromPaste' });
+		}
+	});
+
+	// The links after the first are fetched too (same preview, kept by the
+	// server for 10 minutes), for their latest chapter in the list and so
+	// making one the primary shows it straight away
+	function syncAddExtraSources(e) {
+		clearTimeout(addSourcesTimer);
+		const fetchExtras = () => {
+			addSourceLinks().slice(1).forEach(({ link }) => {
+				const key = addLinkSeriesKey(link);
+				// fetched already - unless that failed, then the next change retries it
+				if (addSourceInfo.has(key) && addSourceInfo.get(key).status !== 'error') return;
+				addSourceInfo.set(key, { status: 'loading' });
+				fetch(`/api/series/preview?url=${encodeURIComponent(link)}`)
+					.then(res => res.json().then(data => res.ok ? addSourceInfoFrom(data) : { status: 'error' }))
+					.catch(() => ({ status: 'error' }))
+					.then(info => {
+						// dropped by a reset (modal closed) in the meantime
+						if (addSourceInfo.get(key)?.status !== 'loading') return;
+						addSourceInfo.set(key, info);
+						renderAddSources();
+					});
+			});
+			renderAddSources();
+		};
+		// same pause as the primary, so a link being typed isn't fetched per key
+		if (e?.inputType === 'insertFromPaste') fetchExtras();
+		else addSourcesTimer = setTimeout(fetchExtras, 300);
+	}
+
+	function addSourceStatusText(info) {
+		if (!info || info.status === 'loading') return '…';
+		if (info.status === 'error') return "Couldn't fetch";
+		const chapter = info.latest != null ? `Ch. ${info.latest}` : '';
+		return info.status === 'tracked' ? `In your library${chapter ? ` · ${chapter}` : ''}` : (chapter || 'No chapters');
+	}
+
+	// The Source row (the primary, "+N" for the others) and its list
+	function renderAddSources() {
+		const sources = addSourceLinks();
+		const primary = sources[0];
+		const primaryInfo = primary ? addSourceInfo.get(addLinkSeriesKey(primary.link)) : null;
+		document.getElementById('add-preview-source-name').textContent = primary?.label || '';
+		document.getElementById('add-preview-source-chapter').textContent = primaryInfo?.latest != null ? `Ch. ${primaryInfo.latest}` : '';
+		const more = document.getElementById('add-source-more');
+		more.textContent = sources.length > 1 ? `+${sources.length - 1}` : '';
+		more.classList.toggle('hidden', sources.length < 2);
+		document.getElementById('add-source-chevron')?.classList.toggle('hidden', !sources.length);
+		document.getElementById('add-source-selector')?.classList.toggle('has-choices', sources.length > 0);
+		if (!sources.length) {
+			document.getElementById('add-source-menu')?.classList.add('hidden');
+			document.getElementById('add-source-selector')?.classList.remove('open');
+		}
+
+		renderTrackedExtrasWarning();
+
+		const list = document.getElementById('add-source-list');
+		if (!list) return;
+		list.innerHTML = sources.map(({ link, label }, i) => {
+			const info = addSourceInfo.get(addLinkSeriesKey(link));
+			const warn = info?.status === 'tracked' || info?.status === 'error';
+			return `
+				<div class="settings-source-item add-source-item${i === 0 ? '' : ' add-source-item-choice'}" data-index="${i}" title="${escapeHtml(link)}">
+					<span class="settings-source-dot ${i === 0 ? '' : 'inactive'}"></span>
+					<span class="settings-source-item-name">${escapeHtml(label)}</span>
+					${i === 0 ? '<span class="settings-source-item-badge">PRIMARY</span>' : ''}
+					<span class="add-source-item-status${warn ? ' warn' : ''}">${escapeHtml(addSourceStatusText(info))}</span>
+					<div class="settings-source-item-actions">
+						${i === 0 ? '' : `
+							<button type="button" class="btn-icon" data-action="primary" title="Make primary">
+								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01L12 2z"/>
+								</svg>
+							</button>
+						`}
+						${isSafeUrl(link) ? `
+							<a class="btn-icon" data-action="open" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer" title="Open link">
+								<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+								</svg>
+							</a>
+						` : ''}
+						<button type="button" class="btn-icon danger" data-action="remove" title="Remove this link">
+							<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+							</svg>
+						</button>
+					</div>
+				</div>
+			`;
+		}).join('');
+	}
+
+	// Rewrites the link field with `index`'s link first (making it the
+	// primary) or without it, and previews the new first link. The Last Read
+	// picked so far stays: it's the same series from another site.
+	function reorderAddSources(index, remove) {
+		const input = document.getElementById('new-series-url');
+		const chosen = addSourceLinks()[index];
+		if (!input || !chosen) return;
+		const parts = addUrlParts(input.value);
+		parts.splice(parts.indexOf(chosen.raw), 1);
+		if (!remove) parts.unshift(chosen.raw);
+		input.value = parts.join(', ');
+		const first = normalizeAddLink(parts[0] || '');
+		if (first && addPanelLink) addPanelLink = addLinkSeriesKey(first);
+		closeAddPopovers();
+		handleAddUrlInput({ inputType: 'insertFromPaste' });
+	}
+
+	// Adds the links in `text` to the field as more sources (", "-separated,
+	// the way the extension writes it), skipping unsupported ones and series
+	// already in the list. Returns how many were added.
+	function appendAddSources(text) {
+		const input = document.getElementById('new-series-url');
+		if (!input) return 0;
+		const known = new Set(addSourceLinks().map(source => addLinkSeriesKey(source.link)));
+		const fresh = [];
+		addUrlParts(text).forEach(part => {
+			const link = normalizeAddLink(part);
+			if (!link || known.has(addLinkSeriesKey(link))) return;
+			known.add(addLinkSeriesKey(link));
+			fresh.push(part);
+		});
+		if (!fresh.length) return 0;
+		input.value = [...addUrlParts(input.value), ...fresh].join(', ');
+		handleAddUrlInput({ inputType: 'insertFromPaste' });
+		return fresh.length;
+	}
+
+	// Pasting a link into a field that already has one adds it as another
+	// source instead of gluing the two together - select all first to
+	// replace instead
+	document.getElementById('new-series-url')?.addEventListener('paste', (e) => {
+		const input = e.target;
+		const pasted = e.clipboardData?.getData('text') || '';
+		const replacing = input.selectionStart === 0 && input.selectionEnd === input.value.length;
+		if (replacing || !addSourceLinks().length || !addUrlParts(pasted).some(part => normalizeAddLink(part))) return;
+		e.preventDefault();
+		if (appendAddSources(pasted)) {
+			input.setSelectionRange(input.value.length, input.value.length);
+		} else {
+			showNotification('That series link is already in the list', 'error');
+		}
+	});
+
+	// The Source list's own "add another link" box
+	function addSourceFromMenu() {
+		const box = document.getElementById('add-source-new-input');
+		if (!box?.value.trim()) return;
+		if (appendAddSources(box.value)) {
+			box.value = '';
+		} else {
+			showNotification('Not a new MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons or Flame Comics link', 'error');
+		}
+	}
+	document.getElementById('add-source-new-submit')?.addEventListener('click', addSourceFromMenu);
+	document.getElementById('add-source-new-input')?.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') { e.preventDefault(); addSourceFromMenu(); }
+	});
+
+	document.getElementById('add-source-list')?.addEventListener('click', (e) => {
+		const row = e.target.closest('.add-source-item');
+		if (!row) return;
+		const index = parseInt(row.dataset.index, 10);
+		const action = e.target.closest('[data-action]')?.dataset.action;
+		if (action === 'open') {
+			// a real link - the browser opens it (so middle-click works too)
+			return;
+		} else if (action === 'remove') {
+			reorderAddSources(index, true);
+		} else if (index > 0) {
+			// the star, or anywhere else on the row
+			reorderAddSources(index, false);
+		}
+	});
+
+	// The dashboard searched for `title` across every status (with the
+	// Mature/Explicit excludes set back to neutral), the same way a Stats
+	// page /dashboard?search= link opens it, so every tracked series sharing
+	// the title shows whatever the current filters are.
+	function searchDashboardFromAdd(title) {
+		closeAddSeriesModal();
+		if (!searchInput) return;
+		searchInput.value = title;
+		document.getElementById('search-clear-btn')?.classList.add('show');
+		const fs = captureCurrentFilterState();
+		fs.status = 'all';
+		fs.rating = [];
+		applyFilterBookmarkState(fs);
+		loadPage();
+	}
+
+	document.getElementById('add-preview-back')?.addEventListener('click', closeAddSeriesModal);
+
+	const newSeriesUrlInput = document.getElementById('new-series-url');
+	newSeriesUrlInput?.addEventListener('input', handleAddUrlInput);
+	newSeriesUrlInput?.addEventListener('keydown', (e) => {
+		if (e.key !== 'Enter') return;
+		e.preventDefault();
+		const btn = document.getElementById('btn-add-submit');
+		if (btn && !btn.disabled) btn.click();
+	});
 
 // ─── Series Settings modal: Title picker (same dropdown pattern as the
 // Source selector) ──────────────
@@ -6280,14 +7207,24 @@ document.addEventListener('DOMContentLoaded', () => {
 		// Multiple URLs can be pasted at once, comma-separated - the first
 		// becomes the primary source, the rest get attached once the series
 		// exists (same pattern as the Kenmei import page's per-row field).
-		const urls = (urlInput?.value || '').split(',').map(u => u.trim()).filter(Boolean);
-		const [url, ...extraUrls] = urls;
+		const urls = addUrlParts(urlInput?.value);
+		let [url, ...extraUrls] = urls;
 		const statusSelect = document.getElementById('new-series-status');
 		const selectedStatus = statusSelect?.value || 'reading';
 		if (!url) {
 			showNotification('Please enter a URL', 'error');
 			return;
 		}
+		// The chapter/tags picked in the preview, and the link in the form the
+		// add accepts (a pasted "www." or scheme-less link included)
+		const extras = getAddSeriesExtras();
+		url = normalizeAddLink(url) || url;
+		// Other links already tracked (on some series) can't be attached to
+		// this one - left out, and counted for the "added" notice
+		const skippedSources = extraUrls.filter(part =>
+			addSourceInfo.get(addLinkSeriesKey(normalizeAddLink(part) || part))?.status === 'tracked');
+		extraUrls = extraUrls.filter(part => !skippedSources.includes(part));
+		if (extras) extras.skippedSources = skippedSources.length;
 		isAdding = true;
 		btn.disabled = true;
 		btn.textContent = 'Adding...';
@@ -6329,7 +7266,7 @@ document.addEventListener('DOMContentLoaded', () => {
 							if (statusData.possible_duplicates?.length) {
 								// Shares a title with a series already tracked - ask whether to
 								// attach this link to it instead
-								await resolvePossibleDuplicate(statusData, url, extraUrls, selectedStatus);
+								await resolvePossibleDuplicate(statusData, url, extraUrls, selectedStatus, extras);
 							} else {
 								// ADDED: Show error notification
 								showNotification('Failed to add series: ' + (statusData.error || 'Unknown error'), 'error');
@@ -6339,7 +7276,7 @@ document.addEventListener('DOMContentLoaded', () => {
 							showNotification('Series already exists in your library', 'error');
 						} else {
 							// Success - series was added
-							await announceAddedSeries(statusData, extraUrls);
+							await announceAddedSeries(statusData, extraUrls, extras);
 						}
 						loadPage();
 					}
@@ -6363,6 +7300,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				if (urlInput) urlInput.disabled = false;
 				if (statusSelect) statusSelect.disabled = false;
 				isAdding = false;
+				syncAddSubmitState();
 			}, 500);
 		}
 	});

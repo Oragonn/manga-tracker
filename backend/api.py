@@ -38,14 +38,12 @@ class PossibleDuplicate(Exception):
         self.result = result
 
 
-def _check_for_duplicate_titles(data, url, titles):
-    """Stop an add whose titles match a series that is already tracked, so the
-    dashboard can offer to attach the link to that series as another source
-    instead. Only for requests that ask for it (check_duplicates) and haven't
-    been answered yet (allow_duplicate), and never when the link itself is
-    already tracked - the add's usual duplicate handling covers that."""
-    if not data.get('check_duplicates') or data.get('allow_duplicate'):
-        return
+def _same_title_series(url, titles):
+    """[{id, title, status, shared_titles}] of tracked series sharing a title
+    with `titles`, best match first - empty when the link itself is already
+    tracked (the add's usual duplicate handling covers that) or the look-up
+    fails. shared_titles are the ones they have in common, as `titles` spells
+    them, main title first (the Add modal searches the dashboard for one)."""
     try:
         conn = get_db()
         try:
@@ -55,7 +53,7 @@ def _check_for_duplicate_titles(data, url, titles):
                 (url, url)
             )
             if cursor.fetchone():
-                return
+                return []
             cursor.execute("SELECT id, title, searchable_text, status FROM series")
             all_rows = cursor.fetchall()
         finally:
@@ -65,16 +63,170 @@ def _check_for_duplicate_titles(data, url, titles):
     except Exception as e:
         # a failed look-up must not stop the add
         print(f"[Add Series] Duplicate title check failed: {e}")
+        return []
+
+    from .search_utils import comparable_titles, normalize_search_text, TITLE_SEP
+    texts = {row[0]: row[2] for row in all_rows}
+
+    def shared_titles(series_id):
+        existing = comparable_titles((texts.get(series_id) or '').split(TITLE_SEP))
+        shared, seen = [], set()
+        for title in titles:
+            normalised = normalize_search_text(title) if isinstance(title, str) else ''
+            if normalised in existing and normalised not in seen:
+                seen.add(normalised)
+                shared.append(title)
+        return shared
+
+    return [
+        {'id': series_id, 'title': title, 'status': statuses.get(series_id), 'shared_titles': shared_titles(series_id)}
+        for series_id, title in matches
+    ]
+
+
+def _check_for_duplicate_titles(data, url, titles):
+    """Stop an add whose titles match a series that is already tracked, so the
+    dashboard can offer to attach the link to that series as another source
+    instead. Only for requests that ask for it (check_duplicates) and haven't
+    been answered yet (allow_duplicate)."""
+    if not data.get('check_duplicates') or data.get('allow_duplicate'):
         return
+    matches = _same_title_series(url, titles)
     if matches:
         raise PossibleDuplicate({
             'success': False,
             'title': titles[0],
-            'possible_duplicates': [
-                {'id': series_id, 'title': title, 'status': statuses.get(series_id)} for series_id, title in matches
-            ],
-            'error': f'You already track "{matches[0][1]}" - add this as a source of it instead?'
+            'possible_duplicates': matches,
+            'error': f'You already track "{matches[0]["title"]}" - add this as a source of it instead?'
         })
+
+
+def _source_for_add(url):
+    """Which site the add worker fetches `url` from ('mangadex', 'kagane',
+    'atsu', 'asura', 'hive', 'flame'), or None if it can't add that link."""
+    if url.startswith("https://mangadex.org/title/"):
+        return 'mangadex'
+    if url.startswith("https://kagane.to/series/") or url.startswith("https://kagane.org/series/"):
+        return 'kagane'
+    if url.startswith("https://atsu.moe/manga/") or url.startswith("https://atsu.moe/read/"):
+        return 'atsu'
+    if "asurascans.com/comics/" in url:
+        return 'asura'
+    if "hivetoons.org/series/" in url:
+        return 'hive'
+    if "flamecomics.xyz/series/" in url:
+        return 'flame'
+    return None
+
+
+# === Add Series preview ===
+# The dashboard's Add modal fetches a pasted link as soon as it's recognised,
+# to show its cover, title and chapters before anything is saved. What it
+# fetched is kept here for a while so the add that usually follows reuses it
+# instead of fetching the same series from its site a second time.
+_PREFETCH_TTL = 600  # seconds
+_prefetched = {}     # parse_source_link key -> (fetched_at, data)
+_prefetching = {}    # parse_source_link key -> threading.Event, while a fetch runs
+_prefetch_lock = threading.Lock()
+
+
+def _fetch_for_add(source, url):
+    """Fetch a series from its site the way the add worker reads it: for
+    MangaDex {'info', 'chapters'}, for every other site its tracker's
+    get_series_info() dict. None when the site gave nothing back.
+
+    Only what the preview shows, as quickly as it comes: MangaDex skips the
+    AniList title look-up (marked needs_anilist) and Kagane its cover gallery
+    (no 'gallery_covers') - the add catches up on both afterwards."""
+    if source == 'mangadex':
+        manga_id = extract_manga_id(url)
+        if not manga_id:
+            return None
+        from concurrent.futures import ThreadPoolExecutor
+        from .trackers.mangadex import get_manga_info
+        # Two separate MangaDex calls - the tracker's throttle still spaces
+        # them, but neither waits for the other to finish
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            chapters = pool.submit(get_latest_chapters, manga_id, 100)
+            info = get_manga_info(manga_id)
+            chapters = chapters.result() or []
+        if not info:
+            return None
+        return {'info': info, 'chapters': chapters, 'needs_anilist': True}
+    if source == 'kagane':
+        from .trackers.kagane import extract_series_id, get_series_info
+        series_id = extract_series_id(url)
+        return get_series_info(series_id) if series_id else None
+    if source == 'atsu':
+        from .trackers.atsu import extract_series_id, get_series_info
+    elif source == 'asura':
+        from .trackers.asura import extract_series_id, get_series_info
+    elif source == 'hive':
+        from .trackers.hivetoons import extract_series_id, get_series_info
+    elif source == 'flame':
+        from .trackers.flamecomics import extract_series_id, get_series_info
+    else:
+        return None
+    series_id = extract_series_id(url)
+    return get_series_info(series_id) if series_id else None
+
+
+def _prefetch_key(url):
+    from .source_links import parse_source_link
+    return parse_source_link(url)
+
+
+def _prefetch_series(url, source):
+    """Fetch `url` for the Add modal's preview and keep the result for the
+    add. A fetch of the same series that is already running (the preview
+    asked twice, or an add caught up with it) is waited for, not repeated."""
+    key = _prefetch_key(url)
+    while True:
+        with _prefetch_lock:
+            now = time.time()
+            for k in [k for k, (at, _) in _prefetched.items() if now - at > _PREFETCH_TTL]:
+                del _prefetched[k]
+            if key in _prefetched:
+                return _prefetched[key][1]
+            running = _prefetching.get(key)
+            if running is None:
+                running = _prefetching[key] = threading.Event()
+                break
+        running.wait()
+        with _prefetch_lock:
+            if key not in _prefetched:
+                # that fetch failed - leave it to the caller to try its own
+                return None
+
+    data = None
+    try:
+        data = _fetch_for_add(source, url)
+    finally:
+        from .database import release_leaked_db
+        release_leaked_db()
+        with _prefetch_lock:
+            if data:
+                _prefetched[key] = (time.time(), data)
+            _prefetching.pop(key, None)
+        running.set()
+    return data
+
+
+def _take_prefetched(url):
+    """The preview's fetch of `url`, if it's recent, removed so it's used by
+    one add only. Waits for one that is still running. None if there's none."""
+    key = _prefetch_key(url)
+    if not key:
+        return None
+    with _prefetch_lock:
+        running = _prefetching.get(key)
+    if running is not None:
+        running.wait()
+    with _prefetch_lock:
+        entry = _prefetched.pop(key, None)
+    if entry and time.time() - entry[0] <= _PREFETCH_TTL:
+        return entry[1]
+    return None
 
 
 def _find_tracked_series(url):
@@ -126,14 +278,15 @@ def _add_worker():
                     task_processed = True
                     continue
 
-                is_mangadex = url.startswith("https://mangadex.org/title/")
-                is_kagane = url.startswith("https://kagane.to/series/") or url.startswith("https://kagane.org/series/")
-                is_atsu = url.startswith("https://atsu.moe/manga/") or url.startswith("https://atsu.moe/read/")
-                is_asura = "asurascans.com/comics/" in url
-                is_hive = "hivetoons.org/series/" in url
-                is_flame = "flamecomics.xyz/series/" in url
+                source = _source_for_add(url)
+                is_mangadex = source == 'mangadex'
+                is_kagane = source == 'kagane'
+                is_atsu = source == 'atsu'
+                is_asura = source == 'asura'
+                is_hive = source == 'hive'
+                is_flame = source == 'flame'
 
-                if not (is_mangadex or is_kagane or is_atsu or is_asura or is_hive or is_flame):
+                if not source:
                     result = {'error': 'Only MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, or Flame Comics series URLs are supported'}
                     task_processed = True
                     continue
@@ -260,8 +413,16 @@ def _add_worker():
                             result = {'error': error_msg}
                             task_processed = True
                     else:
-                        # Valid manga_id path
-                        info = get_manga_info_with_anilist(manga_id)
+                        # Valid manga_id path. The Add modal's preview may
+                        # have fetched it already.
+                        prefetched = _take_prefetched(url)
+                        if prefetched:
+                            info = prefetched['info']
+                            if prefetched.get('needs_anilist'):
+                                from .trackers.mangadex import enrich_with_anilist
+                                enrich_with_anilist(info, manga_id)
+                        else:
+                            info = get_manga_info_with_anilist(manga_id)
                         if info:
                             title = info['title']
                             cover_url = info['cover_url']
@@ -284,7 +445,7 @@ def _add_worker():
                             anilist_id = None
 
                         # Fetch chapters directly
-                        chapters_to_save = get_latest_chapters(manga_id, limit=100)
+                        chapters_to_save = prefetched['chapters'] if prefetched else get_latest_chapters(manga_id, limit=100)
                         if chapters_to_save is None:
                             chapters_to_save = []
 
@@ -450,7 +611,7 @@ def _add_worker():
                     else:
                         # with_gallery: also download every cover in the series'
                         # gallery (same browser fetch, no extra navigation)
-                        kagane_info = get_series_info(kagane_id, with_gallery=True)
+                        kagane_info = _take_prefetched(url) or get_series_info(kagane_id, with_gallery=True)
                         if not kagane_info:
                             result = {'error': 'Failed to fetch Kagane series data'}
                             task_processed = True
@@ -519,12 +680,19 @@ def _add_worker():
                                 result = {'id': series_id, 'success': True}
 
                                 # Best-effort: store the gallery downloaded
-                                # above for the Series Settings cover picker.
-                                try:
-                                    from .database import save_gallery_covers
-                                    save_gallery_covers(series_id, 'kagane', kagane_info.get('gallery_covers'))
-                                except Exception as cov_err:
-                                    print(f"[Add Series] Failed to save Kagane cover gallery: {cov_err}")
+                                # above for the Series Settings cover picker -
+                                # or, when the Add modal's preview fetched the
+                                # series without it, fetch it now on its own
+                                # thread.
+                                if 'gallery_covers' in kagane_info:
+                                    try:
+                                        from .database import save_gallery_covers
+                                        save_gallery_covers(series_id, 'kagane', kagane_info.get('gallery_covers'))
+                                    except Exception as cov_err:
+                                        print(f"[Add Series] Failed to save Kagane cover gallery: {cov_err}")
+                                else:
+                                    from .gallery_covers import save_kagane_gallery_in_background
+                                    save_kagane_gallery_in_background(series_id, kagane_id)
 
                                 # Logging
                                 try:
@@ -621,7 +789,7 @@ def _add_worker():
                         # pasted series link straight to the latest chapter) to
                         # the canonical series URL before storing/logging.
                         url = f"https://atsu.moe/manga/{atsu_id}"
-                        atsu_info = get_series_info(atsu_id)
+                        atsu_info = _take_prefetched(url) or get_series_info(atsu_id)
                         if not atsu_info:
                             result = {'error': 'Failed to fetch Atsumaru series data'}
                             task_processed = True
@@ -787,7 +955,7 @@ def _add_worker():
                         result = {'error': 'Invalid AsuraScans URL'}
                         task_processed = True
                     else:
-                        asura_info = get_series_info(asura_id)
+                        asura_info = _take_prefetched(url) or get_series_info(asura_id)
                         if not asura_info:
                             result = {'error': 'Failed to fetch AsuraScans series data'}
                             task_processed = True
@@ -946,7 +1114,7 @@ def _add_worker():
                         result = {'error': 'Invalid HiveToons URL'}
                         task_processed = True
                     else:
-                        hive_info = get_series_info(hive_id)
+                        hive_info = _take_prefetched(url) or get_series_info(hive_id)
                         if not hive_info:
                             result = {'error': 'Failed to fetch HiveToons series data'}
                             task_processed = True
@@ -1105,7 +1273,7 @@ def _add_worker():
                         result = {'error': 'Invalid Flame Comics URL'}
                         task_processed = True
                     else:
-                        flame_info = get_series_info(flame_id)
+                        flame_info = _take_prefetched(url) or get_series_info(flame_id)
                         if not flame_info:
                             result = {'error': 'Failed to fetch Flame Comics series data'}
                             task_processed = True
@@ -1344,6 +1512,88 @@ def api_add_status(task_id):
     if result is None:
         return jsonify({'status': 'pending'}), 200
     return jsonify(result), 200
+
+_ADD_SOURCE_LABELS = {
+    'mangadex': 'MangaDex', 'kagane': 'Kagane', 'atsu': 'Atsumaru',
+    'asura': 'AsuraScans', 'hive': 'HiveToons', 'flame': 'Flame Comics',
+}
+
+@app.route('/api/series/preview')
+def api_series_preview():
+    """What the Add modal shows for a pasted link before the series is added:
+    cover, title, publication status and chapter list, fetched from the site
+    (and kept for the add - see _prefetch_series). A link that's already
+    tracked isn't fetched at all; `already_tracked` names its series."""
+    url = clean_source_url(request.args.get('url', ''))
+    source = _source_for_add(url or '')
+    if not source or not _prefetch_key(url):
+        return jsonify({'error': 'Not a MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons or Flame Comics series link'}), 400
+    if source == 'atsu':
+        # same canonical form the add stores
+        from .source_links import parse_source_link
+        url = f"https://atsu.moe/manga/{parse_source_link(url)[1]}"
+
+    response = {'url': url, 'source': source, 'source_label': _ADD_SOURCE_LABELS[source]}
+
+    existing = _find_tracked_series(url)
+    if existing:
+        series_id = existing[0]
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT title, cover_url, status, current_chapter, latest_chapter FROM series WHERE id = ?", (series_id,))
+            title, cover_url, status, current_chapter, latest_chapter = cursor.fetchone()
+        finally:
+            release_db(conn)
+        response['already_tracked'] = {
+            'id': series_id, 'title': title, 'cover_url': cover_url, 'status': status,
+            'current_chapter': current_chapter, 'latest_chapter': latest_chapter,
+        }
+        return jsonify(response)
+
+    try:
+        data = _prefetch_series(url, source)
+    except Exception as e:
+        # the trackers raise on a site error (a 404 for a dead link, say)
+        return jsonify({'error': f"Couldn't fetch this series from {_ADD_SOURCE_LABELS[source]} ({e or type(e).__name__})"}), 502
+    if not data:
+        return jsonify({'error': f"Couldn't fetch this series from {_ADD_SOURCE_LABELS[source]} - try again in a moment"}), 502
+
+    if source == 'mangadex':
+        info, chapters = data['info'], data['chapters']
+        titles = series_search_titles(info['title'], info.get('title_en'), info.get('title_romaji'),
+                                      info.get('title_native'), info.get('alt_titles'))
+    else:
+        info, chapters = data, data.get('chapters') or []
+        titles = series_search_titles(info['title'], None, None, None, info.get('alt_titles') or [])
+
+    # One row per chapter for the Last Read picker: a site can list the same
+    # number more than once (several groups), and the earliest posting is
+    # the release date the tracker keeps.
+    by_number = {}
+    for ch in chapters:
+        key = (ch['chapter_number'], bool(ch.get('is_oneshot')))
+        row = by_number.get(key)
+        date = ch.get('release_date') or None
+        if row is None:
+            by_number[key] = {
+                'chapter_number': ch['chapter_number'],
+                'volume': ch.get('volume'),
+                'is_oneshot': bool(ch.get('is_oneshot')),
+                'release_date': date,
+            }
+        elif date and (not row['release_date'] or date < row['release_date']):
+            row['release_date'] = date
+
+    response.update({
+        'title': info['title'],
+        'cover_url': info.get('cover_url'),
+        'publication_status': info.get('status'),
+        'latest_chapter': max((ch['chapter_number'] for ch in chapters), default=None),
+        'chapters': list(by_number.values()),
+        'possible_duplicates': _same_title_series(url, titles),
+    })
+    return jsonify(response)
 
 # === Existing Routes (unchanged) ===
 
