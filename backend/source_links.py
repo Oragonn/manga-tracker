@@ -31,6 +31,13 @@ _PATTERNS = [
 # case-sensitive, so those are left exactly as written.
 _CASE_INSENSITIVE_IDS = {'mangadex', 'kagane'}
 
+# AsuraScans ends every series slug with an 8-character hash
+# (.../comics/chronicles-of-the-lazy-sovereign-b57aa235) that it rotates
+# site-wide now and then - the same series is linked as -b57aa235 in an
+# older source and -05c7df14 today. It isn't part of which series it is
+# (Asura's API takes the slug without it), so it's dropped from the id.
+_ASURA_HASH = re.compile(r'-[0-9a-f]{8}$', re.I)
+
 _TRACKED_HOST = re.compile(
     _PREFIX + r'(?:mangadex\.org|kagane\.(?:to|org)|atsu\.moe|asurascans\.com|hivetoons\.org|flamecomics\.xyz)(?:[/?#]|$)',
     re.I
@@ -62,6 +69,8 @@ def parse_source_link(text):
             series_id = match.group(1)
             if source_type in _CASE_INSENSITIVE_IDS:
                 series_id = series_id.lower()
+            elif source_type == 'asura':
+                series_id = _ASURA_HASH.sub('', series_id)
             return source_type, series_id
     return None
 
