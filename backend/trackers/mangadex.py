@@ -1,5 +1,6 @@
 # backend/trackers/mangadex.py
 
+import re
 import requests
 import threading
 import time
@@ -297,6 +298,67 @@ def get_all_covers(manga_id):
 
     return covers
 
+_PART_WORDS = {
+    'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+}
+_PART_RE = re.compile(
+    r'\b(?:part|pt|chapter|ch|episode|ep)\.?\s*(\d+(?:\.\d+)?|' + '|'.join(_PART_WORDS) + r')\b',
+    re.IGNORECASE)
+
+
+def _part_number(title):
+    """'Part 2', 'Pt. 2', 'Part Two: The End' -> 2.0; None when no part number."""
+    m = _PART_RE.search(title or '')
+    if not m:
+        return None
+    token = m.group(1).lower()
+    return float(_PART_WORDS.get(token, token))
+
+
+def _resolve_unnumbered_chapters(chapters):
+    """
+    Settle what MangaDex's unnumbered (chapter=None) uploads become.
+
+    Normally they are all one oneshot, stored as a single 0.0 entry per
+    volume (several groups uploading the same oneshot must not count twice).
+    The exception is a oneshot released in parts: when a series has nothing
+    but unnumbered uploads and every one is titled with a part number
+    ("Part 1", "Part 2"), each distinct part becomes a real chapter
+    numbered by that part, so the series reads as 2 chapters instead of
+    a oneshot that silently lost Part 1.
+    """
+    unnumbered = [c for c in chapters if c['_unnumbered']]
+    parts = {}
+    if unnumbered and len(unnumbered) == len(chapters):
+        for c in unnumbered:
+            part = _part_number(c['_title'])
+            if part is None:
+                parts = {}
+                break
+            parts.setdefault(part, c)  # feed is newest first: keep that upload
+
+    result = []
+    if len(parts) > 1:
+        for part, c in sorted(parts.items()):
+            c['chapter_number'] = part
+            c['raw_chapter'] = f"{part:g}"
+            c['is_oneshot'] = False
+            result.append(c)
+    else:
+        seen_volumes = set()
+        for c in chapters:
+            if c['_unnumbered']:
+                if c['volume'] in seen_volumes:
+                    continue
+                seen_volumes.add(c['volume'])
+            result.append(c)
+
+    for c in result:
+        del c['_unnumbered'], c['_title']
+    return result
+
+
 def get_latest_chapters(manga_id, limit=100):
     """
     Fetch all chapters for a manga, paginating through MangaDex's per-manga
@@ -347,7 +409,8 @@ def get_latest_chapters(manga_id, limit=100):
                 volume_str = attrs.get('volume')
 
                 is_oneshot = False
-                if chapter_str is None or str(chapter_str).strip() == "":
+                unnumbered = chapter_str is None or str(chapter_str).strip() == ""
+                if unnumbered:
                     is_oneshot = True
                     normalized_chapter = 0.0
                 elif str(chapter_str).strip() == "0":
@@ -360,7 +423,12 @@ def get_latest_chapters(manga_id, limit=100):
                     is_oneshot = True
                     normalized_chapter = 0.0
 
-                key = (volume_str, chapter_str)
+                # Unnumbered uploads all share chapter None, so the title has
+                # to be part of the key or a oneshot released as "Part 1" /
+                # "Part 2" collapses into one entry. Genuine duplicates of the
+                # same oneshot are collapsed again after the loop.
+                title = (attrs.get('title') or '').strip()
+                key = (volume_str, chapter_str, title.lower() if unnumbered else None)
                 if key in seen:
                     continue
                 seen.add(key)
@@ -374,13 +442,17 @@ def get_latest_chapters(manga_id, limit=100):
                     'chapter_number': normalized_chapter,
                     'release_date': release_date,
                     'chapter_url': chapter_url,
-                    'is_oneshot': is_oneshot
+                    'is_oneshot': is_oneshot,
+                    '_unnumbered': unnumbered,
+                    '_title': title,
                 })
 
             total = payload.get('total', len(data))
             offset += len(data)
             if len(data) < page_size or offset >= total:
                 break
+
+        chapters = _resolve_unnumbered_chapters(chapters)
 
         # A lone "chapter 0" with nothing else published is effectively a
         # oneshot; once other chapters exist, chapter 0 is just a normal chapter.
