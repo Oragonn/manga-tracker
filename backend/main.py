@@ -196,7 +196,8 @@ def api_undo_log(log_id):
             get_filter_bookmarks, create_filter_bookmark, update_filter_bookmark, delete_filter_bookmark,
             create_custom_tag, add_custom_tag_to_series, delete_series,
             upsert_chapter_override, delete_chapter_override,
-            create_tag_merge, create_tag_bans, revert_tag_merge, revert_tag_bans
+            create_tag_merge, create_tag_bans, revert_tag_merge, revert_tag_bans,
+            create_series_provider_ban, remove_series_provider_ban_by_name
         )
         
         conn = get_db()
@@ -584,6 +585,24 @@ def api_undo_log(log_id):
             except Exception as e:
                 print(f"[Undo] Failed to revert tag change: {e}")
                 return jsonify({'error': f'Failed to revert tag change: {str(e)}'}), 500
+
+        elif action_type in ('provider_banned', 'provider_unbanned'):
+            # A provider ban on one series. Re-banning a provider that has
+            # been banned again since is refused (400); the entry stays undoable.
+            value = (new_value if action_type == 'provider_banned' else old_value) or {}
+            if not series_id or not value.get('name'):
+                return jsonify({'error': "Can't undo: this entry is missing its series or provider"}), 400
+            try:
+                if action_type == 'provider_banned':
+                    remove_series_provider_ban_by_name(series_id, value.get('source_type') or 'atsu', value['name'])
+                else:
+                    create_series_provider_ban(series_id, value.get('source_type') or 'atsu', value['name'])
+            except ValueError as e:
+                return jsonify({'error': f"Can't undo: {e}"}), 400
+            except Exception as e:
+                print(f"[Undo] Failed to revert provider ban: {e}")
+                return jsonify({'error': f'Failed to revert provider ban: {str(e)}'}), 500
+            _rescan_after_provider_change(series_id)
 
         # Mark as undone
         mark_log_undone(log_id=log_id)
@@ -1854,6 +1873,145 @@ def api_delete_tag_merge_group():
     except Exception as e:
         print(f"[Tag Rules] Unmerge failed: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# --- Chapter provider bans (Fixes page > Chapter tab > Providers) ---
+# Bans a scanlator group ("Delta", "Gamma", ...) for one series, on a source
+# that carries several groups' postings - only Atsumaru does. The tracker
+# skips a banned group's postings before it picks one per chapter (see
+# trackers/atsu.py), so every chapter that group posted is dropped and
+# another group's copy of the same chapter is used where there is one. The
+# series is rescanned straight away so the change shows at once.
+
+PROVIDER_BAN_SOURCES = ('atsu',)
+
+
+def _series_provider_sources(series_id):
+    """The series' sources that can have provider bans, as
+    [(source_type, site_id)]."""
+    from .database import get_db, release_db
+    from .trackers.atsu import extract_series_id
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT source_url FROM series_sources WHERE series_id = ? AND source_type = 'atsu'",
+            (series_id,)
+        )
+        urls = [row[0] for row in cursor.fetchall()]
+    finally:
+        release_db(conn)
+    return [('atsu', site_id) for site_id in (extract_series_id(url or '') for url in urls) if site_id]
+
+
+def _series_title(series_id):
+    from .database import get_db, release_db
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT title FROM series WHERE id = ?", (series_id,)).fetchone()
+    finally:
+        release_db(conn)
+    return row[0] if row else None
+
+
+def _rescan_after_provider_change(series_id):
+    try:
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            api.manga_scheduler.scan_series(series_id)
+    except Exception as e:
+        print(f"[Provider Bans] Failed to trigger rescan: {e}")
+
+
+@app.route('/api/series/<int:series_id>/providers')
+def api_get_series_providers(series_id):
+    """The providers of the series' Atsumaru source (looked up live if it
+    hasn't been fetched since they started being recorded), each with its
+    ban if it has one. Bans on a provider that no longer posts are listed too."""
+    from .database import get_recorded_providers, get_series_provider_bans
+    from .trackers import atsu
+
+    bans = {(b['source_type'], b['name_key']): b for b in get_series_provider_bans(series_id)}
+    providers = []
+    lookup_failed = False
+    for source_type, site_id in _series_provider_sources(series_id):
+        recorded = get_recorded_providers(source_type, site_id)
+        if recorded is None:
+            try:
+                atsu.record_providers_only(site_id)
+                recorded = get_recorded_providers(source_type, site_id) or []
+            except Exception as e:
+                print(f"[Provider Bans] Provider lookup for {site_id} failed: {e}")
+                lookup_failed = True
+                recorded = []
+        for p in recorded:
+            ban = bans.pop((source_type, p['name'].casefold()), None)
+            providers.append({
+                'source_type': source_type, 'name': p['name'], 'chapter_count': p['chapter_count'],
+                'ban_id': ban['id'] if ban else None
+            })
+    for ban in bans.values():
+        providers.append({
+            'source_type': ban['source_type'], 'name': ban['name'], 'chapter_count': 0, 'ban_id': ban['id']
+        })
+    providers.sort(key=lambda p: (-(p['chapter_count'] or 0), p['name'].casefold()))
+    return jsonify({'providers': providers, 'lookup_failed': lookup_failed})
+
+
+@app.route('/api/series/<int:series_id>/providers/bans', methods=['POST'])
+def api_ban_series_provider(series_id):
+    """Ban one provider (`name`) for this series."""
+    from .database import create_series_provider_ban
+    data = request.get_json() or {}
+    source_type = str(data.get('source') or 'atsu').strip().lower()
+    if source_type not in PROVIDER_BAN_SOURCES:
+        return jsonify({'error': 'Provider bans are only supported for Atsumaru'}), 400
+    title = _series_title(series_id)
+    if title is None:
+        return jsonify({'error': 'Series not found'}), 404
+    try:
+        ban_id = create_series_provider_ban(series_id, source_type, data.get('name'))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"[Provider Bans] Ban failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+    name = str(data.get('name')).strip()
+    _rescan_after_provider_change(series_id)
+    try:
+        from .activity_logger import log_activity
+        log_activity(
+            action_type='provider_banned', series_id=series_id, series_title=title,
+            new_value={'source_type': source_type, 'name': name}
+        )
+    except Exception as log_err:
+        print(f"[Provider Bans] Logging failed: {log_err}")
+    return jsonify({'success': True, 'id': ban_id})
+
+
+@app.route('/api/series/<int:series_id>/providers/bans/<int:ban_id>', methods=['DELETE'])
+def api_unban_series_provider(series_id, ban_id):
+    """Lift one provider ban for this series."""
+    from .database import delete_series_provider_ban
+    try:
+        ban = delete_series_provider_ban(series_id, ban_id)
+    except Exception as e:
+        print(f"[Provider Bans] Unban failed: {e}")
+        return jsonify({'error': str(e)}), 500
+    if not ban:
+        return jsonify({'error': 'Ban not found'}), 404
+
+    _rescan_after_provider_change(series_id)
+    try:
+        from .activity_logger import log_activity
+        log_activity(
+            action_type='provider_unbanned', series_id=series_id, series_title=_series_title(series_id),
+            old_value={'source_type': ban['source_type'], 'name': ban['name']}
+        )
+    except Exception as log_err:
+        print(f"[Provider Bans] Logging failed: {log_err}")
+    return jsonify({'success': True})
 
 
 # --- Per-series tags (Series Settings modal) ---

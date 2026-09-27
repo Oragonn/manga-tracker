@@ -486,12 +486,13 @@ def _chapter_override_row_to_dict(row):
         'is_banned': bool(row[3]), 'volume': row[4], 'raw_chapter': row[5],
         'title': row[6], 'release_date': row[7], 'chapter_url': row[8],
         'is_oneshot': bool(row[9]), 'created_at': row[10], 'updated_at': row[11],
+        'provider': row[12],
     }
 
 
 _CHAPTER_OVERRIDE_COLUMNS = """
     id, source_type, chapter_number, is_banned, volume, raw_chapter,
-    title, release_date, chapter_url, is_oneshot, created_at, updated_at
+    title, release_date, chapter_url, is_oneshot, created_at, updated_at, provider
 """
 
 
@@ -660,6 +661,20 @@ def delete_chapter_override(override_id):
         except:
             pass
         return False
+
+
+def set_chapter_override_providers(providers_by_id):
+    """Store the provider of each correction's link ({override_id: name})."""
+    if not providers_by_id:
+        return
+    conn = get_db()
+    try:
+        conn.cursor().executemany(
+            "UPDATE chapter_overrides SET provider = ? WHERE id = ?",
+            [(name, override_id) for override_id, name in providers_by_id.items()]
+        )
+    finally:
+        release_db(conn)
 
 
 def migrate_chapter_overrides_ban_by_url():
@@ -1222,6 +1237,192 @@ def revert_tag_bans(tags):
         release_db(conn)
 
 
+# --- Chapter provider bans (Fixes page > Chapter tab > Providers) ---
+# A source like Atsumaru carries several scanlator groups' postings of the
+# same series ("Delta", "Gamma", "Gamma 2", ...). A provider can be banned
+# for one series: the tracker drops its postings BEFORE it picks one posting
+# per chapter number, so another provider's copy of that chapter wins instead
+# of the chapter disappearing. Bans are keyed by casefolded name.
+
+# Last ban keys read per (source, source url), for a caller that already
+# holds the DB lock (get_db() isn't reentrant, so reading again from that
+# thread would hang).
+_provider_ban_cache = {}
+
+
+def get_provider_ban_keys_for_source(source_type, source_url):
+    """The casefolded names of the providers banned for whichever series
+    tracks `source_url` (the canonical source URL, as stored)."""
+    cache_key = (source_type, source_url)
+    if getattr(_db_holder, 'conn', None) is not None:
+        return set(_provider_ban_cache.get(cache_key, ()))
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT pb.name_key
+            FROM provider_bans pb
+            JOIN series_sources ss
+              ON ss.series_id = pb.series_id AND ss.source_type = pb.source_type
+            WHERE pb.source_type = ? AND ss.source_url = ?
+        """, (source_type, source_url))
+        keys = {row[0] for row in cursor.fetchall()}
+    finally:
+        release_db(conn)
+    _provider_ban_cache[cache_key] = frozenset(keys)
+    return keys
+
+
+_banned_link_cache = {}
+
+
+def get_banned_chapter_urls_for_source(source_type, source_url):
+    """The exact chapter links banned (Fixes page > Current Chapters > Ban)
+    for whichever series tracks `source_url`. The tracker skips them before
+    it picks one posting per chapter, so another group's copy is used."""
+    cache_key = (source_type, source_url)
+    if getattr(_db_holder, 'conn', None) is not None:
+        return set(_banned_link_cache.get(cache_key, ()))
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT DISTINCT co.chapter_url
+            FROM chapter_overrides co
+            JOIN series_sources ss
+              ON ss.series_id = co.series_id AND ss.source_type = co.source_type
+            WHERE co.is_banned = 1 AND co.chapter_url IS NOT NULL
+              AND co.source_type = ? AND ss.source_url = ?
+        """, (source_type, source_url))
+        urls = {row[0] for row in cursor.fetchall()}
+    finally:
+        release_db(conn)
+    _banned_link_cache[cache_key] = frozenset(urls)
+    return urls
+
+
+def get_series_provider_bans(series_id):
+    """Every provider banned for one series, oldest ban first."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, source_type, name, name_key, created_at FROM provider_bans
+            WHERE series_id = ? ORDER BY id
+        """, (series_id,))
+        return [
+            {'id': row[0], 'source_type': row[1], 'name': row[2], 'name_key': row[3], 'created_at': row[4]}
+            for row in cursor.fetchall()
+        ]
+    finally:
+        release_db(conn)
+
+
+def create_series_provider_ban(series_id, source_type, name):
+    """Ban one provider for one series. Raises ValueError (writing nothing)
+    for a blank name or one already banned there. Returns the ban's id."""
+    name = str(name or '').strip()
+    if not name:
+        raise ValueError('Pick a provider to ban')
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM provider_bans WHERE series_id = ? AND source_type = ? AND name_key = ?",
+            (series_id, source_type, name.casefold())
+        )
+        row = cursor.fetchone()
+        if row:
+            raise ValueError(f"'{row[0]}' is already banned for this series")
+        cursor.execute(
+            "INSERT INTO provider_bans (series_id, source_type, name, name_key) VALUES (?, ?, ?, ?)",
+            (series_id, source_type, name, name.casefold())
+        )
+        return cursor.lastrowid
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def delete_series_provider_ban(series_id, ban_id):
+    """Lift one ban. Returns the removed ban ({'source_type', 'name'}), or
+    None if the series has no such ban."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT source_type, name FROM provider_bans WHERE id = ? AND series_id = ?",
+            (ban_id, series_id)
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        cursor.execute("DELETE FROM provider_bans WHERE id = ?", (ban_id,))
+        return {'source_type': row[0], 'name': row[1]}
+    finally:
+        release_db(conn)
+
+
+def remove_series_provider_ban_by_name(series_id, source_type, name):
+    """Undo a create_series_provider_ban (a no-op if it's already gone)."""
+    conn = get_db()
+    try:
+        conn.cursor().execute(
+            "DELETE FROM provider_bans WHERE series_id = ? AND source_type = ? AND name_key = ?",
+            (series_id, source_type, str(name or '').strip().casefold())
+        )
+    finally:
+        release_db(conn)
+
+
+def record_source_providers(source_type, site_id, chapter_counts):
+    """Remember which providers a source's series has right now
+    ({name: chapter count}, banned ones included), replacing what was
+    recorded for it before - the Fixes page lists them so one can be banned.
+    Skipped (never waits) when this thread already holds the DB lock."""
+    if getattr(_db_holder, 'conn', None) is not None:
+        return
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "DELETE FROM source_providers WHERE source_type = ? AND site_id = ?",
+            (source_type, site_id)
+        )
+        now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        for name, count in chapter_counts.items():
+            cursor.execute("""
+                INSERT OR REPLACE INTO source_providers
+                    (source_type, site_id, name, name_key, chapter_count, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (source_type, site_id, name, name.casefold(), count, now))
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def get_recorded_providers(source_type, site_id):
+    """The providers recorded for one source series, as [{name,
+    chapter_count}], or None if it hasn't been fetched since recording began."""
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT name, chapter_count FROM source_providers
+            WHERE source_type = ? AND site_id = ?
+        """, (source_type, site_id))
+        rows = cursor.fetchall()
+    finally:
+        release_db(conn)
+    if not rows:
+        return None
+    return [{'name': row[0], 'chapter_count': row[1]} for row in rows]
+
+
 def get_later_items():
     """All "Save for Later" entries, newest first."""
     conn = get_db()
@@ -1560,6 +1761,46 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_tag_rules_target ON tag_rules(target_key)")
 
+    # Chapter providers (scanlator groups, e.g. Atsumaru's "Delta"/"Gamma")
+    # banned for one series on the Fixes page - the tracker drops their
+    # postings before picking one per chapter. An early, never-released
+    # version of this table was global (no series_id) - drop it if it's
+    # still empty so the per-series one below can be created.
+    cursor.execute("PRAGMA table_info(provider_bans)")
+    provider_ban_columns = {row[1] for row in cursor.fetchall()}
+    if provider_ban_columns and 'series_id' not in provider_ban_columns:
+        cursor.execute("SELECT COUNT(*) FROM provider_bans")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("DROP TABLE provider_bans")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS provider_bans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_id INTEGER NOT NULL,
+            source_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            name_key TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(series_id, source_type, name_key),
+            FOREIGN KEY (series_id) REFERENCES series(id) ON DELETE CASCADE
+        )
+    """)
+
+    # Which providers each source series had when last fetched, keyed by the
+    # site's own series id (not ours, so the tracker can write it without
+    # knowing which series it's fetching for). The Fixes page lists a
+    # series' providers from it so one can be banned.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS source_providers (
+            source_type TEXT NOT NULL,
+            site_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            name_key TEXT NOT NULL,
+            chapter_count INTEGER,
+            last_seen DATETIME,
+            PRIMARY KEY (source_type, site_id, name_key)
+        )
+    """)
+
     # Quick-capture scratch list ("Save for Later") for a title or link the
     # user wants to check out later - freeform text, unrelated to the
     # tracked series table, until they act on it and delete it.
@@ -1676,6 +1917,16 @@ def init_db():
         # the currently-stored copy of a chapter, so it can only offer to
         # auto-fill a link when it's confident it's that source's own link.
         cursor.execute("ALTER TABLE chapters ADD COLUMN source_type TEXT")
+    if "provider" not in chapters_columns:
+        # Which group posted the stored copy (Atsumaru's "Delta", "Gamma"...),
+        # shown on the Fixes page. NULL for sources without providers.
+        cursor.execute("ALTER TABLE chapters ADD COLUMN provider TEXT")
+
+    cursor.execute("PRAGMA table_info(chapter_overrides)")
+    if "provider" not in {row[1] for row in cursor.fetchall()}:
+        # The provider of a banned/edited link, filled in by the scheduler
+        # whenever a scan sees that link (see scan_series)
+        cursor.execute("ALTER TABLE chapter_overrides ADD COLUMN provider TEXT")
 
     # --- 3. Set default meta values ---
     cursor.execute("""

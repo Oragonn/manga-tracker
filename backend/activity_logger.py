@@ -71,10 +71,11 @@ def log_activity(action_type, series_id=None, series_title=None, old_value=None,
                      'source_added', 'source_removed', 'source_cleanup',
                      'bookmark_added', 'bookmark_updated', 'bookmark_deleted',
                      'tag_merged', 'tag_unmerged', 'tag_banned', 'tag_unbanned',
+                     'provider_banned', 'provider_unbanned',
                      'custom_tags'
         series_id: ID of the series (None if deleted, or not series-scoped)
         series_title: Title of the series (or bookmark name, for bookmark events;
-                      the tag name(s), for tag events)
+                      the tag/provider name(s), for tag and provider events)
         old_value: Dict of old values (will be JSON-encoded)
         new_value: Dict of new values (will be JSON-encoded)
         is_bulk: Whether this is part of a bulk operation
@@ -266,6 +267,8 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
         elif type_filter == 'tag':
             where_parts.append(f"action_type IN ({','.join('?' * len(TAG_ACTION_TYPES))})")
             params.extend(TAG_ACTION_TYPES)
+        elif type_filter == 'provider':
+            where_parts.append("action_type IN ('provider_banned', 'provider_unbanned')")
         elif type_filter != 'all':
             where_parts.append("action_type = ?")
             params.append(type_filter)

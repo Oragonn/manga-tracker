@@ -658,8 +658,8 @@ def _add_worker():
                                     cursor.execute("""
                                         INSERT INTO chapters (
                                             series_id, volume, raw_chapter, chapter_number,
-                                            release_date, chapter_url, is_oneshot, source_type
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                            release_date, chapter_url, is_oneshot, source_type, provider
+                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                                     """, (
                                         series_id,
                                         None,
@@ -668,7 +668,8 @@ def _add_worker():
                                         ch['release_date'],
                                         ch['chapter_url'],
                                         int(ch.get('is_oneshot', False)),
-                                        _chapters_source_type
+                                        _chapters_source_type,
+                                        ch.get('provider')
                                     ))
                                 if chapters_to_save:
                                     latest_ch = max(ch['chapter_number'] for ch in chapters_to_save)
@@ -2277,6 +2278,10 @@ def api_series_chapters(series_id):
         select_fields.append("release_date")
     else:
         select_fields.append("NULL as release_date")
+    if "provider" in cols:
+        select_fields.append("provider")
+    else:
+        select_fields.append("NULL as provider")
 
     query = f"SELECT {', '.join(select_fields)} FROM chapters WHERE series_id = ? ORDER BY chapter_number ASC"
     cursor.execute(query, (series_id,))
@@ -2292,7 +2297,8 @@ def api_series_chapters(series_id):
             'raw_chapter': row[3],
             'is_oneshot': bool(row[4]),
             'source_type': row[5],
-            'release_date': row[6]
+            'release_date': row[6],
+            'provider': row[7]
         }
         result.append(r)
     return jsonify(result)

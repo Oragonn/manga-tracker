@@ -358,8 +358,8 @@ class MangaScheduler:
             cursor.execute("""
                 INSERT INTO chapters (
                     series_id, volume, raw_chapter, chapter_number,
-                    release_date, chapter_url, is_oneshot, source_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    release_date, chapter_url, is_oneshot, source_type, provider
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 series_id,
                 ch.get('volume'),
@@ -368,7 +368,8 @@ class MangaScheduler:
                 ch['release_date'],
                 ch['chapter_url'],
                 int(ch.get('is_oneshot', False)),
-                ch.get('source_type')
+                ch.get('source_type'),
+                ch.get('provider')
             ))
         if chapters:
             latest_ch = max(ch['chapter_number'] for ch in chapters)
@@ -438,7 +439,10 @@ class MangaScheduler:
             if not atsu_id:
                 return None, None
             atsu_info = atsu_tracker.get_series_info(atsu_id)
-            return (atsu_info['chapters'], atsu_info.get('status')) if atsu_info else (None, None)
+            if not atsu_info:
+                return None, None
+            # A third value flags an empty list that the user's bans caused
+            return atsu_info['chapters'], atsu_info.get('status'), atsu_info.get('all_banned', False)
         elif source_type == 'asura':
             asura_id = asura_tracker.extract_series_id(source_url)
             if not asura_id:
@@ -620,14 +624,14 @@ class MangaScheduler:
                 cursor_prev = conn_prev.cursor()
                 cursor_prev.execute("""
                     SELECT chapter_number, volume, raw_chapter, release_date,
-                           chapter_url, is_oneshot, source_type
+                           chapter_url, is_oneshot, source_type, provider
                     FROM chapters WHERE series_id = ? AND source_type IS NOT NULL
                 """, (series_id,))
                 for row in cursor_prev.fetchall():
                     previous_by_source.setdefault(row[6], []).append({
                         'chapter_number': row[0], 'volume': row[1], 'raw_chapter': row[2],
                         'release_date': row[3], 'chapter_url': row[4],
-                        'is_oneshot': bool(row[5]), 'source_type': row[6],
+                        'is_oneshot': bool(row[5]), 'source_type': row[6], 'provider': row[7],
                     })
             finally:
                 release_db(conn_prev)
@@ -647,7 +651,9 @@ class MangaScheduler:
                     source = future_to_source[future]
                     source_type = source['source_type']
                     try:
-                        chapters, status = future.result()
+                        result = future.result()
+                        chapters, status = result[0], result[1]
+                        emptied_by_bans = len(result) > 2 and result[2]
                     except Exception as source_error:
                         print(f"[Scheduler] Error fetching from {source_type}: {source_error}")
                         try:
@@ -675,7 +681,13 @@ class MangaScheduler:
                         continue
 
                     previous = previous_by_source.get(source_type)
-                    if not chapters and previous:
+                    if emptied_by_bans:
+                        # Every provider/link of this source is banned for
+                        # the series: drop its chapters so the other sources
+                        # supply them, rather than keeping the banned ones.
+                        print(f"[Scheduler] Every {source_type} chapter is banned for series {series_id} - "
+                              f"using the other sources")
+                    elif not chapters and previous:
                         print(f"[Scheduler] {source_type} returned no chapters for series {series_id} "
                               f"(had {len(previous)}) - keeping the stored ones")
                         try:
@@ -730,9 +742,34 @@ class MangaScheduler:
             # number" - a source like Atsumaru can have more than one
             # scanlator group's link for the same chapter number, and
             # banning one must not take the other down with it.
-            from .database import get_chapter_overrides
+            from .database import get_chapter_overrides, set_chapter_override_providers
             overrides = get_chapter_overrides(series_id)
             if overrides:
+                # This scan sees every live link with its provider (banned
+                # links included, as they're only dropped below) - note on
+                # each correction who its link belongs to, for the Fixes page.
+                provider_by_url = {
+                    ch['chapter_url']: ch['provider']
+                    for ch in all_chapters if ch.get('chapter_url') and ch.get('provider')
+                }
+                # A banned Atsumaru link usually isn't among the chapters
+                # returned (only one posting per chapter is), but the fetch
+                # just saw it - ask the tracker.
+                for o in overrides:
+                    if o['source_type'] == 'atsu' and o['chapter_url'] and o['chapter_url'] not in provider_by_url:
+                        seen = atsu_tracker.posting_provider(o['chapter_url'])
+                        if seen:
+                            provider_by_url[o['chapter_url']] = seen
+                provider_updates = {
+                    o['id']: provider_by_url[o['chapter_url']]
+                    for o in overrides
+                    if o['chapter_url'] in provider_by_url and o.get('provider') != provider_by_url[o['chapter_url']]
+                }
+                if provider_updates:
+                    try:
+                        set_chapter_override_providers(provider_updates)
+                    except Exception as provider_err:
+                        print(f"[Scheduler] Couldn't store correction providers for {series_id}: {provider_err}")
                 banned_urls = {o['chapter_url'] for o in overrides if o['is_banned'] and o['chapter_url']}
                 if banned_urls:
                     all_chapters = [
@@ -771,6 +808,7 @@ class MangaScheduler:
                         'release_date': live_release_date or o['release_date'],
                         'chapter_url': o['chapter_url'],
                         'is_oneshot': o['is_oneshot'],
+                        'provider': provider_by_url.get(o['chapter_url']) or o.get('provider'),
                         'source_id': None,
                         'source_type': o['source_type'],
                         'source_url': None,

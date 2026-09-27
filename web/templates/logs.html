@@ -236,6 +236,8 @@
     .log-icon.tag_unmerged { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
     .log-icon.tag_banned { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
     .log-icon.tag_unbanned { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+    .log-icon.provider_banned { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    .log-icon.provider_unbanned { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
     .log-icon.custom_tags { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
 
     .log-content {
@@ -476,6 +478,7 @@
       <option value="source">Sources</option>
       <option value="bookmark">Bookmarks</option>
       <option value="tag">Tags</option>
+      <option value="provider">Providers</option>
     </select>
 
     <select id="filter-time" class="control-input" style="width: auto;">
@@ -608,6 +611,7 @@ function getLogIcon(type) {
     custom_tags: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>'
   };
   if (isTagActivity(type)) return TAG_ACTIVITY_ICONS[type];
+  if (type === 'provider_banned' || type === 'provider_unbanned') return TAG_ACTIVITY_ICONS.tag_banned;
   return icons[type] || icons.edited;
 }
 
@@ -733,6 +737,10 @@ function getLogDetails(log) {
       case 'tag_banned':
       case 'tag_unbanned':
         return escapeHtml(tagActivityText(log));
+      case 'provider_banned':
+        return escapeHtml(`Banned ${sourceTypeLabel(newVal?.source_type)} provider "${newVal?.name ?? ''}"`);
+      case 'provider_unbanned':
+        return escapeHtml(`Unbanned ${sourceTypeLabel(oldVal?.source_type)} provider "${oldVal?.name ?? ''}"`);
       default:
         return '';
     }
@@ -795,7 +803,9 @@ function getUndoMessage(actionType, name) {
     bookmark_added: n => `Removed view "${n}"`,
     bookmark_updated: n => `Reverted view "${n}"`,
     bookmark_deleted: n => `Restored view "${n}"`,
-    custom_tags: n => `Reverted custom tags for ${n}`
+    custom_tags: n => `Reverted custom tags for ${n}`,
+    provider_banned: n => `Lifted provider ban for ${n}`,
+    provider_unbanned: n => `Restored provider ban for ${n}`
   };
   return (templates[actionType] || (n => `Undone: ${n}`))(name);
 }

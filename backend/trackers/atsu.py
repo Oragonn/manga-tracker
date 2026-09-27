@@ -5,6 +5,7 @@ import re
 import time
 import threading
 import requests
+from collections import OrderedDict
 from datetime import datetime, timezone
 
 from ..tag_utils import merge_tag_lists
@@ -125,6 +126,65 @@ def get_gallery(manga_id):
         })
     return covers
 
+# {chapter link: provider} for EVERY posting (not just the one kept per
+# chapter) of the last few manga fetched, so the scheduler can name the
+# provider of a banned link that isn't returned any more. Bounded, since a
+# full scheduler pass fetches every tracked manga.
+_recent_postings = OrderedDict()
+_recent_postings_lock = threading.Lock()
+_RECENT_POSTINGS_MAX = 64
+
+def posting_provider(chapter_url):
+    """The provider of an Atsumaru chapter link, if a recent fetch saw it."""
+    match = re.search(r'atsu\.moe/read/([A-Za-z0-9_-]+)/', chapter_url or '')
+    if not match:
+        return None
+    with _recent_postings_lock:
+        return (_recent_postings.get(match.group(1)) or {}).get(chapter_url)
+
+def _banned_provider_keys(manga_id):
+    """Casefolded names of the scanlator groups banned on the Fixes page for
+    the series tracking this manga. A DB problem means nothing is banned
+    rather than a failed fetch - the chapters themselves still matter."""
+    try:
+        from ..database import get_provider_ban_keys_for_source
+        return get_provider_ban_keys_for_source('atsu', f"https://atsu.moe/manga/{manga_id}")
+    except Exception as e:
+        print(f"[Atsumaru] Couldn't read banned providers: {e}")
+        return set()
+
+def _banned_chapter_urls(manga_id):
+    """The exact chapter links banned on the Fixes page for the series
+    tracking this manga (same fallback as _banned_provider_keys)."""
+    try:
+        from ..database import get_banned_chapter_urls_for_source
+        return get_banned_chapter_urls_for_source('atsu', f"https://atsu.moe/manga/{manga_id}")
+    except Exception as e:
+        print(f"[Atsumaru] Couldn't read banned chapter links: {e}")
+        return set()
+
+def _record_providers(manga_id, provider_counts):
+    """Best-effort: remember which groups this manga has, so the Fixes page
+    can list them for banning."""
+    try:
+        from ..database import record_source_providers
+        record_source_providers('atsu', manga_id, provider_counts)
+    except Exception as e:
+        print(f"[Atsumaru] Couldn't record providers for {manga_id}: {e}")
+
+def record_providers_only(manga_id):
+    """Look up and record which groups a manga has, without fetching its
+    chapters or cover - one light request, for a series the Fixes page
+    shows before it has been fetched since recording began. Raises if the
+    request fails."""
+    resp = _delayed_get("https://atsu.moe/api/manga/page", params={'id': manga_id})
+    if resp.status_code != 200:
+        raise Exception(f"Atsumaru API returned HTTP {resp.status_code} for manga {manga_id}")
+    mp = resp.json().get('mangaPage') or {}
+    names = {(s.get('name') or '').strip() for s in (mp.get('scanlators') or [])}
+    from ..database import record_source_providers
+    record_source_providers('atsu', manga_id, {name: None for name in names if name})
+
 def get_series_info(manga_id):
     """
     Fetch series metadata and chapters from Atsumaru's JSON API (no auth,
@@ -152,6 +212,12 @@ def get_series_info(manga_id):
         scanlator_scores = {
             s['id']: (s.get('score') or 0) for s in (mp.get('scanlators') or []) if s.get('id')
         }
+        scanlator_names = {
+            s['id']: s['name'].strip()
+            for s in (mp.get('scanlators') or []) if s.get('id') and (s.get('name') or '').strip()
+        }
+        banned_providers = _banned_provider_keys(manga_id)
+        banned_urls = _banned_chapter_urls(manga_id)
 
         # The chapter list is a secondary call - if it fails, fall back to
         # whatever's embedded in the page response rather than treating the
@@ -166,11 +232,25 @@ def get_series_info(manga_id):
         # prefer, and a late repost of an already-out chapter can't make it
         # look freshly dropped. Ties (most postings have no votes at all,
         # scoring 0-0) fall back to whichever posting is oldest.
+        # Postings by a provider banned for this series on the Fixes page, and
+        # exact links banned there, are skipped first - so another provider's
+        # copy of that chapter wins instead of the chapter disappearing.
         by_number = {}
         seen_numbers = set()
+        provider_counts = {}
+        posting_providers = {}
+        skipped_by_bans = 0
         for ch in raw_chapters:
             number = ch.get('number')
             if number is None:
+                continue
+            chapter_url = f"https://atsu.moe/read/{manga_id}/{ch['id']}"
+            provider = scanlator_names.get(ch.get('scanlationMangaId'))
+            if provider:
+                provider_counts[provider] = provider_counts.get(provider, 0) + 1
+                posting_providers[chapter_url] = provider
+            if chapter_url in banned_urls or (provider and provider.casefold() in banned_providers):
+                skipped_by_bans += 1
                 continue
             seen_numbers.add(number)
             created_at_ms = ch.get('createdAt')
@@ -182,8 +262,9 @@ def get_series_info(manga_id):
                 'chapter_number': chapter_number,
                 'title': ch.get('title'),
                 'release_date': release_date,
-                'chapter_url': f"https://atsu.moe/read/{manga_id}/{ch['id']}",
+                'chapter_url': chapter_url,
                 'is_oneshot': False,
+                'provider': provider,
                 '_score': scanlator_scores.get(ch.get('scanlationMangaId'), 0)
             }
             existing = by_number.get(chapter_number)
@@ -198,6 +279,12 @@ def get_series_info(manga_id):
         for c in chapters:
             del c['_score']
         chapters.sort(key=lambda c: c['chapter_number'])
+        _record_providers(manga_id, provider_counts)
+        with _recent_postings_lock:
+            _recent_postings[manga_id] = posting_providers
+            _recent_postings.move_to_end(manga_id)
+            while len(_recent_postings) > _RECENT_POSTINGS_MAX:
+                _recent_postings.popitem(last=False)
 
         # Atsumaru has no oneshot flag of its own -- a oneshot just shows up
         # as a lone "Chapter 0" (possibly posted by more than one group).
@@ -263,7 +350,10 @@ def get_series_info(manga_id):
             'alt_titles': alt_titles,
             'genres': merge_tag_lists(genres, tags),
             'content_rating': content_rating,
-            'source_type': source_type
+            'source_type': source_type,
+            # Every posting was banned on the Fixes page - an empty chapter
+            # list that's intended, not a broken fetch
+            'all_banned': not chapters and skipped_by_bans > 0
         }
     except Exception as e:
         print(f"[Atsumaru] Error fetching manga {manga_id}: {e}")
