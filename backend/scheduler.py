@@ -75,16 +75,17 @@ class MangaScheduler:
                 'background_progress_total': 0,
                 # Whole-status sweep tracking for the "Left to Fetch" stat -
                 # separate from due_count ("Due Now") and from the per-tick
-                # background_* progress bar above. sweep_active latches True
-                # the moment something is due or a scan starts, and stays
-                # True across the quiet gaps between due sub-batches (not
-                # every series in a status crosses its threshold at once) -
-                # it only goes False once swept_ids covers every current id
-                # in the status, i.e. a full lap is actually done. While
-                # inactive, "Left to Fetch" reports 0 instead of jumping to
-                # total_series with nothing happening.
-                'sweep_active': False,
-                'swept_ids': set(),
+                # background_* progress bar above. When a lap of this status
+                # starts (the first background tick with something due, or a
+                # Scan Now) this records the moment; "Left to Fetch" is then
+                # the number of series whose last_check is still older than
+                # it, read straight from the DB. None = no lap in progress,
+                # shown as 0. Set only by the scanning code itself - the
+                # count used to be kept by the /scheduler page's polling, so
+                # a lap that started while the page was closed was never
+                # counted and opening the page mid-fetch showed a wrong or
+                # stuck number.
+                'sweep_started_at': None,
                 # Caps the displayed "Due Now" number while a scan is in
                 # flight, so it can only fall (as fetches complete) rather
                 # than also rising (as new series cross their own interval
@@ -160,6 +161,16 @@ class MangaScheduler:
         release_db(conn)
         return ids
 
+    @staticmethod
+    def _count_unswept(last_checks, since):
+        """How many of these last_check values (ISO strings or None) are
+        older than `since`, i.e. haven't been fetched this lap yet."""
+        count = 0
+        for last_check in last_checks:
+            if not last_check or datetime.fromisoformat(last_check.replace('Z', '+00:00')) < since:
+                count += 1
+        return count
+
     def get_check_interval(self, status):
         intervals = {
             'reading': 1800,
@@ -229,6 +240,9 @@ class MangaScheduler:
                 due_counts_by_status = {}
                 for _, status, _ in due:
                     due_counts_by_status[status] = due_counts_by_status.get(status, 0) + 1
+                last_checks_by_status = {}
+                for _, status, last_check in series_list:
+                    last_checks_by_status.setdefault(status, []).append(last_check)
 
                 # Each status due this tick gets its own generation number,
                 # captured locally - see __init__'s comment on
@@ -252,6 +266,12 @@ class MangaScheduler:
                             state['cancelled'] = False
                             state['scan_generation'] += 1
                             self._active_futures[status] = set()
+                            # Start a new lap unless one is still under way
+                            # (series left over from it are simply part of
+                            # this tick's due batch).
+                            if state['sweep_started_at'] is None or not self._count_unswept(
+                                    last_checks_by_status.get(status, []), state['sweep_started_at']):
+                                state['sweep_started_at'] = now
                         tick_generation[status] = state['scan_generation']
 
                 kagane_ids = self._get_kagane_series_ids()
@@ -299,7 +319,6 @@ class MangaScheduler:
                                     continue
                                 state['last_scanned_at'] = \
                                     datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-                                state['swept_ids'].add(sid)
                                 if state['background_scanning']:
                                     state['background_progress_current'] += 1
 
@@ -575,8 +594,15 @@ class MangaScheduler:
                     sources = get_series_sources(series_id)
                 
                 if not sources:
+                    # Still counts as checked, or it stays due forever and
+                    # its status's lap never finishes.
+                    conn_none = get_db()
+                    try:
+                        self._update_last_check(series_id, conn_none)
+                    finally:
+                        release_db(conn_none)
                     return
-            
+
             all_chapters = []
             successful_sources = 0
             sources_reached = 0  # fetch didn't raise, whether or not it returned chapters
@@ -839,7 +865,7 @@ class MangaScheduler:
         rows_by_status = {status: [] for status in self._status_state}
         for sid, status, last_check in rows:
             if status in rows_by_status:
-                rows_by_status[status].append((sid, last_check))
+                rows_by_status[status].append(last_check)
 
         result = {}
         with self._status_lock:
@@ -847,7 +873,7 @@ class MangaScheduler:
                 interval = self.get_check_interval(status)
                 due_count = 0
                 soonest_due_at = None
-                for _, last_check in entries:
+                for last_check in entries:
                     if last_check:
                         last = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
                         due_at = last + timedelta(seconds=interval)
@@ -891,24 +917,15 @@ class MangaScheduler:
                     progress_current = 0
                     progress_total = 0
 
-                # "Left to Fetch": every series in this status minus the
-                # ones already swept (fetched) this sweep, whole-status and
-                # persisted across ticks/batches. Latches active the moment
-                # there's something due or scanning, and stays active
-                # through the quiet gaps between due sub-batches - only
-                # deactivates once every current id has actually been
-                # swept, reporting 0 (not total_series) while idle in
-                # between sweeps.
-                if due_count > 0 or scanning:
-                    state['sweep_active'] = True
-
-                current_ids = {sid for sid, _ in entries}
-                remaining_ids = current_ids - state['swept_ids']
-                if state['sweep_active'] and not remaining_ids and current_ids:
-                    state['sweep_active'] = False
-                    state['swept_ids'] = set()
-                    remaining_ids = set()
-                left_to_fetch = len(remaining_ids) if state['sweep_active'] else 0
+                # "Left to Fetch": series in this status not fetched since
+                # the current lap started (see __init__'s sweep_started_at).
+                # Read from the DB, so it's right no matter when the page
+                # was opened; the lap ends once it reaches 0.
+                left_to_fetch = 0
+                if state['sweep_started_at'] is not None:
+                    left_to_fetch = self._count_unswept(entries, state['sweep_started_at'])
+                    if not left_to_fetch and not scanning:
+                        state['sweep_started_at'] = None
 
                 # "Due Now" display: a running minimum of the live due_count
                 # while a scan is in flight, so it can only fall as fetches
@@ -967,6 +984,8 @@ class MangaScheduler:
             state['scan_generation'] += 1
             my_generation = state['scan_generation']
             self._active_futures[status] = set()
+            # Scan Now fetches the whole status, so it's always a fresh lap.
+            state['sweep_started_at'] = datetime.now(timezone.utc)
 
         def _worker():
             try:
@@ -1009,7 +1028,6 @@ class MangaScheduler:
                             self._status_state[status]['manual_progress_current'] += 1
                             self._status_state[status]['last_scanned_at'] = \
                                 datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-                            self._status_state[status]['swept_ids'].add(sid)
             except Exception as e:
                 print(f"[Scheduler] scan_status_now('{status}') error: {e}")
             finally:
@@ -1052,8 +1070,7 @@ class MangaScheduler:
             state['manual_progress_total'] = 0
             state['background_progress_current'] = 0
             state['background_progress_total'] = 0
-            state['sweep_active'] = False
-            state['swept_ids'] = set()
+            state['sweep_started_at'] = None
             state['due_count_ceiling'] = None
             futures = list(self._active_futures.get(status, ()))
             self._active_futures[status] = set()
