@@ -341,6 +341,9 @@ class KaganeBrowserClient:
                 # what an untitled book has to be numbered from.
                 'chapter_no': b.get('chapter_no'),
                 'release_date': b.get('published_on'),
+                # When the book went up on Kagane. published_on is missing on a
+                # lot of books, and kagane.py falls back to this (as the site does).
+                'uploaded_at': b.get('became_visible_at') or b.get('created_at'),
             })
 
         return meta, books

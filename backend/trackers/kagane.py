@@ -356,7 +356,12 @@ def get_series_info(series_id, with_gallery=False):
         chapters.append({
             'chapter_number': final_chapter_num,
             'title': title,
-            'release_date': book.get('release_date'),
+            # Kagane leaves published_on empty on a lot of books (whole series
+            # at a time) and the site then shows when the book went up instead.
+            # That's often later than the real release (a backlog mirrored in
+            # one go), so the merge prefers another source's date to it.
+            'release_date': book.get('release_date') or book.get('uploaded_at'),
+            'date_is_upload': not book.get('release_date'),
             'chapter_url': chapter_url,
             'is_oneshot': e['kind'] == 'oneshot'
         })

@@ -526,12 +526,18 @@ class MangaScheduler:
             # Chapter Fixes overrides carry no source_id, only the type.
             return ch.get('source_type') == primary_source['source_type']
 
+        def date_rank(ch):
+            # Undated, then dated only by when it went up on the site (Kagane
+            # without a published date - later than the real release for a
+            # mirrored backlog), then a real release date.
+            date = ch.get('release_date') or ''
+            return (0 if not date else 1 if ch.get('date_is_upload') else 2), date
+
         def is_newer(ch, existing):
             # Safe comparison: treat None/empty as oldest; on a tie (both
-            # undated, or the new one undated) keep the existing one.
-            ch_date = ch.get('release_date') or ''
-            existing_date = existing.get('release_date') or ''
-            return bool(ch_date) and (not existing_date or ch_date > existing_date)
+            # undated, or the new one undated) keep the existing one. A real
+            # date beats an upload date whatever the two dates are.
+            return bool(ch.get('release_date')) and date_rank(ch) > date_rank(existing)
 
         merged_chapters = {}
         # What the merge would pick ignoring the primary preference - only
@@ -569,9 +575,12 @@ class MangaScheduler:
 
         for ch_num, ch in merged_chapters.items():
             dkey = (ch['source_type'], ch_num)
-            if dkey not in earliest_dates:
-                fallback = newest_by_date[ch_num]
+            fallback = newest_by_date[ch_num]
+            if dkey not in earliest_dates or (ch.get('date_is_upload') and date_rank(fallback)[0] == 2):
+                # Borrow the date from another source: the chosen copy has
+                # none, or only an upload date where another knows the real one
                 dkey = (fallback['source_type'], ch_num)
+                ch['date_is_upload'] = fallback.get('date_is_upload', False)
             if dkey in earliest_dates:
                 ch['release_date'] = earliest_dates[dkey]
 
