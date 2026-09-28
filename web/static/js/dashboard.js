@@ -3966,6 +3966,7 @@ Max
 function renderPagination(current, total, status, sort) {
 	const paginationTop = document.getElementById('pagination');
 	const paginationBottom = document.getElementById('pagination-bottom');
+	closePageJumpPopover();
 	if (total <= 1) {
 		paginationTop.innerHTML = '';
 		paginationBottom.innerHTML = '';
@@ -4019,9 +4020,15 @@ function renderPagination(current, total, status, sort) {
 		}
 		pages.forEach(page => {
 			if (page === 'gap') {
-				const gap = document.createElement('span');
-				gap.className = 'gap px-3 py-1 flex items-center justify-center';
+				const gap = document.createElement('a');
+				gap.className = 'gap gap-jump px-3 py-1 flex items-center justify-center cursor-pointer';
+				gap.href = 'javascript:void(0)';
 				gap.textContent = '…';
+				gap.title = 'Go to page…';
+				gap.addEventListener('click', (e) => {
+					e.stopPropagation();
+					openPageJumpPopover(gap, total);
+				});
 				nav.appendChild(gap);
 			} else {
 				const pageBtn = document.createElement('a');
@@ -4067,6 +4074,100 @@ function renderPagination(current, total, status, sort) {
 	paginationBottom.innerHTML = '';
 	paginationTop.appendChild(renderNav());
 	paginationBottom.appendChild(renderNav());
+}
+
+// Small "go to page" box anchored under a pagination "…" gap. Portaled to
+// <body> so the pagination bar can't clip it; Enter/Go jumps, Esc or a
+// click outside closes it.
+function closePageJumpPopover() {
+	const existing = document.getElementById('page-jump-popover');
+	if (!existing) return;
+	existing._cleanup?.();
+	existing.remove();
+}
+
+function openPageJumpPopover(anchor, total) {
+	const wasOpenHere = document.getElementById('page-jump-popover')?._anchor === anchor;
+	closePageJumpPopover();
+	if (wasOpenHere) return;
+
+	const pop = document.createElement('div');
+	pop.id = 'page-jump-popover';
+	pop._anchor = anchor;
+	pop.innerHTML = `
+		<label class="page-jump-label" for="page-jump-input">Go to page</label>
+		<div class="page-jump-row">
+			<input id="page-jump-input" type="number" inputmode="numeric" min="1" max="${total}" step="1" placeholder="1–${total}" autocomplete="off" />
+			<button type="button" class="page-jump-go">Go</button>
+		</div>
+		<div class="page-jump-hint">Between 1 and ${total}</div>
+	`;
+	document.body.appendChild(pop);
+
+	const input = pop.querySelector('input');
+	const hint = pop.querySelector('.page-jump-hint');
+
+	const place = () => {
+		const r = anchor.getBoundingClientRect();
+		const pw = pop.offsetWidth;
+		const ph = pop.offsetHeight;
+		let left = r.left + r.width / 2 - pw / 2;
+		left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+		// Open below the gap, or above it when there's no room (bottom bar).
+		let top = r.bottom + 6;
+		if (top + ph > window.innerHeight - 8) top = r.top - ph - 6;
+		pop.style.left = `${left}px`;
+		pop.style.top = `${Math.max(8, top)}px`;
+	};
+	place();
+
+	const go = () => {
+		const n = Number(input.value);
+		if (!Number.isInteger(n) || n < 1 || n > total) {
+			pop.classList.add('invalid');
+			hint.textContent = `Enter a page between 1 and ${total}`;
+			input.focus();
+			input.select();
+			return;
+		}
+		closePageJumpPopover();
+		if (n !== state.page) {
+			state.page = n;
+			loadPage();
+		}
+	};
+
+	input.addEventListener('input', () => {
+		pop.classList.remove('invalid');
+		hint.textContent = `Between 1 and ${total}`;
+	});
+	input.addEventListener('keydown', (e) => {
+		if (e.key === 'Enter') { e.preventDefault(); go(); }
+		else if (e.key === 'Escape') { e.preventDefault(); closePageJumpPopover(); }
+	});
+	pop.querySelector('.page-jump-go').addEventListener('click', go);
+
+	const onDocDown = (e) => {
+		if (!pop.contains(e.target) && e.target !== anchor) closePageJumpPopover();
+	};
+	// Follow the gap rather than closing on scroll: focusing the input on a
+	// phone scrolls the page when the keyboard opens.
+	const onScrollOrResize = () => {
+		if (!anchor.isConnected) closePageJumpPopover();
+		else place();
+	};
+	document.addEventListener('mousedown', onDocDown, true);
+	document.addEventListener('touchstart', onDocDown, true);
+	window.addEventListener('resize', onScrollOrResize);
+	window.addEventListener('scroll', onScrollOrResize, true);
+	pop._cleanup = () => {
+		document.removeEventListener('mousedown', onDocDown, true);
+		document.removeEventListener('touchstart', onDocDown, true);
+		window.removeEventListener('resize', onScrollOrResize);
+		window.removeEventListener('scroll', onScrollOrResize, true);
+	};
+
+	input.focus();
 }
 
 // Fetch and render the source-health indicator (btn-source-alert): lights
