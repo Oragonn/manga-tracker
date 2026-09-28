@@ -5,7 +5,7 @@ import os
 import concurrent.futures
 from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
-from .trackers.mangadex import extract_manga_id, get_latest_chapters, get_manga_status
+from .trackers.mangadex import extract_manga_id, get_latest_chapters, get_status_and_related
 from .trackers.kagane import extract_series_id, get_series_info
 from .trackers import atsu as atsu_tracker
 from .trackers import asura as asura_tracker
@@ -14,6 +14,7 @@ from .trackers import flamecomics as flame_tracker
 from .backup_manager import BackupManager
 from .series_backup_manager import SeriesBackupManager
 from .discord_backup_uploader import DiscordBackupUploader
+from . import related_series
 
 class MangaScheduler:
     def __init__(self):
@@ -401,13 +402,17 @@ class MangaScheduler:
             """, (datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'), series_id))
         conn.commit()
 
-    def _fetch_source_chapters(self, source):
+    def _fetch_source_chapters(self, source, series_id=None, force_related=False):
         """Fetch the chapter list for a single source, plus its publication
         status when that's worth having: (chapters, status), where status is
         None if the source isn't primary or doesn't report one. Runs on a
         worker thread from scan_series's ThreadPoolExecutor -- raises on
         failure so the caller's future.result() surfaces the error
-        per-source."""
+        per-source. MangaDex and Atsumaru also report the series' related
+        series (sequels, spin-offs...), recorded for the Add modal's Related
+        list (related_series.py) - from requests made anyway, except for a
+        MangaDex source that isn't primary: one extra request, once a day
+        (or whenever force_related - a check asked for by hand)."""
         source_url = source['source_url']
         source_type = source['source_type']
 
@@ -419,12 +424,17 @@ class MangaScheduler:
                 return None, None
             chapters = get_latest_chapters(manga_id, limit=100)
             status = None
-            if source.get('is_primary'):
-                # The chapter feed doesn't carry it, so it's one extra request
-                # - and only for a primary source, the only one whose status
-                # is used. A hiccup here must not throw away the chapters.
+            if source.get('is_primary') or (series_id and (force_related or related_series.needs_check(series_id, 'mangadex'))):
+                # The chapter feed doesn't carry the status, so it's one extra
+                # request - made for a primary source, the only one whose
+                # status is used, and the same request returns the related
+                # series. A hiccup here must not throw away the chapters.
                 try:
-                    status = get_manga_status(manga_id)
+                    reported, related = get_status_and_related(manga_id)
+                    if source.get('is_primary'):
+                        status = reported
+                    if series_id:
+                        related_series.record(series_id, 'mangadex', related)
                 except Exception as status_error:
                     print(f"[Scheduler] Couldn't read MangaDex status for {manga_id}: {status_error}")
             return chapters, status
@@ -441,6 +451,8 @@ class MangaScheduler:
             atsu_info = atsu_tracker.get_series_info(atsu_id)
             if not atsu_info:
                 return None, None
+            if series_id:
+                related_series.record(series_id, 'atsu', atsu_info.get('related'))
             # A third value flags an empty list that the user's bans caused
             return atsu_info['chapters'], atsu_info.get('status'), atsu_info.get('all_banned', False)
         elif source_type == 'asura':
@@ -567,10 +579,12 @@ class MangaScheduler:
         final_chapters.sort(key=lambda x: x['chapter_number'])
         return final_chapters
 
-    def scan_series(self, series_id):
+    def scan_series(self, series_id, force_related=False):
         """
         Scan all sources for a series and merge chapters.
         Fix for Bug #2: Now properly merges chapters from multiple sources.
+        force_related: re-read its related series from every source now,
+        for a check asked for by hand (see _fetch_source_chapters).
         """
         try:
             from .database import get_series_sources, get_db, release_db
@@ -642,7 +656,7 @@ class MangaScheduler:
             # release dates rather than relying on iteration order).
             with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(sources))) as executor:
                 future_to_source = {
-                    executor.submit(self._fetch_source_chapters, source): source
+                    executor.submit(self._fetch_source_chapters, source, series_id, force_related): source
                     for source in sources
                 }
                 from .database import record_source_success, record_source_failure
@@ -1123,6 +1137,9 @@ class MangaScheduler:
         self.backup_manager.start()
         self.series_backup_manager.start()
         self.discord_backup_uploader.start()
+        # the "Has Related" custom tag, brought up to date once after startup
+        # (after that, whenever relations change)
+        related_series.schedule_tag_sync(60)
 
     def stop(self):
         self.active = False

@@ -2025,7 +2025,8 @@ html {
 
 .modal-buttons #btn-edit-cancel,
 .modal-buttons #btn-add-cancel,
-.modal-buttons #btn-add-search-cancel {
+.modal-buttons #btn-add-search-cancel,
+.modal-buttons #btn-add-related-back {
   background: #334155;
   color: white;
 }
@@ -2072,10 +2073,668 @@ html {
 
 /* Cross-source search is a PC-only addition to the Add Series modal - the
    modal itself is shared with mobile's own add-series flow, so hide just
-   the new toggle button there instead of touching the mobile UI. */
+   its toggle button there instead of touching the mobile UI. (Related
+   series has a phone layout: "RELATED SERIES - MOBILE".) */
 @media (max-width: 768px) {
   #btn-add-series-search-toggle {
     display: none;
+  }
+}
+
+/* Related series: left of the search toggle, with a badge counting the new
+   ones. The view lists your series that have related series you don't
+   track yet, one card each. */
+#btn-add-series-related-toggle {
+  position: relative;
+  margin-left: auto;
+}
+
+#btn-add-series-related-toggle.hidden,
+#btn-add-series-search-toggle.hidden {
+  display: none;
+}
+
+/* Styled like the nav's Errors count */
+.add-related-badge {
+  position: absolute;
+  top: -8px;
+  right: -10px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: #e53e3e;
+  color: white;
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.add-related-badge.hidden {
+  display: none;
+}
+
+#add-series-modal .modal-content.add-series-related {
+  max-width: 760px;
+}
+
+.add-related-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.add-related-status {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.add-related-status .error {
+  color: #f87171;
+}
+
+.add-related-toolbar button {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  background: #1a2436;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.modal-content .add-related-toolbar select {
+  flex-shrink: 0;
+  width: auto;
+  margin-top: 0;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.add-related-toolbar button:hover:not(:disabled) {
+  border-color: #678ec9;
+  color: white;
+}
+
+.add-related-toolbar button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.add-related-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.add-related-chip {
+  padding: 3px 9px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.add-related-chip span {
+  opacity: 0.7;
+}
+
+.add-related-chip:hover {
+  border-color: #678ec9;
+}
+
+.add-related-chip.active {
+  background: #1e2c40;
+  border-color: #678ec9;
+  color: #e2e8f0;
+}
+
+.add-related-chip-hidden {
+  border-style: dashed;
+}
+
+.add-related-chip-all {
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+.add-related-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(62vh, 600px);
+  overflow-y: auto;
+}
+
+.add-related-empty {
+  padding: 24px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+/* One of your series: its cover, then its related series one per row */
+.add-related-group {
+  display: flex;
+  gap: 12px;
+  padding: 10px;
+  background: #1a2436;
+  border: 1px solid #334155;
+  border-radius: 6px;
+}
+
+.add-related-cover {
+  width: 56px;
+  height: 80px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #0f172a;
+}
+
+.add-related-group-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.add-related-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.add-related-series {
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: white;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.add-related-series:hover {
+  text-decoration: underline;
+}
+
+/* Your reading status on the series */
+.add-related-status-pill {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.add-related-status-pill[data-status="reading"] { color: #4ade80; }
+.add-related-status-pill[data-status="completed"] { color: #60a5fa; }
+.add-related-status-pill[data-status="on_hold"] { color: #fbbf24; }
+.add-related-status-pill[data-status="dropped"] { color: #f87171; }
+.add-related-status-pill[data-status="plan_to_read"] { color: #c084fc; }
+
+/* The series' own sources, then the button that opens its related list */
+.add-related-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.add-related-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  background: #1e2c40;
+  color: #cbd5e1;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.add-related-toggle:hover,
+.add-related-toggle.open {
+  border-color: #678ec9;
+  color: white;
+}
+
+.add-related-rows {
+  margin-top: 8px;
+  padding-top: 2px;
+  border-top: 1px solid #243044;
+}
+
+.add-related-dismiss {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.add-related-dismiss:hover {
+  border-color: #f87171;
+  color: #f87171;
+}
+
+.add-related-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid #243044;
+}
+
+.add-related-row:first-of-type {
+  border-top: none;
+}
+
+.add-related-row-info {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The related series' own cover (placeholder until it's looked up) */
+.add-related-row-cover {
+  width: 40px;
+  height: 56px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 3px;
+  background: #0f172a;
+}
+
+.add-related-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #e2e8f0;
+}
+
+.add-related-relation {
+  flex-shrink: 0;
+  color: #678ec9;
+  font-weight: 600;
+}
+
+.add-related-row-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.add-related-new {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #4ade80;
+  border: 1px solid #4ade80;
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.add-related-meta {
+  margin-top: 1px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.add-related-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.add-related-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #cbd5e1;
+  text-decoration: none;
+}
+
+.add-related-link:hover {
+  border-color: #678ec9;
+  color: white;
+}
+
+.add-related-use {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 4px;
+  background: #3182ce;
+  color: white;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.add-related-use:hover {
+  background: #2b6cb0;
+}
+
+/* A related series you already track */
+.add-related-use.secondary {
+  background: #334155;
+}
+
+.add-related-use.secondary:hover {
+  background: #475569;
+}
+
+.add-related-in-library {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+.add-related-row.tracked .add-related-row-name {
+  color: #94a3b8;
+}
+
+.add-related-show-more {
+  padding: 8px;
+  border: 1px dashed #334155;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.add-related-show-more:hover {
+  border-color: #678ec9;
+  color: white;
+}
+
+/* ================================
+   RELATED SERIES - MOBILE
+   The Add modal's Related view goes full screen (the compact add card
+   would squeeze it): a header with the back button first, the filters in
+   one row, the chips in one sideways-scrolling line, and cards whose
+   related rows run the card's whole width with their buttons on a line of
+   their own. Series Settings' Related window is full screen too, with the
+   same rows.
+   ================================ */
+@media (max-width: 768px) {
+  #add-series-modal .modal-content.add-series-related {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: 100%;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    padding: 0 16px max(12px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .add-series-related .add-series-modal-header {
+    flex-shrink: 0;
+    justify-content: flex-start;
+    gap: 12px;
+    margin: 0;
+    padding: max(14px, env(safe-area-inset-top)) 0 10px;
+  }
+
+  .add-series-related .add-series-modal-header h3 {
+    font-size: 20px;
+  }
+
+  /* the back button, first */
+  .add-series-related #btn-add-series-related-toggle {
+    order: -1;
+    margin-left: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+  }
+
+  #add-series-related-view:not(.hidden) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #add-series-related-view .modal-buttons {
+    display: none;
+  }
+
+  /* status line + Check now, then the two selects half and half */
+  .add-related-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* the status line fills the first row beside Check now, so the
+     selects wrap onto the second */
+  .add-related-toolbar .add-related-status {
+    flex: 1 1 calc(100% - 130px);
+    order: -2;
+  }
+
+  .add-related-toolbar button {
+    order: -1;
+    height: 34px;
+    align-self: center;
+  }
+
+  .modal-content .add-related-toolbar select {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    height: 36px;
+  }
+
+  .add-related-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -16px 10px;
+    padding: 2px 16px;
+    scrollbar-width: none;
+  }
+
+  .add-related-chips::-webkit-scrollbar {
+    display: none;
+  }
+
+  .add-related-chip {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 5px 11px;
+  }
+
+  #add-series-related-view .add-related-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Card: cover beside the title and buttons, the related rows under both */
+  .add-related-group {
+    display: grid;
+    grid-template-columns: 60px minmax(0, 1fr);
+    column-gap: 12px;
+    row-gap: 8px;
+    align-items: start;
+  }
+
+  .add-related-cover {
+    grid-row: 1 / span 2;
+    width: 60px;
+    height: 86px;
+  }
+
+  .add-related-group-body {
+    display: contents;
+  }
+
+  .add-related-group-head,
+  .add-related-group-actions {
+    grid-column: 2;
+    margin: 0;
+  }
+
+  .add-related-group-head {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .add-related-series {
+    flex-basis: calc(100% - 60px);
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .add-related-dismiss {
+    order: -1;
+    margin-left: auto;
+    align-self: flex-start;
+  }
+
+  .add-related-group-head .add-related-series {
+    order: -2;
+  }
+
+  .add-related-toggle {
+    flex-basis: 100%;
+    justify-content: center;
+    margin-left: 0;
+    padding: 7px 10px;
+  }
+
+  .add-related-rows {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
+
+  /* cover on the left, the text and then the buttons beside it */
+  .add-related-row {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    column-gap: 10px;
+    row-gap: 6px;
+    align-items: start;
+    padding: 8px 0;
+  }
+
+  .add-related-row-cover {
+    grid-row: 1 / span 2;
+    width: 44px;
+    height: 62px;
+  }
+
+  .add-related-row-info,
+  .add-related-row .add-related-links {
+    grid-column: 2;
+  }
+
+  .add-related-row-title {
+    flex-wrap: wrap;
+    row-gap: 3px;
+  }
+
+  .add-related-row-name {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+
+  .add-related-links {
+    flex-wrap: wrap;
+  }
+
+  .add-related-link,
+  .add-related-use {
+    padding: 6px 10px;
+  }
+
+  .add-related-use {
+    margin-left: auto;
+  }
+
+  /* Series Settings' Related window */
+  #related-modal .related-modal-content {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: 100%;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(12px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+  }
+
+  #related-modal h3 {
+    font-size: 20px;
+  }
+
+  /* the window is a flex column here: its status line mustn't grow */
+  #related-modal .add-related-status {
+    flex: none;
+  }
+
+  #related-modal .related-modal-list {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+
+  #related-modal .modal-buttons {
+    margin-top: 12px;
+  }
+
+  #related-modal .modal-buttons button {
+    flex: 1;
+    height: 42px;
   }
 }
 
@@ -2849,6 +3508,35 @@ a.btn-icon {
   #edit-series-modal .settings-actions-buttons-secondary {
     margin-top: 6px;
   }
+}
+
+/* The related series of the series in Settings - on top of it, like the
+   note (below). Its rows are the Add modal's Related list rows. */
+#related-modal {
+  z-index: 1200;
+}
+
+#related-modal .related-modal-content {
+  max-width: 680px;
+  outline: none;
+}
+
+#related-modal h3 {
+  margin-bottom: 4px;
+}
+
+#related-modal .add-related-status {
+  margin-bottom: 10px;
+}
+
+.related-modal-list {
+  max-height: min(60vh, 520px);
+  overflow-y: auto;
+}
+
+.modal-buttons #btn-related-modal-close {
+  background: #334155;
+  color: white;
 }
 
 /* Opens on top of Series Settings (same .modal z-index otherwise) but

@@ -62,7 +62,7 @@ def extract_series_id(url):
     match = re.search(r'https://atsu\.moe/(?:manga|read)/([A-Za-z0-9_-]+)', url)
     return match.group(1) if match else None
 
-def _download_cover(poster):
+def _download_cover(poster, get=None):
     """Download poster's largest available image to _COVER_DIR, keyed by its
     own filename (stable per cover asset, same as Kagane's image_id keying)
     so repeat fetches of an unchanged cover skip the download entirely.
@@ -80,7 +80,7 @@ def _download_cover(poster):
         return f"/static/uploads/atsu_covers/{filename}"
 
     try:
-        resp = _delayed_get(f"{CDN_BASE}{path}")
+        resp = (get or _delayed_get)(f"{CDN_BASE}{path}")
         if resp.status_code != 200:
             return None
         os.makedirs(_COVER_DIR, exist_ok=True)
@@ -93,6 +93,58 @@ def _download_cover(poster):
         return f"/static/uploads/atsu_covers/{filename}"
     except Exception:
         return None
+
+def relations_from_page(mp):
+    """The series an Atsumaru mangaPage lists under Relations (Sequel,
+    SpinOff, SideStory, Adaptation...) as [{id, relation, title, poster,
+    medium}] - `relation` in snake_case ('side_story'), the same words
+    MangaDex uses where the two overlap, and `poster` the CDN path of its
+    cover (downloaded only when it's shown - see download_poster). Related
+    novels are kept, with medium 'Novel'. Its Recommendations / Similar lists aren't
+    relations and are left out."""
+    related = []
+    for rel in (mp or {}).get('relations') or []:
+        manga = rel.get('manga') or {}
+        if not manga.get('id'):
+            continue
+        related.append({
+            'id': manga['id'],
+            'relation': re.sub(r'(?<=[a-z])(?=[A-Z])', '_', rel.get('type') or 'related').lower(),
+            'title': (manga.get('title') or 'Untitled').strip(),
+            'poster': manga.get('mediumImage') or manga.get('image'),
+            'medium': manga.get('medium'),
+        })
+    return related
+
+def get_related(manga_id):
+    """relations_from_page() for one manga, for a check on its own (the
+    chapter scan gets them from get_series_info's 'related' instead).
+    Raises if the page can't be fetched."""
+    resp = _delayed_get("https://atsu.moe/api/manga/page", params={'id': manga_id})
+    if resp.status_code != 200:
+        raise Exception(f"Atsumaru API returned HTTP {resp.status_code} for manga {manga_id}")
+    mp = resp.json().get('mangaPage')
+    if not mp:
+        raise Exception(f"Atsumaru API returned no mangaPage for {manga_id}")
+    return relations_from_page(mp)
+
+_POSTER_PATH = re.compile(r'^posters/[A-Za-z0-9_-]+(?:-(?:small|medium|large))?\.(?:jpe?g|png|webp|avif)$')
+
+def _cdn_get(url):
+    """A plain request for a static image on cdn.atsu.moe - not through
+    _delayed_get, whose throttle paces the API: a cover shown in the
+    Related list would otherwise wait its turn behind every chapter scan's
+    API calls (the lock isn't fair, so under a busy scheduler it could
+    wait for good)."""
+    return _session.get(url, timeout=15)
+
+def download_poster(path):
+    """A related series' cover (a CDN path relations_from_page() gave),
+    downloaded once and served from our origin like every Atsumaru cover;
+    None if it isn't a poster path or the download fails."""
+    if not path or not _POSTER_PATH.match(path):
+        return None
+    return _download_cover({'image': path}, get=_cdn_get)
 
 def get_gallery(manga_id):
     """Every cover in Atsumaru's gallery for a manga - the set its
@@ -353,7 +405,9 @@ def get_series_info(manga_id):
             'source_type': source_type,
             # Every posting was banned on the Fixes page - an empty chapter
             # list that's intended, not a broken fetch
-            'all_banned': not chapters and skipped_by_bans > 0
+            'all_banned': not chapters and skipped_by_bans > 0,
+            # read off the same page, for the Related list (related_series.py)
+            'related': relations_from_page(mp),
         }
     except Exception as e:
         print(f"[Atsumaru] Error fetching manga {manga_id}: {e}")

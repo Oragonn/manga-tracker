@@ -1813,6 +1813,64 @@ def init_db():
         )
     """)
 
+    # Series related to the library's (sequels, spin-offs...) as MangaDex and
+    # Atsumaru list them, read while each series' chapters are fetched (see
+    # backend/related_series.py). A row is kept once seen - first_seen_at is
+    # when it turned up, so a relation that appears later is listed above the
+    # rest - and is_initial marks those found by a series' first check (its
+    # starting point, not "new"). related_series_from says which tracked
+    # series it's related to and how; related_checked when each series'
+    # relations were last read from each site.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS related_series (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            url TEXT NOT NULL,
+            title TEXT,
+            cover_url TEXT,
+            status TEXT,
+            medium TEXT,
+            source_created_at TEXT,
+            first_seen_at TEXT NOT NULL,
+            is_initial INTEGER DEFAULT 0,
+            UNIQUE (source_type, source_id)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS related_series_from (
+            related_id INTEGER NOT NULL REFERENCES related_series(id) ON DELETE CASCADE,
+            series_id INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+            relation TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            UNIQUE (related_id, series_id, relation)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_related_from_series ON related_series_from(series_id)")
+    # cover_url: fetched only when a related series is shown (see
+    # related_series.fill_covers) - '' once looked up and there's none
+    cursor.execute("PRAGMA table_info(related_series)")
+    if 'cover_url' not in [row[1] for row in cursor.fetchall()]:
+        cursor.execute("ALTER TABLE related_series ADD COLUMN cover_url TEXT")
+    # A tracked series hidden from the Related list, with the related series
+    # it had then (related_series ids, JSON) - one that turns up later brings
+    # it back.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS related_hidden (
+            series_id INTEGER PRIMARY KEY REFERENCES series(id) ON DELETE CASCADE,
+            related_ids TEXT NOT NULL,
+            hidden_at TEXT NOT NULL
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS related_checked (
+            series_id INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+            source_type TEXT NOT NULL,
+            checked_at TEXT NOT NULL,
+            PRIMARY KEY (series_id, source_type)
+        )
+    """)
+
     # Saved filter/sort combinations ("bookmarks") the dashboard's bookmark
     # dropdown lets you switch between in one click. "Default" is seeded
     # below and protected (is_builtin) - it always exists and always

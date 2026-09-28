@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel75" />
+  <link rel="stylesheet" href="/static/css/style.css?v=mobilepanel79" />
   <style>
     /* style.css only defines .mobile-menu/.mobile-menu-overlay inside its
        @media(max-width:768px) block - on a desktop-width viewport they have
@@ -31,7 +31,7 @@
   </style>
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
-  <script src="/static/js/notifications.js?v=mobilepanel75"></script>
+  <script src="/static/js/notifications.js?v=mobilepanel79"></script>
 </head>
 <body>
 
@@ -370,6 +370,16 @@
   <div class="modal-content">
     <div class="add-series-modal-header">
       <h3 id="add-series-modal-title">Add New Series</h3>
+      <!-- Related series of the whole library (sequels, spin-offs...) not
+           tracked yet, from MangaDex and Atsumaru; the badge counts new ones -->
+      <button type="button" id="btn-add-series-related-toggle" class="icon-btn" title="Related series of your library (sequels, spin-offs...)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1"/>
+          <rect x="14" y="14" width="7" height="7" rx="1"/>
+          <path d="M10 6.5h4a3 3 0 0 1 3 3V14"/>
+        </svg>
+        <span class="add-related-badge hidden" id="add-related-badge"></span>
+      </button>
       <button type="button" id="btn-add-series-search-toggle" class="icon-btn" title="Search across sources">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="8"/>
@@ -537,6 +547,30 @@
       <div class="modal-buttons">
         <button id="btn-add-search-cancel">Cancel</button>
         <button id="btn-add-series-search-submit" title="Opens all 5 sources in new tabs (works on middle-click too)">Search</button>
+      </div>
+    </div>
+
+    <div id="add-series-related-view" class="hidden">
+      <div class="add-related-toolbar">
+        <p class="add-related-status" id="add-related-status"></p>
+        <select id="add-related-status-filter" title="Only the series with this reading status">
+          <option value="all">All Statuses</option>
+          <option value="reading">Reading</option>
+          <option value="plan_to_read">Plan to Read</option>
+          <option value="on_hold">On Hold</option>
+          <option value="dropped">Dropped</option>
+          <option value="completed">Completed</option>
+        </select>
+        <select id="add-related-sort" title="Sort the series">
+          <option value="related">Last added (related)</option>
+          <option value="series">Last added (series)</option>
+        </select>
+        <button type="button" id="btn-add-related-scan" title="Read every series' relations now, instead of waiting for their chapters to be fetched">Check now</button>
+      </div>
+      <div class="add-related-chips" id="add-related-chips"></div>
+      <div class="add-related-list" id="add-related-list"></div>
+      <div class="modal-buttons">
+        <button type="button" id="btn-add-related-back">Back</button>
       </div>
     </div>
   </div>
@@ -823,6 +857,7 @@
             <button type="button" class="settings-action-btn" id="btn-check-now-modal">Check Now</button>
           </div>
           <div class="settings-actions-buttons settings-actions-buttons-secondary">
+            <button type="button" class="settings-action-btn" id="btn-related-series" title="The series related to this one (sequels, spin-offs...)">Related Series</button>
             <button type="button" class="settings-action-btn settings-action-btn-danger" id="btn-delete-series">Delete Series</button>
           </div>
         </div>
@@ -833,6 +868,19 @@
   </div>
 </div>
 
+
+<!-- Related series of one series (opened from Series Settings' Related
+     Series button, on top of it - Settings' unsaved changes stay) -->
+<div id="related-modal" class="modal hidden">
+  <div class="modal-content related-modal-content" role="dialog" aria-modal="true" aria-labelledby="related-modal-title" tabindex="-1">
+    <h3 id="related-modal-title">Related Series</h3>
+    <p class="add-related-status" id="related-modal-status"></p>
+    <div class="related-modal-list" id="related-modal-list"></div>
+    <div class="modal-buttons">
+      <button type="button" id="btn-related-modal-close">Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- Series note (opened from Series Settings' note button) -->
 <div id="note-modal" class="modal hidden">
@@ -1122,7 +1170,7 @@
   </svg>
 </button>
 
-<script src="/static/js/dashboard.js?v=mobilepanel75"></script>
+<script src="/static/js/dashboard.js?v=mobilepanel79"></script>
   <!-- ADDED: Initialize notifications -->
   <script>
   // Initialize notification system on page load

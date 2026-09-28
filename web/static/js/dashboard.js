@@ -5137,6 +5137,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			resetAddPreview();
 			loadAddPreviewTags();
 			resetAddSeriesModalView();
+			refreshAddRelatedBadge();
 			addModal.classList.remove('hidden');
 			document.body.style.overflow = 'hidden';
 			document.documentElement.style.overflow = 'hidden';
@@ -5204,6 +5205,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		addSeriesUrlView.classList.remove('hidden');
 		addSeriesSearchToggleBtn.innerHTML = ADD_SERIES_SEARCH_ICON;
 		addSeriesSearchToggleBtn.title = 'Search across sources';
+		document.getElementById('btn-add-series-related-toggle')?.classList.remove('hidden');
 		if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Add New Series';
 		if (addSeriesSearchTitleInput) addSeriesSearchTitleInput.value = '';
 		syncAddModalWidth();
@@ -5216,6 +5218,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				addSeriesSearchView.classList.remove('hidden');
 				addSeriesSearchToggleBtn.innerHTML = ADD_SERIES_BACK_ICON;
 				addSeriesSearchToggleBtn.title = 'Back to paste a URL';
+				document.getElementById('btn-add-series-related-toggle')?.classList.add('hidden');
 				if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Search Series';
 				syncAddModalWidth();
 				addSeriesSearchTitleInput.focus();
@@ -5341,6 +5344,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		const showing = !addPreviewEl.classList.contains('hidden')
 			&& !document.getElementById('add-series-url-view')?.classList.contains('hidden');
 		content.classList.toggle('add-series-wide', showing);
+		// the Related list takes the same width (PC only - see style.css)
+		content.classList.toggle('add-series-related',
+			!document.getElementById('add-series-related-view')?.classList.contains('hidden'));
 	}
 
 	// Add only needs a supported link that isn't tracked already. It doesn't
@@ -5696,6 +5702,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		addPreviewWarningEl?.classList.add('hidden');
 		showAddMessage(null);
 		syncAddStatusUI();
+		closeAddRelatedView();
 		syncAddModalWidth();
 		syncAddSubmitState();
 	}
@@ -6139,6 +6146,661 @@ document.addEventListener('DOMContentLoaded', () => {
 		e.preventDefault();
 		const btn = document.getElementById('btn-add-submit');
 		if (btn && !btn.disabled) btn.click();
+	});
+
+// ─── Add Series modal: Related series view ───────────────────────
+// Your series that have related series (sequels, spin-offs, side
+// stories...): each with your status and links to its own sources, and its
+// related ones behind "Show related" - each openable on MangaDex /
+// Atsumaru, added from here, or opened if you track it already. Read while
+// each series' chapters are fetched (backend/related_series.py), or all at
+// once with "Check now". Newest first: whatever turned up since the last
+// look is on top, marked New and counted on the button. Hiding a series
+// keeps it hidden until another related series of it turns up. On phones
+// the view goes full screen (style.css, "RELATED SERIES - MOBILE").
+	const RELATION_LABELS = {
+		prequel: 'Prequel', sequel: 'Sequel', main_story: 'Main story', side_story: 'Side story',
+		spin_off: 'Spin-off', alternate_story: 'Alternate story', alternate_version: 'Alternate version',
+		same_franchise: 'Same franchise', shared_universe: 'Shared universe', adapted_from: 'Adapted from',
+		based_on: 'Based on', adaptation: 'Adaptation', preserialization: 'Pre-serialization',
+		serialization: 'Serialization', colored: 'Colored', monochrome: 'Monochrome', doujinshi: 'Doujinshi'
+	};
+	// Chips in this order, anything else after them
+	const RELATION_ORDER = Object.keys(RELATION_LABELS);
+	// Off until turned on - fan works and recolours would bury the rest
+	const RELATED_DEFAULT_HIDDEN = ['doujinshi', 'colored', 'monochrome'];
+	const RELATED_HIDDEN_KEY = 'relatedHiddenRelations';
+	const RELATED_SORT_KEY = 'relatedSort';
+	const RELATED_TRACKED_KEY = 'relatedShowTracked';
+	const RELATED_PAGE = 30;
+	const addRelatedToggleBtn = document.getElementById('btn-add-series-related-toggle');
+	const addRelatedView = document.getElementById('add-series-related-view');
+	const ADD_RELATED_ICON_HTML = addRelatedToggleBtn ? addRelatedToggleBtn.innerHTML : '';
+	const ADD_RELATED_OPEN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M10 14L21 3M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/></svg>';
+	let addRelatedData = null;     // /api/related-series
+	let addRelatedShowHidden = false;
+	let addRelatedLimit = RELATED_PAGE;
+	let addRelatedPollTimer = null;
+	// series ids whose related list is open - closed until asked for
+	const addRelatedExpanded = new Set();
+
+	function loadRelatedHiddenRelations() {
+		try {
+			const saved = JSON.parse(localStorage.getItem(RELATED_HIDDEN_KEY));
+			if (Array.isArray(saved)) return new Set(saved);
+		} catch (e) { /* storage unavailable */ }
+		return new Set(RELATED_DEFAULT_HIDDEN);
+	}
+	let addRelatedHiddenRelations = loadRelatedHiddenRelations();
+
+	// the related series you already track, listed too (the In library chip)
+	let addRelatedShowTracked = true;
+	try { if (localStorage.getItem(RELATED_TRACKED_KEY) === '0') addRelatedShowTracked = false; } catch (e) { /* ignore */ }
+	// 'related': the newest related series first (the ones found since
+	// their series' first check, latest first, then by when the site added
+	// them); 'series': the series you added last first
+	let addRelatedSort = 'related';
+	const RELATED_SORTS = ['related', 'series'];
+	try {
+		const saved = localStorage.getItem(RELATED_SORT_KEY);
+		if (RELATED_SORTS.includes(saved)) addRelatedSort = saved;
+	} catch (e) { /* ignore */ }
+	// Only the series with this reading status ('all': every one)
+	const RELATED_STATUS_KEY = 'relatedStatus';
+	let addRelatedStatus = 'all';
+	try {
+		const saved = localStorage.getItem(RELATED_STATUS_KEY);
+		if (saved && STATUS_LABELS_FOR_BOOKMARKS[saved]) addRelatedStatus = saved;
+	} catch (e) { /* ignore */ }
+
+	// "Last added (related)": found since the first check wins, then the
+	// site's date - compared as [found, added] strings, '' when unknown
+	function relatedNewestKey(items) {
+		return items.reduce((best, item) => {
+			const key = [item.is_initial ? '' : item.first_seen_at, item.source_created_at || ''];
+			return key[0] > best[0] || (key[0] === best[0] && key[1] > best[1]) ? key : best;
+		}, ['', '']);
+	}
+
+	function sortAddRelated(entries) {
+		const byKey = addRelatedSort === 'series'
+			? entry => [entry.group.added_at || '', '']
+			: entry => relatedNewestKey(entry.view.untracked);
+		const keys = new Map(entries.map(entry => [entry, byKey(entry)]));
+		return entries.sort((a, b) => {
+			const ka = keys.get(a), kb = keys.get(b);
+			if (ka[0] !== kb[0]) return ka[0] < kb[0] ? 1 : -1;
+			if (ka[1] !== kb[1]) return ka[1] < kb[1] ? 1 : -1;
+			return a.g - b.g;
+		});
+	}
+
+	function saveRelatedHiddenRelations() {
+		try { localStorage.setItem(RELATED_HIDDEN_KEY, JSON.stringify([...addRelatedHiddenRelations])); } catch (e) { /* ignore */ }
+	}
+
+	// A series' own page, opened where its related series are: MangaDex's
+	// Related tab; Atsumaru has no tab or anchor (its Relations section is
+	// near the bottom of a page built by script), so a text fragment scrolls
+	// the browser to that heading. Other sites don't list relations.
+	function relatedSectionUrl(url, sourceType) {
+		const base = url.split('#')[0];
+		if (sourceType === 'mangadex') return `${base.split('?')[0]}?tab=related`;
+		if (sourceType === 'atsu') return `${base}#:~:text=Relations`;
+		return url;
+	}
+
+	function relationLabel(relation) {
+		return RELATION_LABELS[relation] || relation.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+	}
+
+	// Shown with the chips as they're set: one of its relations is turned on
+	function relationsShown(relations) {
+		return relations.some(relation => !addRelatedHiddenRelations.has(relation));
+	}
+
+	// Hidden with its series: every one of its ids was there when the series
+	// was hidden (a related series that turned up since isn't)
+	function coveredByHide(ids, hiddenIds) {
+		return !!hiddenIds && ids.every(id => hiddenIds.includes(id));
+	}
+
+	// A series' related ones the chips show, and whether the series is hidden
+	// (all of those were there when it was hidden)
+	// Hidden goes by the ones you don't track: a tracked one turning up
+	// has nothing to add, so it doesn't bring the series back
+	function relatedGroupView(group) {
+		const related = group.related.filter(item => relationsShown(item.relations)
+			&& (addRelatedShowTracked || !item.tracked));
+		const untracked = related.filter(item => !item.tracked);
+		return {
+			related, untracked,
+			hidden: related.length > 0 && !!group.hidden_ids
+				&& untracked.every(item => coveredByHide(item.ids, group.hidden_ids))
+		};
+	}
+
+	function isAddRelatedViewOpen() {
+		return !!addRelatedView && !addRelatedView.classList.contains('hidden');
+	}
+
+	function setAddRelatedBadge(count) {
+		// looked up each time: the button's contents are swapped for the back
+		// arrow while the list is open, and put back as a new badge element
+		const badge = document.getElementById('add-related-badge');
+		if (!badge) return;
+		badge.textContent = count > 99 ? '99+' : count;
+		badge.classList.toggle('hidden', !count);
+		if (addRelatedToggleBtn) {
+			addRelatedToggleBtn.title = count
+				? `Related series - ${count} new since you last looked`
+				: 'Related series of your library (sequels, spin-offs...)';
+		}
+	}
+
+	// The badge: new related series the list would show
+	function refreshAddRelatedBadge() {
+		if (!addRelatedToggleBtn) return;
+		fetch('/api/related-series/summary')
+			.then(res => res.ok ? res.json() : null)
+			.then(data => {
+				if (!data || isAddRelatedViewOpen()) return;
+				setAddRelatedBadge(data.new.filter(item =>
+					relationsShown(item.relations) && !coveredByHide(item.ids, item.hidden_ids)
+					&& (addRelatedStatus === 'all' || item.series_status === addRelatedStatus)).length);
+			})
+			.catch(() => {});
+	}
+
+	async function loadAddRelated() {
+		const res = await fetch('/api/related-series');
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		return res.json();
+	}
+
+	async function openAddRelatedView() {
+		if (!addRelatedView || !addSeriesUrlView) return;
+		closeAddPopovers();
+		addSeriesUrlView.classList.add('hidden');
+		addSeriesSearchView?.classList.add('hidden');
+		addSeriesSearchToggleBtn?.classList.add('hidden');
+		addRelatedView.classList.remove('hidden');
+		addRelatedToggleBtn.innerHTML = ADD_SERIES_BACK_ICON;
+		addRelatedToggleBtn.title = 'Back to adding a series';
+		if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Related Series';
+		syncAddModalWidth();
+		addRelatedShowHidden = false;
+		addRelatedLimit = RELATED_PAGE;
+		addRelatedExpanded.clear();
+		document.getElementById('add-related-list').innerHTML =
+			'<p class="add-preview-message"><span class="add-preview-spinner"></span><span>Loading…</span></p>';
+		try {
+			addRelatedData = await loadAddRelated();
+		} catch (e) {
+			addRelatedData = null;
+			document.getElementById('add-related-list').innerHTML =
+				`<p class="add-preview-message error">Couldn't load the related series (${escapeHtml(e.message)})</p>`;
+			return;
+		}
+		if (!isAddRelatedViewOpen()) return;
+		renderAddRelated();
+		// Looked at: what's New now stays marked until the list is next opened
+		fetch('/api/related-series/seen', { method: 'POST' }).catch(() => {});
+		if (addRelatedData.scan?.running) pollAddRelatedScan();
+	}
+
+	function closeAddRelatedView() {
+		clearTimeout(addRelatedPollTimer);
+		if (!isAddRelatedViewOpen()) return;
+		addRelatedView.classList.add('hidden');
+		addSeriesUrlView?.classList.remove('hidden');
+		addSeriesSearchToggleBtn?.classList.remove('hidden');
+		addRelatedToggleBtn.innerHTML = ADD_RELATED_ICON_HTML;
+		if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Add New Series';
+		setAddRelatedBadge(0);
+		syncAddModalWidth();
+	}
+
+	// While "Check now" runs: its progress, and the list again once it's done
+	function pollAddRelatedScan() {
+		clearTimeout(addRelatedPollTimer);
+		addRelatedPollTimer = setTimeout(async () => {
+			if (!isAddRelatedViewOpen()) return;
+			try {
+				const data = await loadAddRelated();
+				if (!isAddRelatedViewOpen()) return;
+				// keep what's marked New from when the list was opened
+				const wasNew = new Set((addRelatedData?.series || []).flatMap(group =>
+					group.related.filter(item => item.is_new).map(item => item.ids.join(','))));
+				data.series.forEach(group => group.related.forEach(item => {
+					if (wasNew.has(item.ids.join(','))) item.is_new = true;
+				}));
+				addRelatedData = data;
+				renderAddRelated();
+				if (data.scan?.running) pollAddRelatedScan();
+			} catch (e) {
+				pollAddRelatedScan();
+			}
+		}, 3000);
+	}
+
+	function renderAddRelatedStatus() {
+		const status = document.getElementById('add-related-status');
+		const scanBtn = document.getElementById('btn-add-related-scan');
+		const scan = addRelatedData?.scan;
+		if (!status || !scan) return;
+		const labels = { mangadex: 'MangaDex', atsu: 'Atsumaru' };
+		if (scan.running) {
+			status.innerHTML = `<span class="add-preview-spinner"></span><span>Checking ${escapeHtml(labels[scan.source] || '')} ${scan.total ? `${scan.done}/${scan.total}` : ''}…</span>`;
+		} else {
+			const text = `Relations known for ${scan.checked_series} of ${scan.total_series} series - `
+				+ 'updated as their chapters are fetched'
+				+ (scan.last_checked ? `, last ${formatTimeAgo(scan.last_checked).toLowerCase()}` : '');
+			status.innerHTML = `<span>${escapeHtml(text)}${scan.error ? ` - <span class="error">${escapeHtml(scan.error)}</span>` : ''}</span>`;
+		}
+		if (scanBtn) scanBtn.disabled = !!scan.running;
+	}
+
+	function renderAddRelatedChips(views) {
+		const chips = document.getElementById('add-related-chips');
+		if (!chips) return;
+		// every related series of the series that aren't hidden, chips aside
+		const counts = new Map();
+		addRelatedData.series.forEach((group, i) => {
+			if (views[i].hidden) return;
+			group.related.forEach(item => new Set(item.relations).forEach(relation =>
+				counts.set(relation, (counts.get(relation) || 0) + 1)));
+		});
+		const relations = [...counts.keys()].sort((a, b) => {
+			const rank = r => RELATION_ORDER.includes(r) ? RELATION_ORDER.indexOf(r) : RELATION_ORDER.length;
+			return rank(a) - rank(b) || a.localeCompare(b);
+		});
+		const hiddenCount = views.filter(view => view.hidden).length;
+		const allOn = relations.every(relation => !addRelatedHiddenRelations.has(relation));
+		chips.dataset.relations = JSON.stringify(relations);
+		// Select all, In library, then the relation types
+		chips.innerHTML = (relations.length ? `
+			<button type="button" class="add-related-chip add-related-chip-all" data-all-toggle="${allOn ? 'none' : 'all'}">
+				${allOn ? 'Deselect all' : 'Select all'}
+			</button>` : '') + `
+			<button type="button" class="add-related-chip add-related-chip-library${addRelatedShowTracked ? ' active' : ''}" data-library-toggle="1" title="Also list the related series you already track">
+				In library
+			</button>` + relations.map(relation => `
+			<button type="button" class="add-related-chip${addRelatedHiddenRelations.has(relation) ? '' : ' active'}" data-relation="${escapeHtml(relation)}">
+				${escapeHtml(relationLabel(relation))} <span>${counts.get(relation)}</span>
+			</button>
+		`).join('') + (hiddenCount ? `
+			<button type="button" class="add-related-chip add-related-chip-hidden${addRelatedShowHidden ? ' active' : ''}" data-hidden-toggle="1" title="The series you hid">
+				Hidden <span>${hiddenCount}</span>
+			</button>` : '');
+	}
+
+	function renderAddRelatedRow(item, g, i) {
+		const details = [ADD_PUBLICATION_STATUS_LABELS[item.status] || '', item.medium === 'Novel' ? 'Novel' : ''];
+		if (item.source_created_at) details.push(`added to MangaDex ${formatTimeAgo(item.source_created_at).toLowerCase()}`);
+		else if (!item.is_initial) details.push(`found ${formatTimeAgo(item.first_seen_at).toLowerCase()}`);
+		const tracked = item.tracked;
+		const trackedStatus = tracked && STATUS_LABELS_FOR_BOOKMARKS[tracked.status] ? tracked.status : '';
+		const cover = item.cover_url && (isSafeUrl(item.cover_url) || /^\/(?!\/)/.test(item.cover_url))
+			? item.cover_url : '/static/placeholder.png';
+		return `
+			<div class="add-related-row${tracked ? ' tracked' : ''}" data-group="${g}" data-index="${i}">
+				<img class="add-related-row-cover" src="${escapeHtml(cover)}" data-related-ids="${escapeHtml(item.ids.join(','))}" alt="" loading="lazy" referrerpolicy="no-referrer" />
+				<div class="add-related-row-info">
+					<div class="add-related-row-title">
+						<span class="add-related-relation">${escapeHtml(item.relations.map(relationLabel).join(' · '))}</span>
+						${item.is_new ? '<span class="add-related-new">NEW</span>' : ''}
+						<span class="add-related-row-name" title="${escapeHtml(tracked ? `Tracked as "${tracked.title}"` : item.title)}">${escapeHtml(item.title)}</span>
+						${tracked ? '<span class="add-related-in-library">In your library</span>' : ''}
+						${trackedStatus ? `<span class="add-related-status-pill" data-status="${trackedStatus}">${escapeHtml(STATUS_LABELS_FOR_BOOKMARKS[trackedStatus])}</span>` : ''}
+					</div>
+					<div class="add-related-meta">${escapeHtml(details.filter(Boolean).join(' · '))}</div>
+				</div>
+				<div class="add-related-links">
+					${item.links.filter(link => isSafeUrl(link.url)).map(link => `
+						<a class="add-related-link" href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer" title="Open it on ${escapeHtml(link.source_label)}">
+							${escapeHtml(link.source_label)} ${ADD_RELATED_OPEN_SVG}
+						</a>`).join('')}
+					${tracked
+						? `<button type="button" class="add-related-use secondary" data-action="open" title="Open its Series Settings">Open</button>`
+						: '<button type="button" class="add-related-use" data-action="use" title="Put its link here, ready to add">Add</button>'}
+				</div>
+			</div>
+		`;
+	}
+
+	// Covers of the related series shown - MangaDex's are looked up only
+	// now, the first time each is shown, then kept (Atsumaru's come with
+	// their relations). item.cover_url: null = not looked up yet, '' = none.
+	// One request per cover, shared: a view asking for covers already on
+	// their way (the list and the Settings window at once, or the list drawn
+	// again) waits for that request instead of skipping them.
+	const relatedCoverRequests = new Map(); // related id -> Promise of its cover (undefined: not found)
+	async function loadRelatedRowCovers(items, container) {
+		const wanted = items.filter(item => item.cover_url === null);
+		if (!wanted.length) return;
+		const ids = wanted.flatMap(item => item.ids).filter(id => !relatedCoverRequests.has(id));
+		if (ids.length) {
+			const request = fetch('/api/related-series/covers', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ids })
+			})
+				.then(res => res.ok ? res.json() : { covers: {} })
+				.then(data => data.covers || {})
+				.catch(() => ({}));
+			ids.forEach(id => relatedCoverRequests.set(id, request.then(covers => covers[id])));
+			// the next time they're shown asks again (failed or not found yet)
+			request.finally(() => ids.forEach(id => relatedCoverRequests.delete(id)));
+		}
+		// taken now, before anything's awaited and the map is cleared
+		const waits = wanted.map(item => Promise.all(item.ids.map(id => relatedCoverRequests.get(id))));
+		(await Promise.all(waits)).forEach((covers, i) => {
+			const item = wanted[i];
+			const found = covers.filter(cover => cover !== undefined);
+			if (!found.length || item.cover_url !== null) return;
+			item.cover_url = found.find(Boolean) || '';
+			if (!item.cover_url || !isSafeUrl(item.cover_url)) return;
+			container?.querySelectorAll(`img[data-related-ids="${item.ids.join(',')}"]`)
+				.forEach(img => { img.src = item.cover_url; });
+		});
+	}
+
+	// A cover that fails to load (a slow first download, a hiccup) is tried
+	// twice more, a little later each time, before the placeholder stays
+	document.addEventListener('error', (e) => {
+		const img = e.target;
+		if (!(img instanceof HTMLImageElement) || !img.classList.contains('add-related-row-cover')) return;
+		if (img.src.includes('/static/placeholder.png')) return;
+		const tries = parseInt(img.dataset.coverTries || '0', 10);
+		if (tries >= 2) {
+			img.src = '/static/placeholder.png';
+			return;
+		}
+		img.dataset.coverTries = tries + 1;
+		const url = img.src.replace(/[?&]retry=\d+$/, '');
+		setTimeout(() => {
+			if (img.isConnected) img.src = `${url}${url.includes('?') ? '&' : '?'}retry=${tries + 1}`;
+		}, 1500 * (tries + 1));
+	}, true);
+
+	function renderAddRelated() {
+		const list = document.getElementById('add-related-list');
+		if (!list || !addRelatedData) return;
+		const groups = addRelatedData.series;
+		const views = groups.map(relatedGroupView);
+		renderAddRelatedStatus();
+		renderAddRelatedChips(views);
+		if (addRelatedShowHidden && !views.some(view => view.hidden)) addRelatedShowHidden = false;
+		const shown = sortAddRelated(groups.map((group, g) => ({ group, g, view: views[g] }))
+			.filter(({ group, view }) => view.related.length && view.hidden === addRelatedShowHidden
+				&& (addRelatedStatus === 'all' || group.status === addRelatedStatus)));
+
+		if (!shown.length) {
+			const scan = addRelatedData.scan;
+			const never = scan && !scan.checked_series;
+			list.innerHTML = `<p class="add-related-empty">${
+				never && !scan.running ? 'Nothing read yet - it fills in as your series\' chapters are fetched, or "Check now" reads them all (MangaDex takes under a minute, Atsumaru longer).'
+				: groups.length ? 'Nothing to show - try another status, or turning on more relation types above.'
+				: 'No related series found that you don\'t already track.'}</p>`;
+			return;
+		}
+
+		list.innerHTML = shown.slice(0, addRelatedLimit).map(({ group, g, view }) => {
+			// our own /static/... path, not a protocol-relative //host link
+			const cover = group.cover_url && (isSafeUrl(group.cover_url) || /^\/(?!\/)/.test(group.cover_url))
+				? group.cover_url : '/static/placeholder.png';
+			const open = addRelatedExpanded.has(group.series_id);
+			const newCount = view.related.filter(item => item.is_new).length;
+			const status = STATUS_LABELS_FOR_BOOKMARKS[group.status] ? group.status : '';
+			return `
+				<div class="add-related-group" data-group="${g}">
+					<img class="add-related-cover" src="${escapeHtml(cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/static/placeholder.png'" />
+					<div class="add-related-group-body">
+						<div class="add-related-group-head">
+							<button type="button" class="add-related-series" data-series-id="${group.series_id}" title="Open its Series Settings">${escapeHtml(group.title)}</button>
+							${status ? `<span class="add-related-status-pill" data-status="${status}">${escapeHtml(STATUS_LABELS_FOR_BOOKMARKS[status])}</span>` : ''}
+							<button type="button" class="add-related-dismiss" data-action="${addRelatedShowHidden ? 'unhide' : 'hide'}"
+								title="${addRelatedShowHidden ? 'Show it in the list again' : 'Hide it - it comes back if another related series turns up'}">${addRelatedShowHidden ? 'Unhide' : 'Hide'}</button>
+						</div>
+						<div class="add-related-group-actions">
+							${group.sources.filter(source => isSafeUrl(source.url)).map(source => `
+								<a class="add-related-link" href="${escapeHtml(relatedSectionUrl(source.url, source.source_type))}" target="_blank" rel="noopener noreferrer"
+									title="${['mangadex', 'atsu'].includes(source.source_type) ? 'Open its related series' : 'Open it'} on ${escapeHtml(READABLE_ON_LABELS_FOR_BOOKMARKS[source.source_type] || source.source_type)}">
+									${escapeHtml(READABLE_ON_LABELS_FOR_BOOKMARKS[source.source_type] || source.source_type)} ${ADD_RELATED_OPEN_SVG}
+								</a>`).join('')}
+							<button type="button" class="add-related-toggle${open ? ' open' : ''}" data-action="toggle">
+								${open ? 'Hide related' : `Show related (${view.related.length})`}
+								${newCount ? `<span class="add-related-new">${newCount} NEW</span>` : ''}
+							</button>
+						</div>
+						${open ? `<div class="add-related-rows">${view.related.map(item => renderAddRelatedRow(item, g, group.related.indexOf(item))).join('')}</div>` : ''}
+					</div>
+				</div>
+			`;
+		}).join('') + (shown.length > addRelatedLimit
+			? `<button type="button" class="add-related-show-more" id="add-related-show-more">Show more (${shown.length - addRelatedLimit} series left)</button>`
+			: '');
+		// the rows of the open cards
+		loadRelatedRowCovers(shown.slice(0, addRelatedLimit)
+			.filter(({ group }) => addRelatedExpanded.has(group.series_id))
+			.flatMap(({ view }) => view.related), list);
+	}
+
+	// A related series picked: its link(s) go in the field (a MangaDex +
+	// Atsumaru pair becomes primary + extra source) and it's previewed
+	function useAddRelated(item) {
+		const input = document.getElementById('new-series-url');
+		if (!input) return;
+		input.value = item.links.map(link => link.url).join(', ');
+		closeAddRelatedView();
+		handleAddUrlInput({ inputType: 'insertFromPaste' });
+		input.focus();
+	}
+
+	async function setAddRelatedHidden(group, hidden) {
+		// every related id it has now, chips aside - one not among them brings it back
+		const relatedIds = [...new Set(group.related.filter(item => !item.tracked).flatMap(item => item.ids))];
+		try {
+			const res = await fetch('/api/related-series/hide', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ series_id: group.series_id, related_ids: relatedIds, hidden })
+			});
+			if (!res.ok) throw new Error();
+			group.hidden_ids = hidden ? relatedIds : null;
+			renderAddRelated();
+		} catch (e) {
+			showNotification(hidden ? "Couldn't hide it" : "Couldn't bring it back", 'error');
+		}
+	}
+
+	addRelatedToggleBtn?.addEventListener('click', () => {
+		if (isAddRelatedViewOpen()) closeAddRelatedView();
+		else openAddRelatedView();
+	});
+	document.getElementById('btn-add-related-back')?.addEventListener('click', closeAddRelatedView);
+
+	document.getElementById('btn-add-related-scan')?.addEventListener('click', async () => {
+		try {
+			const res = await fetch('/api/related-series/scan', { method: 'POST' });
+			const data = await res.json();
+			if (!data.started && !data.scan?.running) showNotification('A check is already running', 'info');
+			if (addRelatedData) {
+				addRelatedData.scan = { ...data.scan, running: true };
+				renderAddRelatedStatus();
+			}
+			pollAddRelatedScan();
+		} catch (e) {
+			showNotification("Couldn't start the check", 'error');
+		}
+	});
+
+	const addRelatedSortSelect = document.getElementById('add-related-sort');
+	if (addRelatedSortSelect) {
+		addRelatedSortSelect.value = addRelatedSort;
+		addRelatedSortSelect.addEventListener('change', () => {
+			addRelatedSort = RELATED_SORTS.includes(addRelatedSortSelect.value) ? addRelatedSortSelect.value : 'related';
+			try { localStorage.setItem(RELATED_SORT_KEY, addRelatedSort); } catch (e) { /* ignore */ }
+			addRelatedLimit = RELATED_PAGE;
+			renderAddRelated();
+			document.getElementById('add-related-list')?.scrollTo(0, 0);
+		});
+	}
+
+	const addRelatedStatusSelect = document.getElementById('add-related-status-filter');
+	if (addRelatedStatusSelect) {
+		addRelatedStatusSelect.value = addRelatedStatus;
+		addRelatedStatusSelect.addEventListener('change', () => {
+			addRelatedStatus = STATUS_LABELS_FOR_BOOKMARKS[addRelatedStatusSelect.value] ? addRelatedStatusSelect.value : 'all';
+			try { localStorage.setItem(RELATED_STATUS_KEY, addRelatedStatus); } catch (e) { /* ignore */ }
+			addRelatedLimit = RELATED_PAGE;
+			renderAddRelated();
+			document.getElementById('add-related-list')?.scrollTo(0, 0);
+		});
+	}
+
+	document.getElementById('add-related-chips')?.addEventListener('click', (e) => {
+		const chip = e.target.closest('.add-related-chip');
+		if (!chip) return;
+		if (chip.dataset.hiddenToggle) {
+			addRelatedShowHidden = !addRelatedShowHidden;
+		} else if (chip.dataset.libraryToggle) {
+			addRelatedShowTracked = !addRelatedShowTracked;
+			try { localStorage.setItem(RELATED_TRACKED_KEY, addRelatedShowTracked ? '1' : '0'); } catch (err) { /* ignore */ }
+		} else if (chip.dataset.allToggle) {
+			// every relation type listed on or off at once
+			let listed = [];
+			try { listed = JSON.parse(e.currentTarget.dataset.relations || '[]'); } catch (err) { /* none */ }
+			if (chip.dataset.allToggle === 'all') addRelatedHiddenRelations.clear();
+			else listed.forEach(relation => addRelatedHiddenRelations.add(relation));
+			saveRelatedHiddenRelations();
+		} else {
+			const relation = chip.dataset.relation;
+			if (addRelatedHiddenRelations.has(relation)) addRelatedHiddenRelations.delete(relation);
+			else addRelatedHiddenRelations.add(relation);
+			saveRelatedHiddenRelations();
+		}
+		addRelatedLimit = RELATED_PAGE;
+		renderAddRelated();
+	});
+
+	document.getElementById('add-related-list')?.addEventListener('click', (e) => {
+		if (e.target.closest('#add-related-show-more')) {
+			addRelatedLimit += RELATED_PAGE;
+			renderAddRelated();
+			return;
+		}
+		// the site links are real links - the browser opens them
+		if (e.target.closest('a')) return;
+		const series = e.target.closest('.add-related-series');
+		if (series) {
+			openTrackedSeriesFromAdd(parseInt(series.dataset.seriesId, 10));
+			return;
+		}
+		const action = e.target.closest('[data-action]')?.dataset.action;
+		const groupEl = e.target.closest('.add-related-group');
+		const group = groupEl ? addRelatedData?.series[parseInt(groupEl.dataset.group, 10)] : null;
+		if (!group || !action) return;
+		if (action === 'toggle') {
+			if (addRelatedExpanded.has(group.series_id)) addRelatedExpanded.delete(group.series_id);
+			else addRelatedExpanded.add(group.series_id);
+			renderAddRelated();
+		} else if (action === 'hide' || action === 'unhide') {
+			setAddRelatedHidden(group, action === 'hide');
+		} else if (action === 'use' || action === 'open') {
+			const row = e.target.closest('.add-related-row');
+			const item = row ? group.related[parseInt(row.dataset.index, 10)] : null;
+			if (!item) return;
+			if (action === 'open' && item.tracked) openTrackedSeriesFromAdd(item.tracked.id);
+			else useAddRelated(item);
+		}
+	});
+
+// ─── Series Settings: Related Series button ──────────────────────
+// The related series of the series open in Settings, in a window on top of
+// it (like the note's), so Settings' unsaved changes stay - only Add or
+// Open leave it. Same rows as the Add modal's list: every relation type,
+// the ones the chips there leave off (doujinshi...) and the ones you
+// already track last. Full screen on phones (style.css, "RELATED SERIES -
+// MOBILE").
+	const relatedModal = document.getElementById('related-modal');
+	let relatedModalItems = [];
+
+	function closeRelatedModal() {
+		relatedModal?.classList.add('hidden');
+	}
+
+	async function openRelatedModal() {
+		const seriesId = currentSeriesIdForEdit;
+		if (!relatedModal || !seriesId) return;
+		const list = document.getElementById('related-modal-list');
+		const status = document.getElementById('related-modal-status');
+		document.getElementById('related-modal-title').textContent = `Related to ${currentSeriesForEdit?.title || 'this series'}`;
+		relatedModalItems = [];
+		status.textContent = '';
+		list.innerHTML = '<p class="add-preview-message"><span class="add-preview-spinner"></span><span>Loading…</span></p>';
+		relatedModal.classList.remove('hidden');
+		// focused so Escape reaches it (the keydown listener below)
+		relatedModal.querySelector('.related-modal-content')?.focus();
+		let data;
+		try {
+			const res = await fetch(`/api/related-series?series_id=${seriesId}`);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			data = await res.json();
+		} catch (e) {
+			list.innerHTML = `<p class="add-preview-message error">Couldn't load its related series (${escapeHtml(e.message)})</p>`;
+			return;
+		}
+		// closed, or Settings moved on to another series, in the meantime
+		if (relatedModal.classList.contains('hidden') || currentSeriesIdForEdit !== seriesId) return;
+		const items = data.series[0]?.related || [];
+		// untracked first (newest first, as the server sorts them), the types
+		// the chips leave off after them, the ones you track last
+		const rank = item => item.tracked ? 2 : relationsShown(item.relations) ? 0 : 1;
+		relatedModalItems = items.map((item, i) => ({ item, i }))
+			.sort((a, b) => rank(a.item) - rank(b.item) || a.i - b.i)
+			.map(({ item }) => item);
+		if (!relatedModalItems.length) {
+			list.innerHTML = `<p class="add-related-empty">${data.checked
+				? 'MangaDex and Atsumaru don\'t list any related series for it.'
+				: 'Its related series haven\'t been read yet - Check Now reads them (from MangaDex and Atsumaru).'}</p>`;
+			return;
+		}
+		const tracked = relatedModalItems.filter(item => item.tracked).length;
+		status.textContent = `${relatedModalItems.length} related`
+			+ (tracked ? ` · ${tracked} in your library` : '') + ' · from MangaDex and Atsumaru';
+		list.innerHTML = relatedModalItems.map((item, i) => renderAddRelatedRow(item, 0, i)).join('');
+		loadRelatedRowCovers(relatedModalItems, list);
+	}
+
+	document.getElementById('btn-related-series')?.addEventListener('click', openRelatedModal);
+	document.getElementById('btn-related-modal-close')?.addEventListener('click', closeRelatedModal);
+	relatedModal?.addEventListener('click', (e) => {
+		if (e.target === relatedModal && mousedownStartedOnBackdrop(e)) closeRelatedModal();
+	});
+	relatedModal?.addEventListener('keydown', (e) => {
+		if (e.key === 'Escape') {
+			e.preventDefault();
+			closeRelatedModal();
+		}
+	});
+	document.getElementById('related-modal-list')?.addEventListener('click', (e) => {
+		// the site links are real links - the browser opens them
+		if (e.target.closest('a')) return;
+		const action = e.target.closest('[data-action]')?.dataset.action;
+		const row = e.target.closest('.add-related-row');
+		const item = row ? relatedModalItems[parseInt(row.dataset.index, 10)] : null;
+		if (!item || !action) return;
+		closeRelatedModal();
+		if (action === 'open' && item.tracked) {
+			openTrackedSeriesFromAdd(item.tracked.id);
+		} else if (action === 'use') {
+			// into the Add modal, previewed there, ready to add
+			closeEditSeriesModal();
+			btnAddSeries?.click();
+			useAddRelated(item);
+		}
 	});
 
 // ─── Series Settings modal: Title picker (same dropdown pattern as the

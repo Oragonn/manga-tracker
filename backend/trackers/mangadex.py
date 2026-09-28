@@ -115,15 +115,73 @@ _STATUS_MAP = {
     'cancelled': 'dropped'
 }
 
-def get_manga_status(manga_id):
-    """Just a manga's publication status, mapped like get_manga_info() does
-    ('plan_to_read' for one MangaDex reports that isn't recognised) - a single
-    request, for the scheduler to check on every scan without also looking up
-    the cover. Raises on a failed request."""
-    resp = _delayed_get(f"https://api.mangadex.org/manga/{manga_id}")
+def _relations_of(item):
+    """A /manga item's related manga (fetched with includes[]=manga) as
+    [{id, relation, title, status, created_at}]: `relation` is MangaDex's
+    word for it ('sequel', 'side_story', 'doujinshi'...) and `created_at`
+    when that manga was put on MangaDex. Deleted or unpublished ones are
+    left out."""
+    related = []
+    for rel in item.get('relationships') or []:
+        if rel.get('type') != 'manga' or not rel.get('id'):
+            continue
+        attrs = rel.get('attributes') or {}
+        # A manga that's been deleted is still listed, but with no attributes
+        # (its page is a 404) - and one not published isn't readable either
+        if not attrs or attrs.get('state', 'published') != 'published':
+            continue
+        titles = attrs.get('title') or {}
+        # Shown in a list, so an English title reads best - the main one's
+        # often a romanisation ("Na Honjaman Level Up: Ragnarok")
+        english_alt = next((entry['en'] for entry in attrs.get('altTitles') or []
+                            if (entry or {}).get('en')), None)
+        title = titles.get('en') or english_alt or next(iter(titles.values()), None) or 'Untitled'
+        related.append({
+            'id': rel['id'],
+            'relation': rel.get('related') or 'related',
+            'title': title.strip(),
+            'status': _STATUS_MAP.get(attrs.get('status')),
+            'created_at': attrs.get('createdAt'),
+        })
+    return related
+
+def get_status_and_related(manga_id):
+    """(publication status, related manga) from the one request, for the
+    scheduler's check on every scan: the status mapped like get_manga_info()
+    does ('plan_to_read' for one MangaDex reports that isn't recognised), the
+    relations as _relations_of() - read for free this way, and no cover
+    look-up. Raises on a failed request."""
+    resp = _delayed_get(f"https://api.mangadex.org/manga/{manga_id}", params={'includes[]': ['manga']})
     if resp.status_code != 200:
         raise Exception(f"MangaDex API returned HTTP {resp.status_code} for manga {manga_id}")
-    return _STATUS_MAP.get(resp.json()['data']['attributes']['status'], 'plan_to_read')
+    data = resp.json()['data']
+    return _STATUS_MAP.get(data['attributes']['status'], 'plan_to_read'), _relations_of(data)
+
+def get_related_batch(manga_ids):
+    """{manga_id: related} (as _relations_of) for many manga at once - up to
+    100 per request - for the Related list's "Check now". A batch that fails
+    is left out of the result (printed), so one bad request doesn't lose the
+    rest; ids MangaDex doesn't return are simply absent."""
+    ids = list(dict.fromkeys(manga_ids))
+    found = {}
+    for start in range(0, len(ids), 100):
+        batch = ids[start:start + 100]
+        try:
+            resp = _delayed_get("https://api.mangadex.org/manga", params={
+                'ids[]': batch,
+                'limit': 100,
+                'includes[]': ['manga'],
+                'contentRating[]': ['safe', 'suggestive', 'erotica', 'pornographic'],
+            })
+            if resp.status_code != 200:
+                raise Exception(f"HTTP {resp.status_code}")
+            data = resp.json()['data']
+        except Exception as e:
+            print(f"[MangaDex] Related look-up failed for a batch of {len(batch)} manga: {e}")
+            continue
+        for item in data:
+            found[item['id']] = _relations_of(item)
+    return found
 
 def get_manga_info(manga_id):
     try:

@@ -1442,6 +1442,14 @@ def _add_worker():
                 # Always return a result to unblock UI
                 if not task_processed:
                     result = {'error': 'Internal processing error'}
+                # A series really added: its related series (and the "Has
+                # Related" tag) now, not at its first scheduled scan
+                if isinstance(result, dict) and result.get('success') and result.get('id') and not result.get('duplicate'):
+                    try:
+                        from .related_series import read_relations_soon
+                        read_relations_soon(result['id'])
+                    except Exception as related_err:
+                        print(f"[Add Worker] Couldn't schedule the related-series read: {related_err}")
                 with _add_lock:
                     _add_results[task.task_id] = result
                 _add_queue.task_done()
@@ -1594,6 +1602,95 @@ def api_series_preview():
         'possible_duplicates': _same_title_series(url, titles),
     })
     return jsonify(response)
+
+# ─── Related series (backend/related_series.py) ───
+# The sequels, spin-offs... MangaDex and Atsumaru list for the library,
+# from a background scan, for the Add Series modal's Related button.
+
+@app.route('/api/related-series')
+def api_related_series():
+    """The tracked series with related series, newest first, and how far the
+    relations have been read - or with ?series_id= only that series (Series
+    Settings' Related button), plus whether its relations were read yet."""
+    from . import related_series
+    data = related_series.get_related_list()
+    data['scan'] = related_series.scan_state()
+    series_id = request.args.get('series_id', type=int)
+    if series_id is not None:
+        data['series'] = [group for group in data['series'] if group['series_id'] == series_id]
+        data['checked'] = related_series.was_checked(series_id)
+    return jsonify(data)
+
+@app.route('/api/related-series/summary')
+def api_related_series_summary():
+    """For the Related button's badge: each new related series' relations
+    and the ids its series was hidden with (the button counts the ones its
+    filters would show, like the list)."""
+    from . import related_series
+    data = related_series.get_related_list()
+    new = [{'ids': item['ids'], 'relations': item['relations'], 'hidden_ids': group['hidden_ids'],
+            'series_status': group['status']}
+           for group in data['series'] for item in group['related'] if item['is_new']]
+    return jsonify({'new': new})
+
+@app.route('/api/related-series/covers', methods=['POST'])
+def api_related_series_covers():
+    """Covers for the related series about to be shown ({ids: [...]}),
+    looked up now if they never were: {covers: {id: url or ''}}."""
+    from . import related_series
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids') or []
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        return jsonify({'error': 'ids must be a list of numbers'}), 400
+    return jsonify({'covers': related_series.fill_covers(ids)})
+
+@app.route('/api/related-series/atsu-cover')
+def api_related_series_atsu_cover():
+    """An Atsumaru related series' cover, downloaded the first time it's
+    shown (cdn.atsu.moe won't be embedded cross-site) and served from here.
+    A failed download is a 404 - not the placeholder - so the page tries
+    again rather than keeping the placeholder."""
+    from flask import redirect
+    from .trackers import atsu
+    local = atsu.download_poster(request.args.get('path', ''))
+    if not local:
+        return jsonify({'error': "Couldn't download that cover"}), 404
+    return redirect(local)
+
+@app.route('/api/related-series/seen', methods=['POST'])
+def api_related_series_seen():
+    from . import related_series
+    related_series.mark_seen()
+    return jsonify({'success': True})
+
+@app.route('/api/related-series/scan', methods=['POST'])
+def api_related_series_scan():
+    from . import related_series
+    started = related_series.scan_now()
+    return jsonify({'started': started, 'scan': related_series.scan_state()})
+
+@app.route('/api/related-series/hide', methods=['POST'])
+def api_related_series_hide():
+    """Hide a tracked series from the Related list with the related series
+    (ids) it has now, or with hidden: false, show it again."""
+    from . import related_series
+    data = request.get_json(silent=True) or {}
+    series_id = data.get('series_id')
+    ids = data.get('related_ids') or []
+    if not isinstance(series_id, int) or not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        return jsonify({'error': 'series_id and related_ids (numbers) are required'}), 400
+    if data.get('hidden', True):
+        conn = get_db()
+        try:
+            known = conn.execute("SELECT 1 FROM series WHERE id = ?", (series_id,)).fetchone()
+        finally:
+            release_db(conn)
+        if not known:
+            return jsonify({'error': 'Series not found'}), 404
+        related_series.hide_series(series_id, ids)
+    else:
+        related_series.unhide_series(series_id)
+    return jsonify({'success': True})
 
 # === Existing Routes (unchanged) ===
 
@@ -2464,7 +2561,8 @@ def api_check_now(series_id):
 
     try:
         before = latest_chapter()
-        manga_scheduler.scan_series(series_id)
+        # asked for by hand: its related series are re-read too
+        manga_scheduler.scan_series(series_id, force_related=True)
         after = latest_chapter()
         # before/after let the dashboard's bulk Check Now count how many
         # series actually got a new chapter
@@ -2494,6 +2592,13 @@ def api_delete_series(series_id):
 
         if not success:
             return jsonify({'error': 'Series not found or delete failed'}), 404
+
+        # the series it was related to may no longer have a tracked relation
+        try:
+            from .related_series import schedule_tag_sync
+            schedule_tag_sync()
+        except Exception:
+            pass
 
         # Log after successful delete
         if snapshot:
