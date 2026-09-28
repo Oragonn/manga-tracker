@@ -1272,6 +1272,8 @@ function closeEditSeriesModal() {
 function openEditModal(series) {
 	currentSeriesIdForEdit = series.id;
 	currentSeriesForEdit = series;
+	// Related Series: its count, or greyed out when there's none
+	window.refreshSettingsRelatedButton?.(series.id);
 	pendingCoverUrl = null;
 
 	const fixChaptersLink = document.getElementById('settings-fix-chapters-link');
@@ -6827,6 +6829,82 @@ document.addEventListener('DOMContentLoaded', () => {
 // MOBILE").
 	const relatedModal = document.getElementById('related-modal');
 	let relatedModalItems = [];
+	// 'all' | 'not_added' | 'library' - the window's switch, when it has
+	// both; remembered from one window (and visit) to the next
+	const RELATED_MODAL_FILTER_KEY = 'relatedModalFilter';
+	const RELATED_MODAL_FILTERS = ['all', 'not_added', 'library'];
+	let relatedModalFilter = 'all';
+	try {
+		const saved = localStorage.getItem(RELATED_MODAL_FILTER_KEY);
+		if (RELATED_MODAL_FILTERS.includes(saved)) relatedModalFilter = saved;
+	} catch (e) { /* storage unavailable */ }
+
+	// ── The button: its count, greyed out while there's nothing to show ──
+	function applySettingsRelatedButton(data) {
+		const btn = document.getElementById('btn-related-series');
+		if (!btn) return;
+		const items = data.series[0]?.related || [];
+		const notAdded = items.filter(item => !item.tracked).length;
+		btn.disabled = !items.length;
+		btn.textContent = items.length ? `Related Series (${items.length})` : 'Related Series';
+		btn.title = items.length
+			? `${items.length} related${notAdded ? ` · ${notAdded} not added yet` : ' · all in your library'}`
+			: data.checked
+				? "MangaDex and Atsumaru don't list any related series for it"
+				: "Its related series haven't been read yet - Check Now reads them";
+	}
+
+	let settingsRelatedTicket = 0;
+	async function refreshSettingsRelatedButton(seriesId = currentSeriesIdForEdit) {
+		const btn = document.getElementById('btn-related-series');
+		if (!btn || !seriesId) return;
+		const ticket = ++settingsRelatedTicket;
+		btn.disabled = true;
+		btn.textContent = 'Related Series';
+		btn.title = 'Looking up its related series…';
+		try {
+			const res = await fetch(`/api/related-series?series_id=${seriesId}`);
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const data = await res.json();
+			// Settings moved on to another series in the meantime
+			if (ticket !== settingsRelatedTicket || currentSeriesIdForEdit !== seriesId) return;
+			applySettingsRelatedButton(data);
+		} catch (e) {
+			if (ticket !== settingsRelatedTicket) return;
+			// couldn't tell - left usable, the window says what went wrong
+			btn.disabled = false;
+			btn.title = 'The series related to this one (sequels, spin-offs...)';
+		}
+	}
+	// openEditModal (outside this block) calls it for every series opened
+	window.refreshSettingsRelatedButton = refreshSettingsRelatedButton;
+
+	function renderRelatedModalList() {
+		const list = document.getElementById('related-modal-list');
+		const filter = document.getElementById('related-modal-filter');
+		const notAdded = relatedModalItems.filter(item => !item.tracked);
+		const inLibrary = relatedModalItems.filter(item => item.tracked);
+		// the switch only when there's something on both sides of it -
+		// without it everything shows, the choice kept for the next series
+		const hasSwitch = notAdded.length > 0 && inLibrary.length > 0;
+		if (hasSwitch) {
+			filter.innerHTML = [['all', 'All', relatedModalItems.length], ['not_added', 'Not added', notAdded.length], ['library', 'In library', inLibrary.length]]
+				.map(([value, label, count]) => `
+					<button type="button" class="related-modal-filter-btn${relatedModalFilter === value ? ' active' : ''}" data-filter="${value}">
+						${label} <span>${count}</span>
+					</button>`).join('');
+			filter.classList.remove('hidden');
+		} else {
+			filter.classList.add('hidden');
+			filter.innerHTML = '';
+		}
+		const shown = !hasSwitch ? relatedModalItems
+			: relatedModalFilter === 'not_added' ? notAdded
+			: relatedModalFilter === 'library' ? inLibrary : relatedModalItems;
+		list.innerHTML = shown.map(item => renderAddRelatedRow(item, 0, relatedModalItems.indexOf(item))).join('');
+		list.scrollTop = 0;
+		loadRelatedRowCovers(shown, list);
+	}
 
 	function closeRelatedModal() {
 		relatedModal?.classList.add('hidden');
@@ -6840,6 +6918,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('related-modal-title').textContent = `Related to ${currentSeriesForEdit?.title || 'this series'}`;
 		relatedModalItems = [];
 		status.textContent = '';
+		document.getElementById('related-modal-filter')?.classList.add('hidden');
 		list.innerHTML = '<p class="add-preview-message"><span class="add-preview-spinner"></span><span>Loading…</span></p>';
 		relatedModal.classList.remove('hidden');
 		// focused so Escape reaches it (the keydown listener below)
@@ -6855,6 +6934,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		// closed, or Settings moved on to another series, in the meantime
 		if (relatedModal.classList.contains('hidden') || currentSeriesIdForEdit !== seriesId) return;
+		applySettingsRelatedButton(data);
 		const items = data.series[0]?.related || [];
 		// untracked first (newest first, as the server sorts them), the types
 		// the chips leave off after them, the ones you track last
@@ -6871,9 +6951,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		const tracked = relatedModalItems.filter(item => item.tracked).length;
 		status.textContent = `${relatedModalItems.length} related`
 			+ (tracked ? ` · ${tracked} in your library` : '') + ' · from MangaDex and Atsumaru';
-		list.innerHTML = relatedModalItems.map((item, i) => renderAddRelatedRow(item, 0, i)).join('');
-		loadRelatedRowCovers(relatedModalItems, list);
+		renderRelatedModalList();
 	}
+
+	document.getElementById('related-modal-filter')?.addEventListener('click', (e) => {
+		const btn = e.target.closest('[data-filter]');
+		if (!btn || btn.dataset.filter === relatedModalFilter) return;
+		relatedModalFilter = btn.dataset.filter;
+		try { localStorage.setItem(RELATED_MODAL_FILTER_KEY, relatedModalFilter); } catch (err) { /* ignore */ }
+		renderRelatedModalList();
+	});
 
 	document.getElementById('btn-related-series')?.addEventListener('click', openRelatedModal);
 	document.getElementById('btn-related-modal-close')?.addEventListener('click', closeRelatedModal);
@@ -8127,6 +8214,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			const res = await fetch(`/api/series/${currentSeriesIdForEdit}/check-now`, { method: 'POST' });
 			if (res.ok) {
 				btn.textContent = '✓ Done';
+				// a manual check re-reads its related series too
+				window.refreshSettingsRelatedButton?.();
 				setTimeout(() => {
 					btn.textContent = 'Check Now';
 					btn.disabled = false;

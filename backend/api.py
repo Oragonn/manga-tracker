@@ -1613,11 +1613,11 @@ def api_related_series():
     relations have been read - or with ?series_id= only that series (Series
     Settings' Related button), plus whether its relations were read yet."""
     from . import related_series
-    data = related_series.get_related_list()
-    data['scan'] = related_series.scan_state()
     series_id = request.args.get('series_id', type=int)
-    if series_id is not None:
-        data['series'] = [group for group in data['series'] if group['series_id'] == series_id]
+    data = related_series.get_related_list(series_id)
+    if series_id is None:
+        data['scan'] = related_series.scan_state()
+    else:
         data['checked'] = related_series.was_checked(series_id)
     return jsonify(data)
 

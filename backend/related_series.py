@@ -428,7 +428,7 @@ def _library_titles(cursor):
     return titles
 
 
-def get_related_list():
+def get_related_list(series_id=None):
     """The tracked series that have related series, each with its related
     ones (the same one from both sites merged, with both links) - those you
     track too are included, with `tracked` set:
@@ -474,8 +474,9 @@ def get_related_list():
             -- source isn't read again, so its relations would linger)
             WHERE EXISTS (SELECT 1 FROM series_sources ss
                           WHERE ss.series_id = f.series_id AND ss.source_type = f.source_type)
+              AND (? IS NULL OR f.series_id = ?)
             ORDER BY r.id
-        """)
+        """, (series_id, series_id))
         rows = cursor.fetchall()
         cursor.execute("SELECT series_id, source_url, source_type FROM series_sources ORDER BY is_primary DESC, id")
         series_sources = {}

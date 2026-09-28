@@ -3617,6 +3617,41 @@ a.btn-icon {
   overflow-y: auto;
 }
 
+/* All / Not added / In library */
+.related-modal-filter {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.related-modal-filter.hidden {
+  display: none;
+}
+
+.related-modal-filter-btn {
+  padding: 4px 12px;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.related-modal-filter-btn span {
+  opacity: 0.7;
+}
+
+.related-modal-filter-btn:hover {
+  border-color: #678ec9;
+}
+
+.related-modal-filter-btn.active {
+  background: #1e2c40;
+  border-color: #678ec9;
+  color: #e2e8f0;
+}
+
 .modal-buttons #btn-related-modal-close {
   background: #334155;
   color: white;
