@@ -23,7 +23,8 @@ def errors_page():
         get_available_log_dates,
         set_last_errors_visit,
         get_errors_for_date,
-        get_last_errors_visit
+        get_last_errors_visit,
+        error_site
     )
     from datetime import datetime, timezone
     try:
@@ -62,8 +63,9 @@ def errors_page():
     errors = get_errors_for_date(today)
     log_dates = get_available_log_dates()
 
-    # Annotate errors with is_new and French display time
+    # Annotate errors with is_new, site and French display time
     for err in errors:
+        err['site'] = error_site(err.get('source_url'))
         try:
             err_dt_utc = parse_iso_utc(err['timestamp'])
             # Convert to Paris time for display
@@ -99,7 +101,7 @@ def api_errors_by_date(date_str):
     except ValueError:
         return jsonify({'error': 'Invalid date'}), 400
 
-    from .error_logger import get_errors_for_date
+    from .error_logger import get_errors_for_date, error_site
     errors = get_errors_for_date(date_str)
     
     # Format display_time in French (match main.py logic)
@@ -136,6 +138,7 @@ def api_errors_by_date(date_str):
         except:
             err['display_time'] = err['timestamp']
         err['is_new'] = False  # logs are historical — never "new"
+        err['site'] = error_site(err.get('source_url'))
 
     return jsonify({'errors': errors})
 
@@ -162,6 +165,44 @@ def api_download_error_log(date_str):
         download_name=f"errors_{date_str}.log",
         mimetype='text/plain'
     )
+
+@app.route('/api/errors/sites')
+def api_error_sites():
+    """Today's errors grouped by site, plus the acknowledged sites (their
+    errors don't count toward the badge) - backs the /errors page's
+    Acknowledge strip."""
+    from .error_logger import get_errors_for_date, get_muted_sites, error_site, _get_now_paris
+    muted = get_muted_sites()
+    counts = {}
+    for err in get_errors_for_date(_get_now_paris().strftime("%Y-%m-%d")):
+        site = error_site(err.get('source_url'))
+        if site:
+            counts[site] = counts.get(site, 0) + 1
+    sites = [{'site': site, 'count': count, 'acknowledged': site in muted, 'acknowledged_at': muted.get(site)}
+             for site, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    sites += [{'site': site, 'count': 0, 'acknowledged': True, 'acknowledged_at': at}
+              for site, at in sorted(muted.items()) if site not in counts]
+    return jsonify({'sites': sites})
+
+
+@app.route('/api/errors/acknowledge', methods=['POST'])
+def api_acknowledge_error_site():
+    """Acknowledge (or un-acknowledge) a site's errors. Acknowledged errors
+    are still logged but stop counting toward the badge, until one of the
+    site's failing links fetches fine again."""
+    from .error_logger import mute_site, unmute_site
+    data = request.get_json(silent=True) or {}
+    site = str(data.get('site') or '').strip().lower()
+    if not site:
+        return jsonify({'error': 'site is required'}), 400
+    if data.get('acknowledged', True):
+        from .database import get_unhealthy_sources
+        failing = [s['source_url'] for s in get_unhealthy_sources(threshold=1)]
+        mute_site(site, failing)
+    else:
+        unmute_site(site)
+    return jsonify({'success': True})
+
 
 @app.route('/logs')
 def logs_page():

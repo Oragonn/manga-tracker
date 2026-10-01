@@ -730,6 +730,12 @@ class MangaScheduler:
                         record_source_success(source['id'])
                     except Exception:
                         pass
+                    try:
+                        # Lifts an acknowledged outage once this link is back
+                        from .error_logger import note_source_ok
+                        note_source_ok(source['source_url'])
+                    except Exception:
+                        pass
                     sources_reached += 1
                     if source.get('is_primary') and status:
                         primary_status = status

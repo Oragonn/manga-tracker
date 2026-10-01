@@ -3,6 +3,7 @@ import os
 import json
 from datetime import datetime, timedelta
 from threading import Lock
+from urllib.parse import urlparse
 
 # Use zoneinfo (Python 3.9+). For older Python, use pytz.
 try:
@@ -22,6 +23,15 @@ ERRORS_MAX_DAYS = 7
 _errors = []
 _errors_lock = Lock()
 _errors_loaded = False
+
+# Acknowledged sites: their errors are still logged and listed on /errors but
+# no longer count toward the badge, so an outage doesn't add one per series
+# every scan. {site: {"muted_at": iso, "failing": [normalised urls]}} -
+# "failing" is the links that errored while acknowledged; the first of them to
+# fetch fine again means the site is back, and lifts the acknowledgement.
+MUTES_FILE = os.path.join("data", "muted_error_sites.json")
+_mutes = None
+_mutes_lock = Lock()
 
 def _ensure_dirs():
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -64,15 +74,115 @@ def log_error(source_url, error_message, series_title=None):
         "error": str(error_message)
     }
 
-    log_file = os.path.join(LOG_DIR, f"error_{now_paris.strftime('%Y-%m-%d')}.log")
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-
     with _errors_lock:
+        # Seed from the log files before this entry is written to them, or
+        # the first error after a restart gets counted twice
         _load_recent_errors()
+        log_file = os.path.join(LOG_DIR, f"error_{now_paris.strftime('%Y-%m-%d')}.log")
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
         _errors.append(log_entry)
         if len(_errors) > 200:
             _errors.pop(0)
+
+    site = error_site(source_url)
+    if site:
+        with _mutes_lock:
+            mute = _load_mutes().get(site)
+            url = _norm_url(source_url)
+            if mute is not None and url not in mute["failing"]:
+                mute["failing"].append(url)
+                _save_mutes()
+
+
+def error_site(url):
+    """The site an error belongs to ('atsu.moe'), or '' for a source_url
+    that isn't a link (e.g. 'series:123')."""
+    try:
+        host = (urlparse(str(url or '').strip()).hostname or '').lower()
+    except ValueError:
+        return ''
+    return host[4:] if host.startswith('www.') else host
+
+
+def _norm_url(url):
+    try:
+        u = urlparse(str(url or '').strip())
+    except ValueError:
+        return str(url or '').strip()
+    return f"{error_site(url)}{u.path.rstrip('/')}"
+
+
+def _load_mutes():
+    """Call with _mutes_lock held."""
+    global _mutes
+    if _mutes is None:
+        _mutes = {}
+        try:
+            with open(MUTES_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for site, mute in (data if isinstance(data, dict) else {}).items():
+                if isinstance(mute, dict):
+                    _mutes[site] = {"muted_at": mute.get("muted_at"),
+                                    "failing": list(mute.get("failing") or [])}
+        except (OSError, ValueError):
+            pass
+    return _mutes
+
+
+def _save_mutes():
+    """Call with _mutes_lock held."""
+    _ensure_dirs()
+    tmp = MUTES_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(_mutes, f, ensure_ascii=False)
+    os.replace(tmp, MUTES_FILE)
+
+
+def get_muted_sites():
+    """{site: muted_at} of the acknowledged sites."""
+    with _mutes_lock:
+        return {site: m["muted_at"] for site, m in _load_mutes().items()}
+
+
+def mute_site(site, failing_urls=()):
+    """Acknowledge a site's errors: they stop counting toward the badge
+    until one of its failing links (failing_urls, plus any that error
+    from now on) fetches fine again."""
+    site = (site or '').strip().lower()
+    if not site:
+        return False
+    failing = {_norm_url(u) for u in failing_urls if error_site(u) == site}
+    with _mutes_lock:
+        mutes = _load_mutes()
+        mute = mutes.setdefault(site, {"muted_at": _get_now_paris().isoformat(), "failing": []})
+        mute["failing"] = sorted(failing | set(mute["failing"]))
+        _save_mutes()
+    return True
+
+
+def unmute_site(site):
+    with _mutes_lock:
+        if _load_mutes().pop((site or '').strip().lower(), None) is None:
+            return False
+        _save_mutes()
+    return True
+
+
+def note_source_ok(source_url):
+    """A source fetched fine: if it was one of an acknowledged site's failing
+    links, the site is back, so its errors count toward the badge again."""
+    site = error_site(source_url)
+    if not site:
+        return
+    with _mutes_lock:
+        mutes = _load_mutes()
+        mute = mutes.get(site)
+        if mute is None or _norm_url(source_url) not in mute["failing"]:
+            return
+        del mutes[site]
+        _save_mutes()
+    print(f"[Errors] {site} is fetching again - its errors count toward the badge again")
 
 
 def _load_recent_errors():
@@ -114,10 +224,13 @@ def get_unread_error_count():
         from datetime import timezone
         last_visit = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
+    muted = get_muted_sites()
     count = 0
     with _errors_lock:
         _load_recent_errors()
         for err in _errors:
+            if muted and error_site(err.get('source_url')) in muted:
+                continue
             try:
                 err_ts = err['timestamp']
                 if err_ts.endswith('Z'):

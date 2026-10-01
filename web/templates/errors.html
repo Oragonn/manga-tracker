@@ -101,6 +101,92 @@
       border-radius: 999px;
     }
 
+    .error-ack-badge {
+      display: none;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #94a3b8;
+      background: rgba(148, 163, 184, 0.15);
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+
+    .error-entry.is-acknowledged .error-ack-badge {
+      display: inline;
+    }
+
+    .error-entry.is-acknowledged {
+      opacity: 0.6;
+    }
+
+    .error-sites {
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
+    }
+
+    .error-sites-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: white;
+      margin: 0 0 2px;
+    }
+
+    .error-sites-hint {
+      font-size: 12px;
+      color: #64748b;
+      margin: 0 0 10px;
+    }
+
+    .error-site-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-top: 1px solid #1e293b;
+    }
+
+    .error-site-name {
+      color: #e2e8f0;
+      font-size: 14px;
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    .error-site-meta {
+      color: #64748b;
+      font-size: 12px;
+    }
+
+    .error-site-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .error-site-btn {
+      flex-shrink: 0;
+      font-size: 13px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #e2e8f0;
+      cursor: pointer;
+    }
+
+    .error-site-btn:hover:not(:disabled) {
+      background: #273449;
+    }
+
+    .error-site-btn:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
     .error-message {
       color: #f87171;
       font-size: 14px;
@@ -400,10 +486,12 @@
     </button>
   </div>
 
+  <div id="error-sites" class="error-sites" hidden></div>
+
   <div id="error-list">
     {% if errors %}
       {% for err in errors %}
-        <div class="error-entry">
+        <div class="error-entry" data-site="{{ err.site }}">
           <div class="error-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="m2.202 18.47 7.962-14.465c.738-1.34 2.934-1.34 3.672 0l7.962 14.465c.646 1.173-.338 2.53-1.835 2.53H4.037c-1.497 0-2.481-1.357-1.835-2.53M12 9v4m0 4.02V17"/>
@@ -413,6 +501,7 @@
             <div class="error-top">
               <span class="error-title">{{ err.series_title }}</span>
               {% if err.is_new %}<span class="error-new-badge">New</span>{% endif %}
+              <span class="error-ack-badge">Acknowledged</span>
             </div>
             <div class="error-message">{{ err.error }}</div>
             {% if err.source_url %}
@@ -490,6 +579,7 @@ function renderErrorEntryHTML(err) {
       <div class="error-top">
         <span class="error-title">${escapeHtml(err.series_title)}</span>
         ${err.is_new ? '<span class="error-new-badge">New</span>' : ''}
+        <span class="error-ack-badge">Acknowledged</span>
       </div>
       <div class="error-message">${linkify(escapeHtml(err.error))}</div>
       ${urlHtml}
@@ -506,7 +596,8 @@ async function loadErrorsForDate(dateStr) {
     if (!res.ok || !data.errors) throw new Error('Bad response');
 
     if (data.errors.length > 0) {
-      list.innerHTML = data.errors.map(err => `<div class="error-entry">${renderErrorEntryHTML(err)}</div>`).join('');
+      list.innerHTML = data.errors.map(err => `<div class="error-entry" data-site="${escapeHtml(err.site || '')}">${renderErrorEntryHTML(err)}</div>`).join('');
+      markAcknowledgedRows();
     } else {
       list.innerHTML = '<div class="no-errors">No errors found for this date.</div>';
     }
@@ -516,8 +607,85 @@ async function loadErrorsForDate(dateStr) {
   }
 }
 
+// Failing sites strip: acknowledging a site keeps its errors listed here but
+// stops them counting toward the Errors badge (an outage would otherwise add
+// one per series every scan), until one of its failing links works again.
+let acknowledgedSites = new Set();
+
+function markAcknowledgedRows() {
+  document.querySelectorAll('#error-list .error-entry').forEach(row => {
+    row.classList.toggle('is-acknowledged', acknowledgedSites.has(row.dataset.site));
+  });
+}
+
+function renderErrorSites(sites) {
+  const box = document.getElementById('error-sites');
+  if (!box) return;
+  acknowledgedSites = new Set(sites.filter(s => s.acknowledged).map(s => s.site));
+  markAcknowledgedRows();
+  if (sites.length === 0) {
+    box.hidden = true;
+    box.innerHTML = '';
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = `
+    <p class="error-sites-title">Failing sites today</p>
+    <p class="error-sites-hint">Acknowledged sites stay listed but stop adding to the Errors badge until one of their links works again.</p>
+    ${sites.map(s => {
+      const count = s.count ? `${s.count} error${s.count === 1 ? '' : 's'} today` : 'No errors today';
+      const meta = s.acknowledged ? `${count} · acknowledged` : count;
+      return `
+        <div class="error-site-row">
+          <div class="error-site-info">
+            <div class="error-site-name">${escapeHtml(s.site)}</div>
+            <div class="error-site-meta">${meta}</div>
+          </div>
+          <button type="button" class="error-site-btn" data-site="${escapeHtml(s.site)}" data-ack="${s.acknowledged ? '0' : '1'}">
+            ${s.acknowledged ? 'Undo' : 'Acknowledge'}
+          </button>
+        </div>`;
+    }).join('')}
+  `;
+}
+
+async function loadErrorSites() {
+  try {
+    const res = await fetch('/api/errors/sites');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderErrorSites(data.sites || []);
+  } catch (e) {
+    console.error('Failed to load failing sites:', e);
+  }
+}
+
+async function setSiteAcknowledged(btn) {
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/errors/acknowledge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ site: btn.dataset.site, acknowledged: btn.dataset.ack === '1' })
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    await loadErrorSites();
+    updateUnreadErrorCount();
+  } catch (e) {
+    console.error('Failed to update acknowledgement:', e);
+    showNotification('Could not update the acknowledgement', 'error');
+    btn.disabled = false;
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initNotifications();
+
+  loadErrorSites();
+  document.getElementById('error-sites')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.error-site-btn');
+    if (btn && !btn.disabled) setSiteAcknowledged(btn);
+  });
 
   // Server-rendered error messages (initial page load) aren't linkified by
   // Jinja - .innerHTML on an already-escaped text node gives back the same
