@@ -51,10 +51,23 @@
   };
 
   // Not scoped to Kenmei's Vue `data-v-*` hash - that hash changes on every
-  // deploy. The series title is the only h1 on this page.
+  // deploy. The series title is the only h1 on this page; the og:title meta
+  // and the tab title are fallbacks in case a redesign drops that h1.
   function seriesTitle() {
     const h1 = document.querySelector('.min-h-9 h1, h1');
-    return h1 ? h1.textContent.trim() : null;
+    const fromH1 = h1 ? h1.textContent.trim() : '';
+    if (fromH1) return fromH1;
+    const og = document.querySelector('meta[property="og:title"]');
+    const fromOg = og ? (og.getAttribute('content') || '').trim() : '';
+    const fromTab = document.title.trim();
+    const raw = fromOg || fromTab;
+    // "Solo Leveling | Kenmei" / "Solo Leveling - Kenmei" -> "Solo Leveling"
+    const cleaned = raw.replace(/\s*[|\-–—]\s*Kenmei\s*$/i, '').trim();
+    return cleaned && cleaned.toLowerCase() !== 'kenmei' ? cleaned : null;
+  }
+
+  function log(...args) {
+    console.log('[Kenmei helper]', ...args);
   }
 
   function sleep(ms) {
@@ -113,8 +126,11 @@
   // Cached once found so a later "I" on the same page reuses the already-
   // expanded form instead of clicking "Add to your Dashboard" again, whose
   // effect on a second click (toggle shut? no-op? something else?) isn't
-  // known and isn't worth risking.
+  // known and isn't worth risking. Tied to the path it was found on - Kenmei
+  // is a single-page app, so moving to another series keeps this same
+  // document (and maybe the same Vue component) alive.
   let cachedSelectTrigger = null;
+  let cachedSelectPath = null;
 
   // Opens Kenmei's own "Add to your Dashboard" source picker just far enough
   // to read which sources it already knows this series is on, then backs
@@ -124,6 +140,10 @@
   // labels (e.g. ["Hive Toon", "Atsumaru", ...]), or null if the button/
   // dropdown couldn't be found (layout changed, not logged in, etc).
   async function fetchKenmeiSources() {
+    if (cachedSelectPath !== location.pathname) {
+      cachedSelectTrigger = null;
+      cachedSelectPath = location.pathname;
+    }
     if (!cachedSelectTrigger || !document.contains(cachedSelectTrigger)) {
       const addBtn = findAddToDashboardButton();
       if (!addBtn) return null;
@@ -214,9 +234,22 @@
 
   function startRow() {
     const title = seriesTitle();
-    if (!title) return;
+    if (!title) {
+      log('I ignored: no series title found on', location.href);
+      return;
+    }
+    log('I: searching for', JSON.stringify(title));
     const urls = SEARCH_SITES.map((site) => searchUrl(site, title));
-    chrome.runtime.sendMessage({ type: 'startRow', title, urls, mode: 'kenmei' });
+    try {
+      chrome.runtime.sendMessage({ type: 'startRow', title, urls, mode: 'kenmei' }).catch((err) => {
+        log('startRow message failed:', err && err.message);
+      });
+    } catch (err) {
+      // "Extension context invalidated" - the extension was reloaded after
+      // this tab loaded, so this copy of the script is orphaned.
+      log('extension was reloaded, reload this tab (F5):', err && err.message);
+      return;
+    }
 
     kenmeiNote = 'checking Kenmei’s own source list…';
     refreshBadge();
@@ -236,17 +269,36 @@
       });
   }
 
+  // The manifest injects this on every kenmei.co page, not just /series/* -
+  // Kenmei is a single-page app, so clicking into a series from the
+  // dashboard/search only pushState()s the URL, and Chrome never injects a
+  // content script on that (only on real page loads). Matching /series/*
+  // left I dead until a manual reload. So the series check happens here, at
+  // keypress time, against wherever the app has navigated to by then.
+  // Kenmei has used /series/<slug>; /manga/ is accepted too in case a
+  // redesign renames the route.
+  function onSeriesPage() {
+    return /^\/(series|manga)\//.test(location.pathname);
+  }
+
+  log('loaded on', location.href);
   chrome.runtime.sendMessage({ type: 'registerKenmeiTab' });
 
   document.addEventListener(
     'keydown',
     (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (isTypingTarget(document.activeElement)) return;
-      if (e.key.toLowerCase() === 'i') {
-        e.preventDefault();
-        startRow();
+      if (e.key.toLowerCase() !== 'i') return;
+      if (isTypingTarget(document.activeElement)) {
+        log('I ignored: focus is in a text box', document.activeElement);
+        return;
       }
+      if (!onSeriesPage()) {
+        log('I ignored: not a series page:', location.pathname);
+        return;
+      }
+      e.preventDefault();
+      startRow();
     },
     true
   );
