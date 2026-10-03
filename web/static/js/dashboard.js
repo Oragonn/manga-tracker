@@ -3010,6 +3010,11 @@ const bulkTagsState = {
 
 // Runs fn over items a few at a time, so a big selection doesn't fire
 // hundreds of requests at the server at once.
+// Bulk Mark as Read / status / delete send their per-series requests this
+// many at a time - one after another, 50 series meant 50-100 round trips in
+// a row. The server still applies them one by one (one DB lock).
+const BULK_REQUEST_LIMIT = 4;
+
 async function runLimited(items, fn, limit = 6) {
 	const results = [];
 	let next = 0;
@@ -8556,11 +8561,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('bulk-read-modal').classList.add('hidden');
 		const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
 		let failCount = 0;
-		for (const id of ids) {
+		await runLimited(ids, async id => {
 			try {
-				const res = await fetch(`/api/series/${id}/chapters`);
-				if (!res.ok) { failCount++; continue; }
-				const chapters = await res.json();
+				// The chapters the page loaded with the card - fetched only
+				// for a series that has none here
+				let chapters = state.allSeries?.find(s => s.id === id)?.chapters;
+				if (!Array.isArray(chapters)) {
+					const res = await fetch(`/api/series/${id}/chapters`);
+					if (!res.ok) { failCount++; return; }
+					chapters = await res.json();
+				}
 				if (chapters.length > 0) {
 					const latestChapter = Math.max(...chapters.map(ch => ch.chapter_number));
 					const patchRes = await fetch(`/api/series/${id}`, {
@@ -8578,7 +8588,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				console.error(`Failed to update series ${id}:`, e);
 				failCount++;
 			}
-		}
+		}, BULK_REQUEST_LIMIT);
 		// ADDED: Show notification for bulk read
 		const count = ids.length;
 		if (failCount > 0) {
@@ -8608,7 +8618,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			document.getElementById('bulk-status-modal').classList.add('hidden');
 			const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
 			let failCount = 0;
-			for (const id of ids) {
+			await runLimited(ids, async id => {
 				try {
 					const res = await fetch(`/api/series/${id}`, {
 						method: 'PATCH',
@@ -8624,7 +8634,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					console.error(`Failed to update series ${id}:`, e);
 					failCount++;
 				}
-			}
+			}, BULK_REQUEST_LIMIT);
 			// ADDED: Show notification for bulk status change
 			const count = ids.length;
 			const statusMap = {
@@ -8719,7 +8729,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.getElementById('bulk-delete-modal').classList.add('hidden');
 		const bulkId = 'bulk_' + Date.now();  // Generate unique bulk ID
 		let failCount = 0;
-		for (const id of ids) {
+		await runLimited(ids, async id => {
 			try {
 				const res = await fetch(`/api/series/${id}?bulk_id=${encodeURIComponent(bulkId)}`, {
 					method: 'DELETE'
@@ -8729,7 +8739,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				console.error(`Failed to delete series ${id}:`, e);
 				failCount++;
 			}
-		}
+		}, BULK_REQUEST_LIMIT);
 		// ADDED: Show notification for bulk delete
 		const count = ids.length;
 		if (failCount > 0) {
