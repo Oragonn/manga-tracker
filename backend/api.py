@@ -1483,12 +1483,18 @@ def _release_leaked_db(_exc):
 # Text responses go out gzipped: the dashboard's series page is ~1.1 MB of
 # JSON (~150 KB gzipped), dashboard.js ~480 KB (~115 KB). Static files'
 # gzipped bodies are kept, keyed by path + ETag, so each is compressed once.
+#
+# HTML pages aren't: they carry the CSRF token, and compressing a secret
+# alongside other page content is what BREACH-style attacks measure. They're
+# small anyway (the dashboard page is ~67 KB) next to the JSON/JS/CSS.
 _GZIP_TYPES = ('text/', 'application/json', 'application/javascript', 'image/svg+xml')
 _GZIP_MIN_SIZE = 1024
 _gzipped_static = {}  # (path, etag) -> gzipped body
 
 def _gzip_response(response):
-    if not response.mimetype.startswith(_GZIP_TYPES) or response.headers.get('Content-Encoding'):
+    mimetype = response.mimetype or ''  # None when there's no Content-Type
+    if (not mimetype.startswith(_GZIP_TYPES) or mimetype == 'text/html'
+            or response.headers.get('Content-Encoding')):
         return response
     response.vary.add('Accept-Encoding')
     if (response.status_code != 200 or request.method != 'GET'
