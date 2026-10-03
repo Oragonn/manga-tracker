@@ -129,6 +129,11 @@ class KaganeBrowserClient:
 
     async def _fetch_json_async(self, url, timeout=45):
         await self._page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+        # Sent off to another site (down or moved) - no <pre> to wait for
+        from .trackers.redirects import redirect_error
+        moved = redirect_error(url, self._page.url)
+        if moved:
+            raise moved
 
         deadline = asyncio.get_event_loop().time() + timeout
         while asyncio.get_event_loop().time() < deadline:

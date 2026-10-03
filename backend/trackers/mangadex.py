@@ -2,13 +2,16 @@
 
 import re
 import requests
+
+from .redirects import watch_redirects, SiteRedirectError
 import threading
 import time
 from urllib.parse import urlparse
 
 from ..tag_utils import merge_tag_lists
 
-_session = requests.Session()
+# Redirected to another site = down or moved, said straight away
+_session = watch_redirects(requests.Session())
 _session.headers.update({
     'User-Agent': 'MangaTracker/1.0 (your.email@example.com)'
 })
@@ -36,6 +39,8 @@ def _delayed_get(url, **kwargs):
                 time.sleep(2 ** attempt)
                 continue
             return resp
+        except SiteRedirectError:
+            raise
         except Exception as e:
             if attempt == _MAX_RETRIES - 1:
                 raise

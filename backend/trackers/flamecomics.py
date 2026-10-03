@@ -8,7 +8,10 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 import requests
 
-_session = requests.Session()
+from .redirects import watch_redirects, SiteRedirectError
+
+# Redirected to another site = down or moved, said straight away
+_session = watch_redirects(requests.Session())
 _session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
 })
@@ -41,6 +44,8 @@ def _delayed_get(url, **kwargs):
                 time.sleep(2 ** attempt)
                 continue
             return resp
+        except SiteRedirectError:
+            raise
         except Exception:
             if attempt == _MAX_RETRIES - 1:
                 raise
