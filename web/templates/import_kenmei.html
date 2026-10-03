@@ -6,8 +6,8 @@
   <title>Kenmei Import - Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <meta name="csrf-token" content="{{ csrf_token() }}" />
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <script src="/static/js/notifications.js"></script>
+  <link rel="stylesheet" href="{{ static_url('css/style.css') }}" />
+  <script src="{{ static_url('js/notifications.js') }}"></script>
   <style>
     .import-container {
       max-width: 1400px;

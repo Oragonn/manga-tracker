@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 from datetime import datetime, timezone
+import gzip
+import hashlib
 import sqlite3
 import json
 import os
@@ -1477,6 +1479,79 @@ def _release_leaked_db(_exc):
     # keep the global DB lock forever, hanging every later request and scan.
     from .database import release_leaked_db
     release_leaked_db()
+
+# Text responses go out gzipped: the dashboard's series page is ~1.1 MB of
+# JSON (~150 KB gzipped), dashboard.js ~480 KB (~115 KB). Static files'
+# gzipped bodies are kept, keyed by path + ETag, so each is compressed once.
+_GZIP_TYPES = ('text/', 'application/json', 'application/javascript', 'image/svg+xml')
+_GZIP_MIN_SIZE = 1024
+_gzipped_static = {}  # (path, etag) -> gzipped body
+
+def _gzip_response(response):
+    if not response.mimetype.startswith(_GZIP_TYPES) or response.headers.get('Content-Encoding'):
+        return response
+    response.vary.add('Accept-Encoding')
+    if (response.status_code != 200 or request.method != 'GET'
+            or request.accept_encodings['gzip'] <= 0
+            or (response.is_streamed and not response.direct_passthrough)):
+        return response
+
+    etag, _ = response.get_etag()
+    key = (request.path, etag) if response.direct_passthrough and etag else None
+    body = _gzipped_static.get(key) if key else None
+    if body is None:
+        # a static file is sent straight from disk; read it to compress it
+        response.direct_passthrough = False
+        data = response.get_data()
+        if len(data) < _GZIP_MIN_SIZE:
+            return response
+        body = gzip.compress(data, compresslevel=5)
+        if key:
+            _gzipped_static[key] = body
+    else:
+        response.direct_passthrough = False
+    response.set_data(body)
+    response.headers['Content-Encoding'] = 'gzip'
+    # Same file, different bytes: a weak ETag still lets the browser's
+    # If-None-Match get a 304.
+    if etag:
+        response.set_etag(etag, weak=True)
+    return response
+
+_static_versions = {}  # filename -> (mtime, content hash)
+
+def static_url(filename):
+    """/static/<filename>?v=<hash of its contents>, for the templates'
+    <link>/<script> tags: an edited file gets a new URL by itself, so the
+    browser can keep each one for a year (see below) without anyone having to
+    remember to bump a version by hand."""
+    from flask import url_for
+    path = os.path.join(app.static_folder, filename)
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return url_for('static', filename=filename)
+    cached = _static_versions.get(filename)
+    if cached is None or cached[0] != mtime:
+        with open(path, 'rb') as f:
+            cached = (mtime, hashlib.md5(f.read()).hexdigest()[:10])
+        _static_versions[filename] = cached
+    return url_for('static', filename=filename, v=cached[1])
+
+app.jinja_env.globals['static_url'] = static_url
+
+@app.after_request
+def _compress_and_cache(response):
+    # A static file asked for with ?v=<hash> never changes under that URL
+    # (static_url() above puts its contents' hash there), so the browser
+    # keeps it for a year instead of re-checking it on every page load.
+    # Files without ?v= still re-check.
+    if request.path.startswith('/static/') and request.args.get('v') and response.status_code in (200, 304):
+        response.cache_control.no_cache = None
+        response.cache_control.public = True
+        response.cache_control.max_age = 31536000
+        response.cache_control.immutable = True
+    return _gzip_response(response)
 
 # Every file under web/static/uploads/ is content-addressed - atsu_covers and
 # kagane_covers are keyed by the source's own stable image id/filename, and

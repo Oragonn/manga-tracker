@@ -6,9 +6,9 @@
   <title>Fixes - Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <meta name="csrf-token" content="{{ csrf_token() }}" />
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <script src="/static/js/notifications.js"></script>
-  <script src="/static/js/tag_activity.js"></script>
+  <link rel="stylesheet" href="{{ static_url('css/style.css') }}" />
+  <script src="{{ static_url('js/notifications.js') }}"></script>
+  <script src="{{ static_url('js/tag_activity.js') }}"></script>
   <style>
     .fixes-container {
       max-width: 900px;

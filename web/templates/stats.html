@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Statistics - Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="{{ static_url('css/style.css') }}" />
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <!-- ADDED: Notification system -->
-  <script src="/static/js/notifications.js"></script>  <style>
+  <script src="{{ static_url('js/notifications.js') }}"></script>  <style>
     .stats-container {
       max-width: 1200px;
       margin: 30px auto;
