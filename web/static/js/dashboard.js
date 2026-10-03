@@ -984,14 +984,7 @@ function toggleLaterDetailMenu(titleEl, item) {
 	const linkText = document.getElementById('later-detail-link-text');
 	if (titleText) titleText.textContent = item.title || '(no title)';
 	if (linkText) {
-		linkText.innerHTML = '';
-		if (item.url) {
-			if (!item.url.includes('\n') && isSafeUrl(item.url)) {
-				linkText.innerHTML = `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${escapeHtml(item.url)}</a>`;
-			} else {
-				linkText.textContent = item.url;
-			}
-		}
+		linkText.innerHTML = item.url ? linkifyText(item.url) : '';
 	}
 
 	menu.dataset.forId = String(item.id);
@@ -1006,6 +999,18 @@ function toggleLaterDetailMenu(titleEl, item) {
 	if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - menu.offsetHeight - 4);
 	menu.style.left = `${left}px`;
 	menu.style.top = `${top}px`;
+}
+
+// Escapes free text and turns every http(s) URL in it into a link, so a Later
+// "link" field that also holds a note (or several links) stays clickable.
+// Trailing punctuation is left out of the URL ("see https://x.com/a.").
+function linkifyText(text) {
+	return text.split(/(https?:\/\/[^\s<>"']+)/i).map((part, i) => {
+		if (i % 2 === 0) return escapeHtml(part);
+		const url = part.replace(/[.,;:!?)\]]+$/, '');
+		const rest = part.slice(url.length);
+		return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>${escapeHtml(rest)}`;
+	}).join('');
 }
 
 function closeLaterDetailMenu() {

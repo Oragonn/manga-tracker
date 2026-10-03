@@ -1055,11 +1055,22 @@ html {
 }
 
 .later-detail-link {
-  color: #63b3ed;
+  color: #cbd5e1;
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
   margin-top: 8px;
+}
+
+/* :visited too - otherwise the browser's dark purple shows on the dark popover */
+.later-detail-link a,
+.later-detail-link a:visited {
+  color: #63b3ed;
+  text-decoration: underline;
+}
+
+.later-detail-link a:hover {
+  color: #90cdf4;
 }
 
 .later-detail-link:empty {
