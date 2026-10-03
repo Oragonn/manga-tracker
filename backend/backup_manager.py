@@ -439,6 +439,17 @@ class BackupManager:
             print(f"[Backup] Successfully restored from: {backup_filename}")
             print(f"[Backup] Safety backup available at: backups/{safety_filename}")
 
+            # An older backup lacks any column/table added since it was made,
+            # and the startup migrations only ran on the database it just
+            # replaced - run them again, or every query using a newer column
+            # fails until the next restart (2026-10-03: "no such column"
+            # on every scan right after a restore).
+            try:
+                from .database import init_db
+                init_db()
+            except Exception as e:
+                print(f"[Backup] Schema update after restore failed: {e}")
+
             self.enforce_size_limit()
 
             return True
