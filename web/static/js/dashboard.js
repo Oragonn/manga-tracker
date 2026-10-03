@@ -1272,7 +1272,7 @@ function closeEditSeriesModal() {
 // Resting the mouse on a card (or its Edit button) starts loading what its
 // Series Settings shows, so it's usually there by the click. Each answer is
 // used once and only for a short while - opening later fetches it fresh.
-const SETTINGS_PREFETCH_TTL = 15000;
+const SETTINGS_PREFETCH_TTL = 30000;
 const settingsPrefetches = new Map(); // url -> { promise, at }
 
 function fetchJsonOrThrow(url) {
@@ -1302,6 +1302,22 @@ function prefetchSeriesSettings(seriesId) {
 		settingsPrefetches.set(url, { promise, at: now });
 	}
 }
+
+// Any save (POST/PUT/PATCH/DELETE) may change what a prefetched answer holds
+// - the sheet's Mark as Read drops a custom tag, say - so they're all thrown
+// away when one starts, and again when it ends for any that started meanwhile.
+(function dropSettingsPrefetchesOnWrite() {
+	const innerFetch = window.fetch;
+	window.fetch = function (input, init) {
+		const method = ((init && init.method) || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+		const result = innerFetch(input, init);
+		if (method !== 'GET' && method !== 'HEAD') {
+			settingsPrefetches.clear();
+			result.finally(() => settingsPrefetches.clear()).catch(() => {});
+		}
+		return result;
+	};
+})();
 
 // The prefetched answer for url if there's a recent one (taken out, so
 // it's used once), otherwise a fresh fetch.
@@ -10179,7 +10195,10 @@ function openBottomSheet(series) {
   mobileState.bottomSheetOpen = true;
   mobileState.currentSeries = series;
   mobileState.pendingChapter = series.current_chapter;
-  
+  // The sheet's Edit opens Series Settings - start loading it now, so it's
+  // there by then (desktop does this on hover).
+  prefetchSeriesSettings(series.id);
+
   // ADDED: Fetch and store primary source URL. Cleared first, so "Go to
   // Source" can never use the previously opened series' link while this
   // loads (it falls back to this series' own source_url meanwhile).
