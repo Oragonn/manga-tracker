@@ -20,6 +20,7 @@
 # a stray tag than to remove one a remaining source actually has.
 
 import json
+import re
 
 from .tag_utils import normalize_tag_list, merge_tag_lists
 from .title_utils import source_titles
@@ -111,11 +112,14 @@ def strip_removed_source(series_id, removed, apply=True):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, source_url, source_type, metadata FROM series_sources WHERE series_id = ?
+            SELECT id, source_url, source_type, metadata, cover_url, is_primary
+            FROM series_sources WHERE series_id = ?
         """, (series_id,))
-        remaining = [dict(zip(('id', 'source_url', 'source_type', 'metadata'), r)) for r in cursor.fetchall()]
+        remaining = [dict(zip(('id', 'source_url', 'source_type', 'metadata', 'cover_url', 'is_primary'), r))
+                     for r in cursor.fetchall()]
     finally:
         release_db(conn)
+    primary = next((s for s in remaining if s['is_primary']), remaining[0] if remaining else None)
 
     result = {'removed': {}}
 
@@ -138,6 +142,33 @@ def strip_removed_source(series_id, removed, apply=True):
                 result['removed']['gallery_covers'] = covers
         finally:
             release_db(conn)
+
+    # The cover: if it was the removed source's (its own cover, one of its
+    # site's gallery covers just deleted, or an image from its site) and
+    # nothing left on the series still offers it, fall back to the
+    # primary's - otherwise a series keeps showing a cover from a source
+    # it no longer has (Snow & Ink kept its Atsumaru cover).
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT cover_url FROM series WHERE id = ?", (series_id,))
+        row = cursor.fetchone()
+        cover = row[0] if row else None
+        if cover and primary and primary.get('cover_url') and cover != primary['cover_url']:
+            removed_gallery = {c['cover_url'] for c in result['removed'].get('gallery_covers') or []}
+            from_removed = (cover == removed.get('cover_url') or cover in removed_gallery
+                            or _cover_is_from_site(cover, removed['source_type']))
+            cursor.execute("SELECT cover_url FROM series_covers WHERE series_id = ?", (series_id,))
+            still_offered = {r[0] for r in cursor.fetchall()}
+            cursor.execute("SELECT cover_url FROM gallery_covers WHERE series_id = ?", (series_id,))
+            still_offered |= {r[0] for r in cursor.fetchall()} - removed_gallery
+            still_offered |= {s['cover_url'] for s in remaining if s.get('cover_url')}
+            if from_removed and cover not in still_offered:
+                if apply:
+                    cursor.execute("UPDATE series SET cover_url = ? WHERE id = ?", (primary['cover_url'], series_id))
+                result['removed']['cover'] = {'old': cover, 'new': primary['cover_url']}
+    finally:
+        release_db(conn)
 
     # Metadata (network, when not stored yet) - outside any DB connection.
     removed_meta = _metadata_for(removed)
@@ -201,20 +232,34 @@ def strip_removed_source(series_id, removed, apply=True):
             if fallback and fallback != rating:
                 new_rating = fallback
 
-        if gone_titles or gone_genres or new_rating != rating:
+        # The title: same as the cover - if it's a name only the removed
+        # source used, take the primary's own title instead (a title you
+        # typed yourself isn't any source's, so it stays).
+        new_title = title
+        primary_titles = (remaining_meta.get(primary['id']) or {}).get('titles') if primary else None
+        if title and primary_titles:
+            remaining_names = {_title_key(v) for m in remaining_meta.values() for v in m.get('titles') or []}
+            removed_names = {_title_key(v) for v in removed_meta.get('titles') or []}
+            if _title_key(title) in removed_names and _title_key(title) not in remaining_names:
+                new_title = primary_titles[0]
+
+        if gone_titles or gone_genres or new_rating != rating or new_title != title:
             alt_titles = [t for t in alt_titles if t not in gone_titles]
             genres = [g for g in genres if g not in gone_genres]
             if apply:
                 cursor.execute("""
-                    UPDATE series SET alt_titles = ?, genres = ?, content_rating = ?, searchable_text = ?
+                    UPDATE series SET title = ?, alt_titles = ?, genres = ?, content_rating = ?, searchable_text = ?
                     WHERE id = ?
                 """, (
+                    new_title,
                     json.dumps(alt_titles, ensure_ascii=False) if alt_titles else None,
                     json.dumps(genres, ensure_ascii=False) if genres else None,
                     new_rating,
-                    build_searchable_text(series_search_titles(title, title_en, title_romaji, title_native, alt_titles)),
+                    build_searchable_text(series_search_titles(new_title, title_en, title_romaji, title_native, alt_titles)),
                     series_id,
                 ))
+            if new_title != title:
+                result['removed']['title'] = {'old': title, 'new': new_title}
             if gone_titles:
                 result['removed']['alt_titles'] = gone_titles
             if gone_genres:
@@ -224,6 +269,27 @@ def strip_removed_source(series_id, removed, apply=True):
     finally:
         release_db(conn)
     return result
+
+
+# Where each site's cover images live (its CDN, or the local copy the
+# tracker downloads), to tell which source a series' cover came from.
+_COVER_SITE_MARKERS = {
+    'mangadex': ('mangadex.org',),
+    'atsu': ('atsu.moe', '/atsu_covers/'),
+    'kagane': ('kagane.', '/kagane_covers/'),
+    'asura': ('asurascans', 'asuracomic'),
+    'hive': ('hivetoons', 'hivecomic'),
+    'flame': ('flamecomics',),
+}
+
+
+def _cover_is_from_site(cover_url, source_type):
+    return any(m in cover_url for m in _COVER_SITE_MARKERS.get(source_type, ()))
+
+
+def _title_key(title):
+    """A title compared loosely - "Foo!" and "foo" are the same name."""
+    return re.sub(r'[\W_]+', '', str(title or '').casefold())
 
 
 def _add_missing(current, extra):
@@ -249,7 +315,7 @@ def restore_removed_source(series_id, source_id, log_old_value):
         cursor = conn.cursor()
         if source_id and log_old_value.get('metadata'):
             save_source_metadata(cursor, source_id, log_old_value['metadata'])
-        if not any(k in removed for k in ('alt_titles', 'genres', 'content_rating')):
+        if not any(k in removed for k in ('alt_titles', 'genres', 'content_rating', 'cover', 'title')):
             return
         cursor.execute("""
             SELECT title, title_en, title_romaji, title_native, alt_titles, genres, content_rating
@@ -267,6 +333,14 @@ def restore_removed_source(series_id, source_id, log_old_value):
             genres = normalize_tag_list(json.loads(genres_raw)) if genres_raw else []
         except (ValueError, TypeError):
             genres = []
+        # The cover/title it switched: back only if nothing changed them since
+        cover_change = removed.get('cover')
+        if cover_change:
+            cursor.execute("UPDATE series SET cover_url = ? WHERE id = ? AND cover_url = ?",
+                           (cover_change.get('old'), series_id, cover_change.get('new')))
+        title_change = removed.get('title')
+        if title_change and title == title_change.get('new'):
+            title = title_change.get('old')
         alt_titles = _add_missing(alt_titles, removed.get('alt_titles'))
         genres = _add_missing(genres, removed.get('genres'))
         # Only revert the rating if nothing has changed it since.
@@ -274,9 +348,10 @@ def restore_removed_source(series_id, source_id, log_old_value):
         if change and rating == change.get('new'):
             rating = change.get('old')
         cursor.execute("""
-            UPDATE series SET alt_titles = ?, genres = ?, content_rating = ?, searchable_text = ?
+            UPDATE series SET title = ?, alt_titles = ?, genres = ?, content_rating = ?, searchable_text = ?
             WHERE id = ?
         """, (
+            title,
             json.dumps(alt_titles, ensure_ascii=False) if alt_titles else None,
             json.dumps(genres, ensure_ascii=False) if genres else None,
             rating,

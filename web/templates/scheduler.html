@@ -9,6 +9,85 @@
   <meta name="csrf-token" content="{{ csrf_token() }}" />
   <script src="/static/js/notifications.js"></script>
   <style>
+    /* Source sites: up/down from the 30-minute site check */
+    .site-health-list {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .site-health-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-top: 1px solid #263041;
+    }
+
+    .site-health-row:first-child {
+      border-top: none;
+    }
+
+    .site-health-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #64748b;
+    }
+
+    .site-health-dot.up { background: #4ade80; }
+    .site-health-dot.down { background: #ef4444; }
+    .site-health-dot.checking { background: #fbbf24; }
+
+    .site-health-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .site-health-name {
+      color: white;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .site-health-name span {
+      color: #64748b;
+      font-weight: 400;
+      font-size: 12px;
+      margin-left: 6px;
+    }
+
+    .site-health-meta {
+      color: #94a3b8;
+      font-size: 12px;
+      margin-top: 2px;
+    }
+
+    .site-health-meta.down {
+      color: #f87171;
+    }
+
+    .site-health-error {
+      color: #64748b;
+      font-size: 12px;
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .site-health-row .btn-scheduler {
+      padding: 5px 12px;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .site-health-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
     .scheduler-container {
       max-width: 900px;
       margin: 30px auto;
@@ -204,6 +283,25 @@
         min-height: 44px;
       }
 
+      /* Source Sites: the per-site Check stays a small button beside the
+         site, and Check All Now goes under the title */
+      .site-health-row .btn-scheduler {
+        width: auto;
+        min-height: 36px;
+      }
+
+      #site-health-card .scheduler-status-card-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+      }
+
+      .site-health-header-actions {
+        flex-direction: column-reverse;
+        align-items: stretch;
+        gap: 6px;
+      }
+
       .mobile-menu-overlay {
         position: fixed;
         top: 0;
@@ -346,6 +444,19 @@
     <button class="btn-scheduler secondary" id="btn-scheduler-refresh">↻ Refresh</button>
   </div>
 
+  <div class="scheduler-status-card" id="site-health-card">
+    <div class="scheduler-status-card-header">
+      <h2>Source Sites</h2>
+      <div class="site-health-header-actions">
+        <span class="stat-label" id="site-health-next"></span>
+        <button class="btn-scheduler secondary" id="btn-site-health-check-all">Check All Now</button>
+      </div>
+    </div>
+    <div class="site-health-list" id="site-health-list">
+      <p style="color: #94a3b8; margin: 0;">Loading...</p>
+    </div>
+  </div>
+
   <div id="scheduler-cards">
     <p style="color: #94a3b8;">Loading...</p>
   </div>
@@ -485,6 +596,80 @@ function renderSchedulerCards() {
   }).join('');
 }
 
+// ─── Source Sites ───
+// Each site is checked every 30 minutes by fetching one of your series from
+// it the way a scan does (site_health.py) - up only if the chapter list
+// comes back.
+let siteHealthData = null;
+
+function renderSiteHealth() {
+  const list = document.getElementById('site-health-list');
+  if (!list || !siteHealthData) return;
+  const next = document.getElementById('site-health-next');
+  if (next) next.textContent = siteHealthData.next_check_at ? `Next check: ${formatCountdown(siteHealthData.next_check_at)}` : '';
+
+  list.innerHTML = siteHealthData.sites.map(site => {
+    let dot = '', meta = '', metaClass = '';
+    if (site.checking) {
+      dot = 'checking';
+      meta = 'Checking…';
+    } else if (!site.series_count) {
+      meta = 'Not used by any series';
+    } else if (!site.status) {
+      meta = 'Not checked yet';
+    } else if (site.status === 'up') {
+      dot = 'up';
+      meta = `Up · checked ${formatRelativeTime(site.checked_at)}${site.duration_ms != null ? ` · ${(site.duration_ms / 1000).toFixed(1)}s` : ''}`;
+    } else {
+      dot = 'down';
+      metaClass = 'down';
+      meta = `Down since ${formatRelativeTime(site.down_since)} · checked ${formatRelativeTime(site.checked_at)}`;
+    }
+    const error = site.status === 'down' && site.error && !site.checking
+      ? `<div class="site-health-error" title="${escapeHtml(site.error)}">${escapeHtml(site.error)}</div>` : '';
+    return `
+      <div class="site-health-row">
+        <span class="site-health-dot ${dot}"></span>
+        <div class="site-health-info">
+          <div class="site-health-name">${escapeHtml(site.label)}<span>${site.series_count} series</span></div>
+          <div class="site-health-meta ${metaClass}">${meta}</div>
+          ${error}
+        </div>
+        <button class="btn-scheduler secondary" ${site.checking || !site.series_count ? 'disabled' : ''} onclick="checkSites('${site.source_type}')">Check</button>
+      </div>
+    `;
+  }).join('');
+}
+
+async function loadSiteHealth() {
+  try {
+    const res = await fetch('/api/site-health');
+    if (!res.ok) return;
+    siteHealthData = await res.json();
+    renderSiteHealth();
+  } catch (e) {
+    console.error('Failed to load site health:', e);
+  }
+}
+
+async function checkSites(site) {
+  try {
+    const res = await fetch('/api/site-health/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(site ? { site } : {})
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showNotification(data.error || 'Failed to start the check', 'error');
+      return;
+    }
+    setTimeout(loadSiteHealth, 300);
+  } catch (e) {
+    showNotification('Failed to start the check', 'error');
+  }
+}
+
 async function loadSchedulerStatus() {
   try {
     const res = await fetch('/api/scheduler/status');
@@ -529,11 +714,17 @@ async function cancelFetch(status) {
 document.addEventListener('DOMContentLoaded', () => {
   initNotifications();
   loadSchedulerStatus();
-  schedulerPollTimer = setInterval(loadSchedulerStatus, 2000);
+  loadSiteHealth();
+  schedulerPollTimer = setInterval(() => {
+    loadSchedulerStatus();
+    loadSiteHealth();
+  }, 2000);
 
   document.getElementById('btn-scheduler-refresh')?.addEventListener('click', () => {
     loadSchedulerStatus();
+    loadSiteHealth();
   });
+  document.getElementById('btn-site-health-check-all')?.addEventListener('click', () => checkSites(null));
 });
 
 // Mobile menu functionality

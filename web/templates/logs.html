@@ -691,7 +691,11 @@ function getLogDetails(log) {
       }
       case 'source_removed': {
         const label = sourceTypeLabel(oldVal?.source_type);
-        return `Removed ${label} as a source`;
+        const removed = oldVal?.removed || {};
+        const parts = [];
+        if (removed.title) parts.push(`title "${removed.title.old}" → "${removed.title.new}"`);
+        if (removed.cover) parts.push("cover reset to the primary source's");
+        return escapeHtml(`Removed ${label} as a source` + (parts.length ? ` (${parts.join(', ')})` : ''));
       }
       case 'source_cleanup': {
         // What scripts/clean_removed_sources.py took out for a source

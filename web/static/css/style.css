@@ -229,6 +229,50 @@ html {
   white-space: nowrap;
 }
 
+/* A whole site down: one row, its series listed when expanded */
+.source-health-outage {
+  border-bottom: 1px solid #263041;
+}
+
+.source-health-outage:last-child {
+  border-bottom: none;
+}
+
+.source-health-outage .source-health-outage-head {
+  border-bottom: none;
+  position: relative;
+  padding-right: 20px;
+}
+
+.source-health-outage-head::after {
+  content: '';
+  position: absolute;
+  right: 6px;
+  top: 14px;
+  width: 6px;
+  height: 6px;
+  border-right: 2px solid #94a3b8;
+  border-bottom: 2px solid #94a3b8;
+  transform: rotate(45deg);
+  transition: transform 0.15s;
+}
+
+.source-health-outage-head[aria-expanded="true"]::after {
+  transform: rotate(-135deg);
+  top: 17px;
+}
+
+.source-health-outage-list {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0 0 6px 10px;
+  border-left: 2px solid #334155;
+}
+
+.source-health-outage-list.hidden {
+  display: none;
+}
+
 #default-actions,
 #bulk-actions {
   display: flex;
@@ -464,6 +508,24 @@ html {
 
 .search-hidden-matches.no-results {
   padding: 0 20px 60px;
+}
+
+/* "Not in your library? Search the sources for ..." under "No series found." */
+.search-source-offer {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 12px;
+  padding: 0 20px 60px;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+/* Stacked under the "Did you mean" chips: one gap below the last box only */
+.search-suggestions:has(+ .search-source-offer) {
+  padding-bottom: 16px;
 }
 
 /* ================================
@@ -4121,6 +4183,11 @@ a.btn-icon {
 
 .settings-source-dot.inactive {
   background: #64748b;
+}
+
+/* The source's last fetch failed (site down...) */
+.settings-source-dot.down {
+  background: #ef4444;
 }
 
 .settings-source-name {

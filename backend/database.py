@@ -225,12 +225,15 @@ def migrate_to_multi_source():
         raise
 
 def get_series_sources(series_id):
-    """Get all sources for a series, ordered by primary first."""
+    """Get all sources for a series, primary first then oldest first - also
+    the order the scan falls back through when the primary is down (see
+    MangaScheduler.scan_series)."""
     conn = get_db()
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-        SELECT id, source_url, source_type, is_primary, last_check, cover_url
+        SELECT id, source_url, source_type, is_primary, last_check, cover_url,
+               consecutive_failures, last_error
         FROM series_sources
         WHERE series_id = ?
         ORDER BY is_primary DESC, added_at ASC
@@ -247,7 +250,10 @@ def get_series_sources(series_id):
             'source_type': row[2],
             'is_primary': bool(row[3]),
             'last_check': row[4],
-            'cover_url': row[5]
+            'cover_url': row[5],
+            # Whether its last fetch worked - Series Settings' green/red dot
+            'consecutive_failures': row[6] or 0,
+            'last_error': row[7]
         })
 
     return sources

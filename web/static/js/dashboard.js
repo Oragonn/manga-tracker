@@ -2173,10 +2173,33 @@ function renderSourceSelector(sources) {
 	}
 
 	const primary = sources.find(s => s.is_primary) || sources[0];
-	dot.classList.toggle('inactive', !primary.is_primary);
+	dot.classList.remove('inactive');
+	const health = sourceHealthState(primary);
+	dot.classList.toggle('down', health.down);
+	dot.title = health.tip;
 	nameEl.textContent = SOURCE_TYPE_LABELS[primary.source_type] || primary.source_type;
 	chapEl.textContent = (currentSeriesLatestChapter !== null && currentSeriesLatestChapter !== undefined)
 		? `Ch. ${currentSeriesLatestChapter}` : '';
+}
+
+// Green: the source's last fetch worked. Red: it's failing (site down,
+// Cloudflare block, link gone...) - hover says how long and why. While the
+// primary is red, the scan takes the chapter links from the other sources.
+// Also red when the 30-minute site check found the whole site down.
+function sourceHealthState(source) {
+	const failures = source.consecutive_failures || 0;
+	if (source.site_down) {
+		return { down: true, tip: `Site down${source.site_error ? `: ${source.site_error}` : ''}` };
+	}
+	if (failures > 0) {
+		return { down: true, tip: `Down - failed ${failures}x in a row${source.last_error ? `: ${source.last_error}` : ''}` };
+	}
+	return { down: false, tip: 'Up - last check worked' };
+}
+
+function sourceHealthDot(source) {
+	const { down, tip } = sourceHealthState(source);
+	return `<span class="settings-source-dot ${down ? 'down' : ''}" title="${escapeHtml(tip)}"></span>`;
 }
 
 function renderSourceList(sources) {
@@ -2192,7 +2215,7 @@ function renderSourceList(sources) {
 		const label = SOURCE_TYPE_LABELS[s.source_type] || s.source_type;
 		return `
 			<div class="settings-source-item">
-				<span class="settings-source-dot ${s.is_primary ? '' : 'inactive'}"></span>
+				${sourceHealthDot(s)}
 				<span class="settings-source-item-name">${escapeHtml(label)}</span>
 				${s.is_primary ? '<span class="settings-source-item-badge">PRIMARY</span>' : ''}
 				<div class="settings-source-item-actions">
@@ -2284,27 +2307,24 @@ async function refreshSourcesUI() {
 	}
 }
 
-// Stages which source is primary, same as picking a status/tag/cover --
-// only actually commits when Save is clicked (see the btn-save-chapter
-// handler). Used to hit the API immediately, inconsistent with every
-// other field in this modal.
+// Makes a source primary right away, like adding/removing one (no Save
+// needed) - the star button.
 async function setSeriesSourceAsPrimary(sourceId) {
 	if (!currentSeriesIdForEdit || !currentSeriesSourcesPromise) return;
-	pendingPrimarySourceId = parseInt(sourceId, 10);
-	const sources = await currentSeriesSourcesPromise;
-	// The API always returns the primary source first, so that's the order
-	// the list re-appears in once Save actually commits this and the page
-	// reloads -- sort here too so the pending primary jumps to the top
-	// immediately instead of only reordering once saved (it would just
-	// swap the PRIMARY badge onto whichever position the click was on,
-	// otherwise -- correct end state, but the list visibly "waiting on
-	// Save" to reorder looked like the click hadn't really registered).
-	const withPendingPrimary = sources
-		.map(s => ({ ...s, is_primary: s.id === pendingPrimarySourceId }))
-		.sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0));
-	renderSourceSelector(withPendingPrimary);
-	renderSourceList(withPendingPrimary);
-	updateSaveButtonState();
+	const seriesId = currentSeriesIdForEdit;
+	try {
+		const res = await fetch(`/api/series/${seriesId}/sources/${sourceId}/primary`, { method: 'POST' });
+		if (!res.ok) {
+			const data = await res.json().catch(() => ({}));
+			showNotification(data.error || 'Failed to set primary source', 'error');
+			return;
+		}
+		if (currentSeriesIdForEdit === seriesId) await refreshSourcesUI();
+		showNotification('Primary source changed', 'edit');
+		refreshSeriesCardInPlace(seriesId);
+	} catch (e) {
+		showNotification('Failed to set primary source', 'error');
+	}
 }
 
 async function removeSeriesSource(sourceId) {
@@ -4176,6 +4196,8 @@ function openPageJumpPopover(anchor, total) {
 // up with a count of series that have a source stuck failing 3+ scheduler
 // scans in a row.
 let sourceHealthList = [];
+let sourceHealthOutages = []; // sites with many failing series: one row each
+const sourceHealthExpanded = new Set(); // outage rows left open (kept across the 30s refresh)
 let sourceHealthCount = 0;
 const SOURCE_HEALTH_TYPE_LABELS = {
 	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', unknown: 'Unknown'
@@ -4185,8 +4207,9 @@ async function updateSourceHealth() {
 	try {
 		const res = await fetch('/api/source-health');
 		if (!res.ok) return;
-		const { count, sources } = await res.json();
+		const { count, sources, outages } = await res.json();
 		sourceHealthList = sources || [];
+		sourceHealthOutages = outages || [];
 		sourceHealthCount = count || 0;
 		renderSourceHealthUI();
 	} catch (e) {
@@ -4223,17 +4246,66 @@ function renderSourceHealthPanel() {
 function renderSourceHealthList(listId, panelId) {
 	const list = document.getElementById(listId);
 	if (!list) return;
-	if (sourceHealthList.length === 0) {
+	if (sourceHealthList.length === 0 && sourceHealthOutages.length === 0) {
 		list.innerHTML = '<p class="source-health-empty">All sources healthy.</p>';
 		return;
 	}
-	list.innerHTML = sourceHealthList.map(s => `
+	const itemHtml = s => `
 		<button type="button" class="source-health-item" data-source-id="${s.source_id}">
 			<div class="source-health-item-title">${escapeHtml(s.series_title)}</div>
 			<div class="source-health-item-meta">${escapeHtml(SOURCE_HEALTH_TYPE_LABELS[s.source_type] || s.source_type)} — failed ${s.consecutive_failures}x in a row</div>
 			${s.last_error ? `<div class="source-health-item-error" title="${escapeHtml(s.last_error)}">${escapeHtml(s.last_error)}</div>` : ''}
 		</button>
-	`).join('');
+	`;
+	// A site that's down is one row ("Atsumaru looks down - 1,800 series"),
+	// its series listed only when expanded. Their chapters keep coming from
+	// each series' other sources meanwhile (MangaScheduler.scan_series).
+	const outagesHtml = sourceHealthOutages.map(o => {
+		const label = SOURCE_HEALTH_TYPE_LABELS[o.source_type] || o.source_type;
+		return `
+			<div class="source-health-outage">
+				<button type="button" class="source-health-item source-health-outage-head" data-outage="${escapeHtml(o.source_type)}" aria-expanded="false">
+					<div class="source-health-item-title">${escapeHtml(label)} ${o.confirmed ? 'is down' : 'looks down'}</div>
+					<div class="source-health-item-meta">${o.series_count.toLocaleString()} series ${o.confirmed ? 'use it' : 'failing'} — their other sources are used meanwhile</div>
+					${o.last_error ? `<div class="source-health-item-error" title="${escapeHtml(o.last_error)}">${escapeHtml(o.last_error)}</div>` : ''}
+				</button>
+				<div class="source-health-outage-list hidden"></div>
+			</div>
+		`;
+	}).join('');
+	list.innerHTML = outagesHtml + sourceHealthList.map(itemHtml).join('');
+
+	const setOutageOpen = (head, open) => {
+		const box = head.nextElementSibling;
+		box.classList.toggle('hidden', !open);
+		head.setAttribute('aria-expanded', String(open));
+		if (open) sourceHealthExpanded.add(head.dataset.outage);
+		else sourceHealthExpanded.delete(head.dataset.outage);
+		if (open && !box.dataset.filled) {
+			// Filled on first open - can be thousands of rows
+			const outage = sourceHealthOutages.find(o => o.source_type === head.dataset.outage);
+			box.innerHTML = (outage?.sources || []).map(itemHtml).join('')
+				|| '<p class="source-health-empty">None of its series has failed yet.</p>';
+			box.dataset.filled = '1';
+			bindSourceHealthItems(box);
+		}
+	};
+	list.querySelectorAll('.source-health-outage-head').forEach(head => {
+		if (sourceHealthExpanded.has(head.dataset.outage)) setOutageOpen(head, true);
+		head.addEventListener('click', (e) => {
+			e.stopPropagation();
+			setOutageOpen(head, head.getAttribute('aria-expanded') !== 'true');
+		});
+	});
+	bindSourceHealthItems(list);
+
+	function bindSourceHealthItems(container) {
+		container.querySelectorAll(':scope > .source-health-item, :scope .source-health-outage-list > .source-health-item').forEach(item => {
+			if (item.dataset.bound) return;
+			item.dataset.bound = '1';
+			item.addEventListener('click', () => openSourceHealthSeries(item.dataset.sourceId));
+		});
+	}
 
 	// Clicking a row surfaces that series via the existing search filter
 	// (rather than duplicating Series Settings' own source-management UI
@@ -4242,27 +4314,26 @@ function renderSourceHealthList(listId, panelId) {
 	// currently-applied status/rating doesn't stay hidden despite matching
 	// the search text - status and rating are set to the series' own
 	// values, everything else is cleared entirely.
-	list.querySelectorAll('.source-health-item').forEach(item => {
-		item.addEventListener('click', () => {
-			const s = sourceHealthList.find(x => String(x.source_id) === item.dataset.sourceId);
-			if (!s) return;
+	function openSourceHealthSeries(sourceId) {
+		const s = sourceHealthList.find(x => String(x.source_id) === sourceId)
+			|| sourceHealthOutages.flatMap(o => o.sources || []).find(x => String(x.source_id) === sourceId);
+		if (!s) return;
 
-			applyFilterBookmarkState({
-				status: s.status || 'reading',
-				sort: state.sort,
-				dir: state.dir,
-				type: [], genre: [], rating: [], pubStatus: [], readableOn: [], customTags: []
-			});
-
-			const searchInput = document.getElementById('search-input');
-			const mobileSearch = document.getElementById('mobile-search-input');
-			if (searchInput) searchInput.value = s.series_title;
-			if (mobileSearch) mobileSearch.value = s.series_title;
-
-			document.getElementById(panelId)?.classList.add('hidden');
-			loadPage();
+		applyFilterBookmarkState({
+			status: s.status || 'reading',
+			sort: state.sort,
+			dir: state.dir,
+			type: [], genre: [], rating: [], pubStatus: [], readableOn: [], customTags: []
 		});
-	});
+
+		const searchInput = document.getElementById('search-input');
+		const mobileSearch = document.getElementById('mobile-search-input');
+		if (searchInput) searchInput.value = s.series_title;
+		if (mobileSearch) mobileSearch.value = s.series_title;
+
+		document.getElementById(panelId)?.classList.add('hidden');
+		loadPage();
+	}
 }
 
 // updateUnreadErrorCount() itself now lives in notifications.js (loaded on
@@ -4295,6 +4366,30 @@ function renderSearchSuggestions(grid, suggestions) {
 	grid.appendChild(box);
 }
 
+// A title search that found nothing in the library at all (not even hidden
+// by a filter): offer to look it up on the sources instead - the Add
+// modal's search, with that title, so the link found can be pasted right in.
+function renderSourceSearchOffer(grid, query) {
+	if (!query || /^(https?:\/\/|www\.)|\.(org|com|moe|to|xyz)\//i.test(query)) return;
+	if (grid.querySelector('.search-hidden-matches') || typeof window.searchSourcesForTitle !== 'function') return;
+
+	const box = document.createElement('div');
+	box.className = 'search-source-offer';
+	const text = document.createElement('span');
+	text.textContent = 'Not in your library?';
+	box.appendChild(text);
+	const button = document.createElement('button');
+	button.type = 'button';
+	button.className = 'search-suggestion-chip';
+	button.textContent = `Search the sources for "${query}"`;
+	button.title = 'Opens the Add Series search on every source';
+	button.addEventListener('click', () => window.searchSourcesForTitle(query));
+	box.appendChild(button);
+
+	grid.querySelector(':scope > p')?.classList.add('has-suggestions');
+	grid.appendChild(box);
+}
+
 // A search that matched series the Status and/or (usually default)
 // Mature/Explicit rating filter is hiding ("3 more in Completed, 1 in Plan
 // to Read (Mature). Search all statuses?"). hidden is the server's list of
@@ -4314,26 +4409,41 @@ function renderHiddenMatches(grid, hidden, hasResults) {
 		return excludeRatings.includes(rating);
 	};
 
+	// The other filters hiding a match ('filtered' from the server), named
+	// as the toolbar names them
+	const activeFilterNames = [
+		state.genre?.length && 'Tags',
+		state.customTags?.length && 'Custom Tags',
+		state.type?.length && 'Type',
+		state.pubStatus?.length && 'Publication Status',
+		state.readableOn?.length && 'Readable On'
+	].filter(Boolean);
+
 	const rows = (hidden || [])
 		.slice()
 		.sort((a, b) => b.count - a.count)
 		.filter(r => r.count > 0)
-		.map(({ status, rating, count }) => ({
+		.map(({ status, rating, count, filtered }) => ({
 			count,
 			// null out whichever dimension isn't actually why it's hidden,
 			// per the CURRENT client-side filter state (the response may be
 			// a beat stale if the filters changed right as it arrived)
 			status: (state.status !== 'all' && status !== state.status) ? status : null,
-			rating: isRatingHiding(rating) ? rating : null
+			rating: isRatingHiding(rating) ? rating : null,
+			filtered: Boolean(filtered) && activeFilterNames.length > 0
 		}))
-		.filter(r => r.status || r.rating);
+		.filter(r => r.status || r.rating || r.filtered);
 	if (rows.length === 0) return;
 
 	const statusChanged = rows.some(r => r.status);
 	const ratingsToShow = [...new Set(rows.filter(r => r.rating).map(r => r.rating))];
+	const filtersHiding = rows.some(r => r.filtered);
+	const filterLabel = activeFilterNames.length === 1
+		? `the ${activeFilterNames[0]} filter`
+		: `your ${activeFilterNames.join(' / ')} filters`;
 
 	let firstStatusShown = false;
-	const parts = rows.map(({ status, rating, count }) => {
+	const parts = rows.map(({ status, rating, count, filtered }) => {
 		const bits = [];
 		if (status) {
 			const more = (!firstStatusShown && hasResults) ? 'more ' : '';
@@ -4341,6 +4451,7 @@ function renderHiddenMatches(grid, hidden, hasResults) {
 			bits.push(`${more}in ${STATUS_LABELS_FOR_BOOKMARKS[status] || status}`);
 		}
 		if (rating) bits.push(`tagged ${CONTENT_RATING_LABELS[rating] || rating}`);
+		if (filtered) bits.push(`${!bits.length && hasResults ? 'more ' : ''}hidden by ${filterLabel}`);
 		return `${count} ${bits.join(', ')}`;
 	});
 
@@ -4353,13 +4464,13 @@ function renderHiddenMatches(grid, hidden, hasResults) {
 	const button = document.createElement('button');
 	button.type = 'button';
 	button.className = 'search-suggestion-chip';
-	if (ratingsToShow.length > 0) {
+	if (ratingsToShow.length > 0 || filtersHiding) {
 		// A plain status switch is one click via the Status dropdown's own
 		// "All" option (searchAllStatuses), but dropping a rating exclusion
-		// has no such single control to reuse, so this drives both through
-		// applyFilterBookmarkState directly.
+		// or the other filters has no such single control to reuse, so this
+		// drives them all through applyFilterBookmarkState directly.
 		button.textContent = 'Show anyway';
-		button.addEventListener('click', () => showHiddenMatches(statusChanged, ratingsToShow));
+		button.addEventListener('click', () => showHiddenMatches(statusChanged, ratingsToShow, filtersHiding));
 	} else {
 		button.textContent = 'Search all statuses';
 		button.addEventListener('click', searchAllStatuses);
@@ -4376,13 +4487,21 @@ function renderHiddenMatches(grid, hidden, hasResults) {
 
 // "Show anyway" from renderHiddenMatches: switches to All Statuses and/or
 // drops the given ratings' exclude entries (same effect as unchecking them
-// down to neutral in the Tags dropdown), keeping the search text and every
-// other active filter as-is.
-function showHiddenMatches(includeAllStatuses, ratingsToInclude) {
+// down to neutral in the Tags dropdown) and/or clears the tag, custom tag,
+// type, publication status and readable-on filters, keeping the search
+// text and everything else as-is.
+function showHiddenMatches(includeAllStatuses, ratingsToInclude, clearFilters = false) {
 	const fs = captureCurrentFilterState();
 	if (includeAllStatuses) fs.status = 'all';
 	if (ratingsToInclude.length > 0) {
 		fs.rating = fs.rating.filter(r => !ratingsToInclude.includes(r.name));
+	}
+	if (clearFilters) {
+		fs.genre = [];
+		fs.customTags = [];
+		fs.type = [];
+		fs.pubStatus = [];
+		fs.readableOn = [];
 	}
 	applyFilterBookmarkState(fs);
 	state.page = 1;
@@ -4562,6 +4681,7 @@ async function loadPage() {
 			});
 		}
 		renderHiddenMatches(seriesGrid, data.hidden_matches, data.items.length > 0);
+		if (data.items.length === 0) renderSourceSearchOffer(seriesGrid, searchQuery);
 
 		renderPagination(data.current_page, data.total_pages, status, sort);
 	} catch (err) {
@@ -5302,7 +5422,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		SEARCH_SITES.forEach(site => openInNewTab(addSeriesSearchUrl(site, title)));
 	}
 
-	function resetAddSeriesModalView() {
+	function resetAddSeriesModalView(keepSearchTitle = false) {
 		if (!addSeriesUrlView || !addSeriesSearchView || !addSeriesSearchToggleBtn) return;
 		addSeriesSearchView.classList.add('hidden');
 		addSeriesUrlView.classList.remove('hidden');
@@ -5310,9 +5430,51 @@ document.addEventListener('DOMContentLoaded', () => {
 		addSeriesSearchToggleBtn.title = 'Search across sources';
 		document.getElementById('btn-add-series-related-toggle')?.classList.remove('hidden');
 		if (addSeriesModalTitle) addSeriesModalTitle.textContent = 'Add New Series';
-		if (addSeriesSearchTitleInput) addSeriesSearchTitleInput.value = '';
+		if (addSeriesSearchTitleInput && !keepSearchTitle) addSeriesSearchTitleInput.value = '';
 		syncAddModalWidth();
 	}
+
+	// Once the source tabs are open, the modal goes back to the link box,
+	// focused - coming back with a link, it can be pasted straight away
+	// instead of clicking the box first. The title stays in the search view
+	// (the toggle) for another try. After the click/Enter has been handled
+	// (by the page, or the extension that takes the search over), so the
+	// button isn't hidden under the event.
+	function backToAddLinkAfterSearch() {
+		if (!addSeriesSearchTitleInput?.value.trim()) return;
+		setTimeout(() => {
+			if (addModal.classList.contains('hidden') || addSeriesSearchView.classList.contains('hidden')) return;
+			resetAddSeriesModalView(true);
+			document.getElementById('new-series-url')?.focus();
+		}, 0);
+	}
+
+	// The modal's box to type in: the link box, or the title in the search view
+	function focusAddModalInput() {
+		// Not on touch screens: focusing pops the keyboard up
+		if (addModal.classList.contains('hidden') || window.matchMedia('(pointer: coarse)').matches) return;
+		const active = document.activeElement;
+		if (active && addModal.contains(active) && active.matches('input, textarea, select')) return;
+		const input = addSeriesSearchView && !addSeriesSearchView.classList.contains('hidden')
+			? addSeriesSearchTitleInput
+			: (addSeriesUrlView && !addSeriesUrlView.classList.contains('hidden') ? document.getElementById('new-series-url') : null);
+		input?.focus();
+	}
+	// Coming back to the tab (from the source tabs) with focus on a button
+	// or nowhere: put it back in the box, ready to type/paste
+	window.addEventListener('focus', focusAddModalInput);
+
+	// The dashboard's "Search sources" offer when a search finds nothing in
+	// the library: the Add modal's search with that title, run right away.
+	window.searchSourcesForTitle = (title) => {
+		if (!btnAddSeries || !addSeriesSearchToggleBtn || !addSeriesSearchTitleInput || !addSeriesSearchSubmitBtn) return;
+		btnAddSeries.click();
+		addSeriesSearchToggleBtn.click();
+		addSeriesSearchTitleInput.value = title;
+		// The extension, when installed, takes this click over (K/Y/U)
+		addSeriesSearchSubmitBtn.click();
+		backToAddLinkAfterSearch();
+	};
 
 	if (addSeriesUrlView && addSeriesSearchView && addSeriesSearchToggleBtn) {
 		addSeriesSearchToggleBtn.addEventListener('click', () => {
@@ -5327,6 +5489,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				addSeriesSearchTitleInput.focus();
 			} else {
 				resetAddSeriesModalView();
+				document.getElementById('new-series-url')?.focus();
 			}
 		});
 
@@ -5336,8 +5499,15 @@ document.addEventListener('DOMContentLoaded', () => {
 				openAllAddSeriesSearches();
 			}
 		});
+		// keyup/mouseup, not keydown/click: the extension stops those
+		addSeriesSearchTitleInput.addEventListener('keyup', (e) => {
+			if (e.key === 'Enter' && !e.isComposing) backToAddLinkAfterSearch();
+		});
 
 		if (addSeriesSearchSubmitBtn) {
+			addSeriesSearchSubmitBtn.addEventListener('mouseup', (e) => {
+				if (e.button === 0 || e.button === 1) backToAddLinkAfterSearch();
+			});
 			addSeriesSearchSubmitBtn.addEventListener('click', openAllAddSeriesSearches);
 			addSeriesSearchSubmitBtn.addEventListener('auxclick', (e) => {
 				if (e.button === 1) { // middle click

@@ -1842,6 +1842,7 @@ def api_series():
     search_rank_sql = None
     search_suggestions = []
     filter_clause_count = len(where_parts)
+    filter_param_count = len(params)
     if search_query:
         from .source_links import parse_source_link, find_series_ids
         from .search_utils import search_series, suggest_series
@@ -1899,18 +1900,27 @@ def api_series():
     # rating) -- checking status in isolation would find nothing for it and
     # the dashboard would give no explanation at all, which is exactly what
     # was happening for a Plan to Read series tagged Mature.
+    # The other filters (tags, custom tags, type, publication status,
+    # readable on) are checked the same way, as one group: 'filtered' says a
+    # match is hidden by them - otherwise a search for a series outside the
+    # selected tag just said "No series found." with no hint at all.
     hidden_matches = []
-    if (status_where or rating_where) and len(where_parts) > filter_clause_count:
+    if (status_where or rating_where or filter_clause_count) and len(where_parts) > filter_clause_count:
         status_ok = "status = ?" if status_where else "1=1"
         rating_ok = "(" + " AND ".join(rating_where) + ")" if rating_where else "1=1"
+        filters_ok = "(" + " AND ".join(where_parts[:filter_clause_count]) + ")" if filter_clause_count else "1=1"
+        filter_params = params[:filter_param_count]
+        search_where = " AND ".join(where_parts[filter_clause_count:])
         cursor.execute(
-            f"SELECT status, content_rating, COUNT(*) FROM series WHERE {' AND '.join(where_parts)} "
-            f"AND NOT ({status_ok} AND {rating_ok}) GROUP BY status, content_rating",
-            params + ([status_filter] if status_where else []) + rating_params
+            f"SELECT status, content_rating, CASE WHEN {filters_ok} THEN 1 ELSE 0 END, COUNT(*) "
+            f"FROM series WHERE {search_where} "
+            f"AND NOT ({status_ok} AND {rating_ok} AND {filters_ok}) GROUP BY 1, 2, 3",
+            filter_params + params[filter_param_count:]
+            + ([status_filter] if status_where else []) + rating_params + filter_params
         )
         hidden_matches = [
-            {'status': status, 'rating': rating, 'count': count}
-            for status, rating, count in cursor.fetchall() if status and count
+            {'status': status, 'rating': rating, 'count': count, 'filtered': not passes_filters}
+            for status, rating, passes_filters, count in cursor.fetchall() if status and count
         ]
 
     where_parts += status_where

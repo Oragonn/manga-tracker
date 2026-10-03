@@ -16,6 +16,7 @@ import json
 import csv
 import io
 import threading
+from collections import Counter
 
 @app.route('/errors')
 def errors_page():
@@ -447,6 +448,7 @@ def api_undo_log(log_id):
                         updates['genres'] = json.dumps(old_value['genres'], ensure_ascii=False) if old_value['genres'] else None
                     if updates:
                         update_series(series_id, updates)
+                    _undo_primary_change(series_id, old_value)
                 except Exception as e:
                     print(f"[Undo] Failed to revert edits: {e}")
                     return jsonify({'error': f'Failed to revert edits: {str(e)}'}), 500
@@ -501,7 +503,7 @@ def api_undo_log(log_id):
                     conn_check = get_db()
                     cursor_check = conn_check.cursor()
                     cursor_check.execute(
-                        "SELECT id, source_url, source_type, metadata FROM series_sources WHERE series_id = ? AND source_url = ?",
+                        "SELECT id, source_url, source_type, metadata, cover_url FROM series_sources WHERE series_id = ? AND source_url = ?",
                         (series_id, clean_source_url(new_value['source_url']))
                     )
                     row_check = cursor_check.fetchone()
@@ -514,6 +516,7 @@ def api_undo_log(log_id):
                             from .source_metadata import strip_removed_source
                             strip_removed_source(series_id, {
                                 'source_url': row_check[1], 'source_type': row_check[2], 'metadata': row_check[3],
+                                'cover_url': row_check[4],
                             })
                         except Exception as e:
                             print(f"[Undo] Metadata cleanup failed: {e}")
@@ -1097,14 +1100,84 @@ def api_download_series_backup(filename):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# How many series failing on one site make it a site-wide outage
+SITE_OUTAGE_MIN_SERIES = 5
+
+
 @app.route('/api/source-health')
 def api_source_health():
     """Sources with 3+ consecutive scheduler-scan failures, for the
     dashboard's source-health indicator (btn-source-alert)."""
     from .database import get_unhealthy_sources
     sources = get_unhealthy_sources(threshold=3)
-    series_count = len({s['series_id'] for s in sources})
-    return jsonify({'count': series_count, 'sources': sources})
+    # A site with many failing series is down (or blocking us) rather than
+    # each series being broken - one "Atsumaru is down, N series" entry
+    # instead of a row per series (and a badge in the thousands).
+    by_site = {}
+    for s in sources:
+        by_site.setdefault(s['source_type'], []).append(s)
+    outages = []
+    for source_type, site_sources in by_site.items():
+        if len({s['series_id'] for s in site_sources}) < SITE_OUTAGE_MIN_SERIES:
+            continue
+        errors = Counter(s['last_error'] for s in site_sources if s['last_error'])
+        outages.append({
+            'source_type': source_type,
+            'series_count': len({s['series_id'] for s in site_sources}),
+            'last_error': errors.most_common(1)[0][0] if errors else None,
+            'last_failure_at': max((s['last_failure_at'] or '' for s in site_sources), default=None) or None,
+            'sources': site_sources,
+        })
+    # A site the 30-minute site check found down is an outage straight
+    # away, however few of its series have failed so far
+    from .site_health import get_site_health, SITE_LABELS
+    from .database import get_db, release_db
+    checked_down = {t: h for t, h in get_site_health().items() if h['status'] == 'down'}
+    if checked_down:
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT source_type, COUNT(DISTINCT series_id) FROM series_sources GROUP BY source_type")
+            using = dict(cursor.fetchall())
+        finally:
+            release_db(conn)
+        for source_type, h in checked_down.items():
+            outage = next((o for o in outages if o['source_type'] == source_type), None)
+            if outage is None:
+                outage = {'source_type': source_type, 'sources': by_site.get(source_type, [])}
+                outages.append(outage)
+            outage.update({
+                'confirmed': True,  # the site check itself failed, not just some series
+                'series_count': using.get(source_type, outage.get('series_count', 0)),
+                'last_error': h['error'] or outage.get('last_error'),
+                'down_since': h['down_since'],
+            })
+    outages.sort(key=lambda o: o['series_count'], reverse=True)
+    down_sites = {o['source_type'] for o in outages}
+    single = [s for s in sources if s['source_type'] not in down_sites]
+    series_count = len({s['series_id'] for s in single}) + len(outages)
+    return jsonify({'count': series_count, 'sources': single, 'outages': outages})
+
+
+@app.route('/api/site-health')
+def api_site_health():
+    """Every source site's last up/down check, for the Scheduler page."""
+    from .site_health import summary
+    return jsonify(summary())
+
+
+@app.route('/api/site-health/check', methods=['POST'])
+def api_site_health_check():
+    """Check every site now ({site: 'atsu'} for just one), in the background."""
+    from .site_health import check_all, SITES
+    from . import api
+    site = (request.get_json(silent=True) or {}).get('site')
+    if site is not None and site not in SITES:
+        return jsonify({'error': 'Unknown site'}), 400
+    if not hasattr(api, 'manga_scheduler'):
+        return jsonify({'error': 'Scheduler not running'}), 500
+    check_all(api.manga_scheduler.fetch_for_site_check, only=site)
+    return jsonify({'success': True}), 202
 
 
 @app.route('/api/series/<int:series_id>/sources')
@@ -1112,7 +1185,14 @@ def api_get_sources(series_id):
     """Get all sources for a series."""
     try:
         from .database import get_series_sources
+        from .site_health import get_site_health
         sources = get_series_sources(series_id)
+        # Series Settings' red/green dot: red too when the whole site is down
+        health = get_site_health()
+        for s in sources:
+            h = health.get(s['source_type'])
+            s['site_down'] = bool(h and h['status'] == 'down')
+            s['site_error'] = h['error'] if s['site_down'] else None
         return jsonify({'sources': sources})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1439,55 +1519,98 @@ def _log_source_add_failure(series_id, source_url, error_msg):
         pass
 
 
+def _undo_primary_change(series_id, old_value):
+    """Undo of a primary-source change: make the old primary (logged by its
+    link; older entries only say 'changed') primary again, if it's still
+    one of the series' sources."""
+    old_url = old_value.get('primary_source')
+    if not old_url or old_url == 'changed':
+        return
+    from .database import get_db, release_db, set_primary_source
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM series_sources WHERE series_id = ? AND source_url = ?", (series_id, old_url))
+        row = cursor.fetchone()
+    finally:
+        release_db(conn)
+    if row and set_primary_source(series_id, row[0]):
+        try:
+            from . import api
+            if hasattr(api, 'manga_scheduler'):
+                threading.Thread(
+                    target=api.manga_scheduler.scan_series, args=(series_id,), daemon=True
+                ).start()
+        except Exception as e:
+            print(f"[Undo] Failed to trigger scan: {e}")
+
+
+def _current_primary_url(series_id):
+    from .database import get_db, release_db
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT source_url FROM series_sources WHERE series_id = ? AND is_primary = 1", (series_id,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    finally:
+        release_db(conn)
+
+
+def _after_primary_change(series_id, source_id, old_primary_url):
+    """Log a primary-source change (undoable: the old primary's link is
+    kept) and rescan in the background."""
+    try:
+        from .activity_logger import log_activity
+        from .database import get_db, release_db
+
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
+        title = cursor.fetchone()
+        cursor.execute("SELECT source_url, source_type FROM series_sources WHERE id = ?", (source_id,))
+        source_info = cursor.fetchone()
+        release_db(conn)
+
+        if title and source_info:
+            log_activity(
+                action_type='edited',
+                series_id=series_id,
+                series_title=title[0],
+                old_value={'primary_source': old_primary_url or 'changed'},
+                new_value={
+                    'primary_source': source_info[0],
+                    'source_type': source_info[1]
+                }
+            )
+    except Exception as log_err:
+        print(f"[Set Primary] Logging failed: {log_err}")
+
+    # The primary source's links win the chapter merge, but the
+    # stored chapters are already merged under the old primary -
+    # rescan so the new primary's links replace them now rather
+    # than at the next scheduled check. In the background, since a
+    # full multi-source fetch (Kagane especially) is slow.
+    try:
+        from . import api
+        if hasattr(api, 'manga_scheduler'):
+            threading.Thread(
+                target=api.manga_scheduler.scan_series, args=(series_id,), daemon=True
+            ).start()
+    except Exception as e:
+        print(f"[Set Primary] Failed to trigger scan: {e}")
+
+
 @app.route('/api/series/<int:series_id>/sources/<int:source_id>/primary', methods=['POST'])
 def api_set_primary_source(series_id, source_id):
     """Set a source as primary."""
     try:
         from .database import set_primary_source
+        old_primary_url = _current_primary_url(series_id)
         success = set_primary_source(series_id, source_id)
-        
+
         if success:
-            # Log the change
-            try:
-                from .activity_logger import log_activity
-                from .database import get_db, release_db
-                
-                conn = get_db()
-                cursor = conn.cursor()
-                cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
-                title = cursor.fetchone()
-                cursor.execute("SELECT source_url, source_type FROM series_sources WHERE id = ?", (source_id,))
-                source_info = cursor.fetchone()
-                release_db(conn)
-                
-                if title and source_info:
-                    log_activity(
-                        action_type='edited',
-                        series_id=series_id,
-                        series_title=title[0],
-                        old_value={'primary_source': 'changed'},
-                        new_value={
-                            'primary_source': source_info[0],
-                            'source_type': source_info[1]
-                        }
-                    )
-            except Exception as log_err:
-                print(f"[Set Primary] Logging failed: {log_err}")
-
-            # The primary source's links win the chapter merge, but the
-            # stored chapters are already merged under the old primary -
-            # rescan so the new primary's links replace them now rather
-            # than at the next scheduled check. In the background, since a
-            # full multi-source fetch (Kagane especially) is slow.
-            try:
-                from . import api
-                if hasattr(api, 'manga_scheduler'):
-                    threading.Thread(
-                        target=api.manga_scheduler.scan_series, args=(series_id,), daemon=True
-                    ).start()
-            except Exception as e:
-                print(f"[Set Primary] Failed to trigger scan: {e}")
-
+            _after_primary_change(series_id, source_id, old_primary_url)
             return jsonify({'success': True})
         else:
             return jsonify({'error': 'Failed to set primary source'}), 500
@@ -1507,7 +1630,7 @@ def api_remove_source(series_id, source_id):
         cursor = conn.cursor()
         cursor.execute("SELECT title FROM series WHERE id = ?", (series_id,))
         title_row = cursor.fetchone()
-        cursor.execute("SELECT source_url, source_type, metadata FROM series_sources WHERE id = ?", (source_id,))
+        cursor.execute("SELECT source_url, source_type, metadata, cover_url FROM series_sources WHERE id = ?", (source_id,))
         source_row = cursor.fetchone()
         release_db(conn)
 
@@ -1522,6 +1645,7 @@ def api_remove_source(series_id, source_id):
                     from .source_metadata import strip_removed_source
                     cleanup = strip_removed_source(series_id, {
                         'source_url': source_row[0], 'source_type': source_row[1], 'metadata': source_row[2],
+                        'cover_url': source_row[3],
                     })
                 except Exception as e:
                     print(f"[Remove Source] Metadata cleanup failed: {e}")

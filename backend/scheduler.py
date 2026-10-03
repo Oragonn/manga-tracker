@@ -561,6 +561,12 @@ class MangaScheduler:
                 continue
 
             existing = merged_chapters[ch_num]
+            # A down source's carried-over copy only fills a gap: any copy
+            # from a source that answered this scan wins over it.
+            if bool(ch.get('stale')) != bool(existing.get('stale')):
+                if existing.get('stale'):
+                    merged_chapters[ch_num] = ch
+                continue
             if is_primary(ch) != is_primary(existing):
                 if is_primary(ch):
                     merged_chapters[ch_num] = ch
@@ -633,6 +639,7 @@ class MangaScheduler:
             all_chapters = []
             successful_sources = 0
             sources_reached = 0  # fetch didn't raise, whether or not it returned chapters
+            reached_ids = set()
             primary_status = None  # publication status reported by the primary source
 
             # The chapters each source supplied last time. A source that had
@@ -683,6 +690,15 @@ class MangaScheduler:
                             record_source_failure(source['id'], str(source_error))
                         except Exception:
                             pass
+                        # Down (outage, Cloudflare...): keep what it supplied
+                        # last time so its chapters don't vanish, but marked
+                        # stale - any working source's copy of a chapter wins
+                        # over it in the merge, primary or not.
+                        for ch in previous_by_source.get(source_type) or []:
+                            ch['source_id'] = source['id']
+                            ch['source_url'] = source['source_url']
+                            ch['stale'] = True
+                            all_chapters.append(ch)
                         # Kagane already logs its own scan failures (with
                         # more specific context) inside camoufox_kagane.py's
                         # browser client, several layers below this - only
@@ -723,6 +739,7 @@ class MangaScheduler:
                         for ch in previous:
                             ch['source_id'] = source['id']
                             ch['source_url'] = source['source_url']
+                            ch['stale'] = True
                         all_chapters.extend(previous)
                         continue
 
@@ -737,10 +754,17 @@ class MangaScheduler:
                     except Exception:
                         pass
                     sources_reached += 1
+                    reached_ids.add(source['id'])
                     if source.get('is_primary') and status:
                         primary_status = status
 
                     if chapters:
+                        try:
+                            # The site works - clears a "down" from the last site check
+                            from .site_health import note_site_ok
+                            note_site_ok(source_type)
+                        except Exception:
+                            pass
                         # Tag chapters with source info
                         for ch in chapters:
                             ch['source_id'] = source['id']
@@ -843,6 +867,16 @@ class MangaScheduler:
                         'source_url': None,
                     })
 
+            if sources_reached == 0 and not overrides:
+                # Every source is down: nothing new is known, so the stored
+                # chapters stay exactly as they are (links included).
+                conn = get_db()
+                try:
+                    self._update_last_check(series_id, conn)
+                finally:
+                    release_db(conn)
+                return
+
             # *** FIX: Improved chapter merging logic ***
             if not all_chapters:
                 conn = get_db()
@@ -864,7 +898,11 @@ class MangaScheduler:
                     release_db(conn)
                 return
             
-            primary = next((s for s in sources if s.get('is_primary')), None)
+            # The primary's links win the merge - unless it's down, then the
+            # next working source (oldest added first) stands in for it
+            # until it's back.
+            primary = (next((s for s in sources if s['id'] in reached_ids), None)
+                       or next((s for s in sources if s.get('is_primary')), None))
             final_chapters = self._merge_chapters(all_chapters, primary)
             
             print(f"[Scheduler] Final merged chapters: {len(final_chapters)}")
@@ -1155,6 +1193,18 @@ class MangaScheduler:
         # the "Has Related" custom tag, brought up to date once after startup
         # (after that, whenever relations change)
         related_series.schedule_tag_sync(60)
+        # Is each source site up? Checked every 30 minutes (site_health.py)
+        from . import site_health
+        threading.Thread(
+            target=site_health.run_loop,
+            args=(self.fetch_for_site_check, lambda: self.active),
+            daemon=True,
+        ).start()
+
+    def fetch_for_site_check(self, source):
+        """One source fetched exactly as a scan does - the site check's probe
+        (no series_id: nothing about the series gets recorded)."""
+        return self._fetch_source_chapters(source)
 
     def stop(self):
         self.active = False
