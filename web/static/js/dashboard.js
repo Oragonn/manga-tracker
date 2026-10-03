@@ -1340,8 +1340,44 @@ function openEditModal(series) {
 	renderTitleVariants(series);
 
 	const coverImg = document.getElementById('edit-series-cover-img');
-	coverImg.src = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
+	const coverSrc = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
+	// An <img> keeps painting its old picture until the new src has loaded,
+	// so the last series' cover would flash here -- hide it until then.
+	if (coverImg.getAttribute('src') !== coverSrc) {
+		coverImg.style.visibility = 'hidden';
+		const reveal = () => { coverImg.style.visibility = ''; };
+		coverImg.addEventListener('load', reveal, { once: true });
+		coverImg.addEventListener('error', reveal, { once: true });
+	}
+	coverImg.src = coverSrc;
 	coverImg.alt = series.title || '';
+
+	// The Source selector/list and Custom Tags are only filled in once their
+	// fetches below land -- until then they'd still show the last series'.
+	currentPrimarySourceId = null;
+	pendingPrimarySourceId = null;
+	const sourceDot = document.getElementById('settings-source-dot');
+	if (sourceDot) {
+		sourceDot.classList.add('inactive');
+		sourceDot.classList.remove('down');
+		sourceDot.title = '';
+	}
+	const sourceNameEl = document.getElementById('settings-source-name');
+	if (sourceNameEl) sourceNameEl.textContent = 'Loading…';
+	const sourceChapterEl = document.getElementById('settings-source-chapter');
+	if (sourceChapterEl) sourceChapterEl.textContent = '';
+	const sourceListEl = document.getElementById('settings-source-list');
+	if (sourceListEl) sourceListEl.innerHTML = '<p class="settings-cover-menu-empty">Loading…</p>';
+
+	currentSeriesTagIds = [];
+	pendingSeriesTagIds = [];
+	const tagsTextEl = document.getElementById('settings-tags-selector-text');
+	if (tagsTextEl) {
+		tagsTextEl.textContent = 'Loading…';
+		tagsTextEl.classList.add('settings-tags-selector-muted');
+	}
+	const tagsListEl = document.getElementById('settings-tags-list');
+	if (tagsListEl) tagsListEl.innerHTML = '<p class="settings-cover-menu-empty">Loading…</p>';
 
 	currentSeriesSourcesPromise = fetch(`/api/series/${series.id}/sources`)
 		.then(r => r.json())
