@@ -1269,6 +1269,51 @@ function closeEditSeriesModal() {
 	}
 }
 
+// Resting the mouse on a card (or its Edit button) starts loading what its
+// Series Settings shows, so it's usually there by the click. Each answer is
+// used once and only for a short while - opening later fetches it fresh.
+const SETTINGS_PREFETCH_TTL = 15000;
+const settingsPrefetches = new Map(); // url -> { promise, at }
+
+function fetchJsonOrThrow(url) {
+	return fetch(url).then(r => {
+		if (!r.ok) throw new Error(`HTTP ${r.status}`);
+		return r.json();
+	});
+}
+
+function settingsDataUrl(seriesId) {
+	return `/api/series/${seriesId}/settings-data`;
+}
+
+function settingsRelatedUrl(seriesId) {
+	return `/api/related-series?series_id=${seriesId}`;
+}
+
+function prefetchSeriesSettings(seriesId) {
+	const now = Date.now();
+	for (const [url, entry] of settingsPrefetches) {
+		if (now - entry.at >= SETTINGS_PREFETCH_TTL) settingsPrefetches.delete(url);
+	}
+	for (const url of [settingsDataUrl(seriesId), settingsRelatedUrl(seriesId)]) {
+		if (settingsPrefetches.has(url)) continue;
+		const promise = fetchJsonOrThrow(url);
+		promise.catch(() => {}); // never used, or failed - the open fetches again
+		settingsPrefetches.set(url, { promise, at: now });
+	}
+}
+
+// The prefetched answer for url if there's a recent one (taken out, so
+// it's used once), otherwise a fresh fetch.
+function takeSettingsData(url) {
+	const entry = settingsPrefetches.get(url);
+	settingsPrefetches.delete(url);
+	if (entry && Date.now() - entry.at < SETTINGS_PREFETCH_TTL) {
+		return entry.promise.catch(() => fetchJsonOrThrow(url));
+	}
+	return fetchJsonOrThrow(url);
+}
+
 function openEditModal(series) {
 	currentSeriesIdForEdit = series.id;
 	currentSeriesForEdit = series;
@@ -1383,11 +1428,7 @@ function openEditModal(series) {
 	// chapters...) - eight separate ones queued behind each other, since a
 	// browser only runs six at once. Each part falls back to empty on its own
 	// if it fails, as when they were separate.
-	const settingsData = fetch(`/api/series/${series.id}/settings-data`)
-		.then(r => {
-			if (!r.ok) throw new Error(`HTTP ${r.status}`);
-			return r.json();
-		});
+	const settingsData = takeSettingsData(settingsDataUrl(series.id));
 	settingsData.catch(err => console.error('Series Settings load error:', err));
 
 	currentSeriesSourcesPromise = settingsData
@@ -3918,6 +3959,18 @@ Max
 		}
 	});
 	btnSet.addEventListener('click', () => openEditModal(series));
+	// Start loading its Series Settings before the click: straight away on
+	// the Edit button, after a short rest on the card (not for every card
+	// the mouse crosses). Mouse only - a phone has no hover.
+	let settingsPrefetchTimer = null;
+	card.addEventListener('pointerenter', (e) => {
+		if (e.pointerType !== 'mouse') return;
+		settingsPrefetchTimer = setTimeout(() => prefetchSeriesSettings(series.id), 300);
+	});
+	card.addEventListener('pointerleave', () => clearTimeout(settingsPrefetchTimer));
+	btnSet.addEventListener('pointerenter', (e) => {
+		if (e.pointerType === 'mouse') prefetchSeriesSettings(series.id);
+	});
 	
 	// *** UPDATED: Use auxclick for proper middle-click detection ***
 	// Avoid the autoscroll cursor on middle-click eating the auxclick below
@@ -7072,9 +7125,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		btn.textContent = 'Related Series';
 		btn.title = 'Looking up its related series…';
 		try {
-			const res = await fetch(`/api/related-series?series_id=${seriesId}`);
-			if (!res.ok) throw new Error(`HTTP ${res.status}`);
-			const data = await res.json();
+			const data = await takeSettingsData(settingsRelatedUrl(seriesId));
 			// Settings moved on to another series in the meantime
 			if (ticket !== settingsRelatedTicket || currentSeriesIdForEdit !== seriesId) return;
 			applySettingsRelatedButton(data);
