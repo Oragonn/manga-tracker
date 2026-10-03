@@ -412,19 +412,35 @@ def scan_now():
 
 # ── Reading ──────────────────────────────────────────────────────
 
+# (title, title_en, title_romaji, alt_titles) -> its normalised titles.
+# Normalising the whole library's ~24k titles was nearly all of the time
+# Series Settings' Related button waited on; a series' row only needs it
+# again once one of its titles changes.
+_normalised_titles = {}
+
+
 def _library_titles(cursor):
     """{normalised title: series id} for every tracked series' titles - so
     a related series tracked from another site (not the link it's listed
     with) is still found in the library."""
+    global _normalised_titles
     cursor.execute("SELECT id, title, title_en, title_romaji, alt_titles FROM series ORDER BY id")
     titles = {}
+    cache = {}
     for series_id, title, title_en, title_romaji, alt_titles in cursor.fetchall():
-        try:
-            alts = json.loads(alt_titles) if alt_titles else []
-        except (ValueError, TypeError):
-            alts = []
-        for normalised in comparable_titles([title, title_en, title_romaji, *(alts if isinstance(alts, list) else [])]):
-            titles.setdefault(normalised, series_id)
+        key = (title, title_en, title_romaji, alt_titles)
+        normalised = _normalised_titles.get(key)
+        if normalised is None:
+            try:
+                alts = json.loads(alt_titles) if alt_titles else []
+            except (ValueError, TypeError):
+                alts = []
+            normalised = comparable_titles([title, title_en, title_romaji, *(alts if isinstance(alts, list) else [])])
+        cache[key] = normalised
+        for title_key in normalised:
+            titles.setdefault(title_key, series_id)
+    # rebuilt each time, so titles no longer in the library drop out
+    _normalised_titles = cache
     return titles
 
 

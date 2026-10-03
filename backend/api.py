@@ -2052,8 +2052,14 @@ def api_series():
         response['hidden_matches'] = hidden_matches
     return jsonify(response)
 
+# The last /api/genres answer and the raw genres + tag rules it was counted
+# from: counting every series' tags is most of the call, and Series Settings
+# asks for the list each time it opens - only recounted once either changes.
+_genres_cache = (None, None)  # (key, genres), swapped in whole
+
 @app.route('/api/genres')
 def api_genres():
+    global _genres_cache
     try:
         from .tag_utils import load_tag_rules, count_tags
         conn = get_db()
@@ -2076,8 +2082,13 @@ def api_genres():
         # under its most common spelling -- the filter query's LIKE is
         # case-insensitive, so that one entry still matches series stored
         # with either spelling.
-        genres = [entry['tag'] for entry in count_tags(rows, rules)]
-        return jsonify(sorted(genres, key=str.casefold))
+        key = (tuple(rows), tuple(sorted((tag_key, tuple(sorted(rule.items()))) for tag_key, rule in rules.items())))
+        cached_key, cached_genres = _genres_cache
+        if cached_key == key:
+            return jsonify(cached_genres)
+        genres = sorted((entry['tag'] for entry in count_tags(rows, rules)), key=str.casefold)
+        _genres_cache = (key, genres)
+        return jsonify(genres)
     except Exception as e:
         print(f"[Genres API] Error: {e}")
         return jsonify([]), 500
