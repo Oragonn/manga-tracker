@@ -1159,6 +1159,26 @@ html {
   background: #1e2c40;
 }
 
+/* Menu whose options scroll on their own while Select All / Clear stay pinned
+   underneath (same idea as the Tags menu below) */
+.multi-select-menu.multi-select-menu-pinned {
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.multi-select-menu-pinned .multi-select-options {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.multi-select-menu-pinned .btn-select-all,
+.multi-select-menu-pinned .btn-select-none {
+  flex-shrink: 0;
+}
+
 /* Combined Tags + Rating scrollable list */
 #filter-genre-menu {
   max-height: 400px;
