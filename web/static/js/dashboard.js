@@ -1379,8 +1379,18 @@ function openEditModal(series) {
 	const tagsListEl = document.getElementById('settings-tags-list');
 	if (tagsListEl) tagsListEl.innerHTML = '<p class="settings-cover-menu-empty">Loading…</p>';
 
-	currentSeriesSourcesPromise = fetch(`/api/series/${series.id}/sources`)
-		.then(r => r.json())
+	// Everything below comes from this one request (sources, covers, tags,
+	// chapters...) - eight separate ones queued behind each other, since a
+	// browser only runs six at once. Each part falls back to empty on its own
+	// if it fails, as when they were separate.
+	const settingsData = fetch(`/api/series/${series.id}/settings-data`)
+		.then(r => {
+			if (!r.ok) throw new Error(`HTTP ${r.status}`);
+			return r.json();
+		});
+	settingsData.catch(err => console.error('Series Settings load error:', err));
+
+	currentSeriesSourcesPromise = settingsData
 		.then(data => data.sources || [])
 		.catch(() => []);
 	// Every response below is checked against the series the modal shows NOW:
@@ -1397,10 +1407,9 @@ function openEditModal(series) {
 		renderSourceList(sources);
 	});
 
-	currentSeriesUploadsPromise = fetch(`/api/series/${series.id}/uploaded-covers`)
-		.then(r => r.json())
+	currentSeriesUploadsPromise = settingsData
 		.then(data => {
-			const covers = data.covers || [];
+			const covers = data.uploaded_covers || [];
 			if (stillOpen()) currentSeriesUploadsCache = covers;
 			return covers;
 		})
@@ -1410,24 +1419,23 @@ function openEditModal(series) {
 		});
 
 	galleryCoverPage = 0;
-	currentSeriesGalleryCoversPromise = fetch(`/api/series/${series.id}/gallery-covers`)
-		.then(r => r.json())
-		.then(data => data.covers || [])
+	currentSeriesGalleryCoversPromise = settingsData
+		.then(data => data.gallery_covers || [])
 		.catch(() => []);
 
-	Promise.all([
-		fetch('/api/custom-tags').then(r => r.json()).catch(() => []),
-		fetch(`/api/series/${series.id}/custom-tags`).then(r => r.json()).catch(() => ({ tag_ids: [] }))
-	]).then(([allTags, seriesTags]) => {
-		if (!stillOpen()) return;
-		allCustomTagsCache = allTags || [];
-		currentSeriesTagIds = seriesTags.tag_ids || [];
-		pendingSeriesTagIds = [...currentSeriesTagIds];
-		renderTagsList();
-		renderTagsSelectorText();
-	});
+	settingsData
+		.then(data => [data.custom_tags, data.custom_tag_ids])
+		.catch(() => [[], []])
+		.then(([allTags, seriesTagIds]) => {
+			if (!stillOpen()) return;
+			allCustomTagsCache = allTags || [];
+			currentSeriesTagIds = seriesTagIds || [];
+			pendingSeriesTagIds = [...currentSeriesTagIds];
+			renderTagsList();
+			renderTagsSelectorText();
+		});
 
-	loadSeriesTagsForEdit(series.id);
+	loadSeriesTagsForEdit(series.id, settingsData);
 
 	// Until this series' chapters arrive, the dropdown holds a single
 	// placeholder carrying the saved chapter - not the previous series' list,
@@ -1442,9 +1450,8 @@ function openEditModal(series) {
 		syncChapterCustomList();
 	}
 
-	// Load chapters (existing code)
-	fetch(`/api/series/${series.id}/chapters`)
-		.then(r => r.json())
+	settingsData
+		.then(data => data.chapters || [])
 		.then(chapters => {
 			if (!stillOpen()) return;
 			const select = document.getElementById('edit-current-chapter');
@@ -2647,7 +2654,9 @@ function setPendingContentRating(value) {
 }
 
 // Fetch this series' tags (and the tag list for suggestions) when the modal opens
-function loadSeriesTagsForEdit(seriesId) {
+// settingsData: openEditModal's one request for everything Series Settings
+// shows - this series' tags, the banned ones and every tag (the suggestions).
+function loadSeriesTagsForEdit(seriesId, settingsData) {
 	seriesTagsLoaded = false;
 	seriesTagsFailed = false;
 	currentSeriesTags = [];
@@ -2662,19 +2671,13 @@ function loadSeriesTagsForEdit(seriesId) {
 	document.getElementById('settings-scraped-tags-suggest')?.classList.add('hidden');
 	renderSeriesTags('Loading\u2026');
 
-	return Promise.all([
-		fetch(`/api/series/${seriesId}/tags`).then(res => {
-			if (!res.ok) throw new Error('Failed to load tags');
-			return res.json();
-		}),
-		fetch('/api/genres').then(res => (res.ok ? res.json() : [])).catch(() => [])
-	]).then(([data, pool]) => {
+	return settingsData.then(data => {
 		// The modal may have moved on to another series while this was loading
 		if (currentSeriesIdForEdit !== seriesId) return;
 		currentSeriesTags = data.tags || [];
 		pendingSeriesTags = [...currentSeriesTags];
-		bannedTagKeys = new Set((data.banned || []).map(seriesTagKey));
-		seriesTagPool = Array.isArray(pool) ? pool : [];
+		bannedTagKeys = new Set((data.banned_tags || []).map(seriesTagKey));
+		seriesTagPool = Array.isArray(data.genres) ? data.genres : [];
 		seriesTagsLoaded = true;
 		if (input) input.disabled = false;
 		renderSeriesTags();

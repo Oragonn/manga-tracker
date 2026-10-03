@@ -2057,12 +2057,13 @@ def api_series():
 # asks for the list each time it opens - only recounted once either changes.
 _genres_cache = (None, None)  # (key, genres), swapped in whole
 
-@app.route('/api/genres')
-def api_genres():
+def genre_list():
+    """Every scraped tag in the library, after the tag rules, sorted - what
+    /api/genres answers (and Series Settings' bundle carries)."""
     global _genres_cache
+    from .tag_utils import load_tag_rules, count_tags
+    conn = get_db()
     try:
-        from .tag_utils import load_tag_rules, count_tags
-        conn = get_db()
         cursor = conn.cursor()
         # Only select non-empty, non-null-looking strings
         cursor.execute("""
@@ -2074,21 +2075,28 @@ def api_genres():
         """)
         rows = [row[0] for row in cursor.fetchall()]
         rules = load_tag_rules(cursor)
+    finally:
         release_db(conn)
 
-        # Tags with a merge or ban rule (Fixes page > Tag) are folded into
-        # their target / left out here. Sources also disagree on casing
-        # ("Slice of Life" vs "Slice Of Life"), so each tag is listed once
-        # under its most common spelling -- the filter query's LIKE is
-        # case-insensitive, so that one entry still matches series stored
-        # with either spelling.
-        key = (tuple(rows), tuple(sorted((tag_key, tuple(sorted(rule.items()))) for tag_key, rule in rules.items())))
-        cached_key, cached_genres = _genres_cache
-        if cached_key == key:
-            return jsonify(cached_genres)
-        genres = sorted((entry['tag'] for entry in count_tags(rows, rules)), key=str.casefold)
-        _genres_cache = (key, genres)
-        return jsonify(genres)
+    # Tags with a merge or ban rule (Fixes page > Tag) are folded into
+    # their target / left out here. Sources also disagree on casing
+    # ("Slice of Life" vs "Slice Of Life"), so each tag is listed once
+    # under its most common spelling -- the filter query's LIKE is
+    # case-insensitive, so that one entry still matches series stored
+    # with either spelling.
+    key = (tuple(rows), tuple(sorted((tag_key, tuple(sorted(rule.items()))) for tag_key, rule in rules.items())))
+    cached_key, cached_genres = _genres_cache
+    if cached_key == key:
+        return cached_genres
+    genres = sorted((entry['tag'] for entry in count_tags(rows, rules)), key=str.casefold)
+    _genres_cache = (key, genres)
+    return genres
+
+
+@app.route('/api/genres')
+def api_genres():
+    try:
+        return jsonify(genre_list())
     except Exception as e:
         print(f"[Genres API] Error: {e}")
         return jsonify([]), 500
@@ -2650,6 +2658,11 @@ def api_delete_series(series_id):
 
 @app.route('/api/series/<int:series_id>/chapters')
 def api_series_chapters(series_id):
+    return jsonify(series_chapter_list(series_id))
+
+def series_chapter_list(series_id):
+    """A series' tracked chapters, lowest number first - what
+    /api/series/<id>/chapters answers (and Series Settings' bundle carries)."""
     from .database import get_db, release_db
     conn = get_db()
     cursor = conn.cursor()
@@ -2701,7 +2714,7 @@ def api_series_chapters(series_id):
             'provider': row[7]
         }
         result.append(r)
-    return jsonify(result)
+    return result
 
 def save_completed_period_stats():
     """

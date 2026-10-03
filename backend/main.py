@@ -1180,22 +1180,57 @@ def api_site_health_check():
     return jsonify({'success': True}), 202
 
 
+def _sources_with_health(series_id):
+    """A series' sources, each saying whether its whole site is down."""
+    from .database import get_series_sources
+    from .site_health import get_site_health
+    sources = get_series_sources(series_id)
+    # Series Settings' red/green dot: red too when the whole site is down
+    health = get_site_health()
+    for s in sources:
+        h = health.get(s['source_type'])
+        s['site_down'] = bool(h and h['status'] == 'down')
+        s['site_error'] = h['error'] if s['site_down'] else None
+    return sources
+
+
 @app.route('/api/series/<int:series_id>/sources')
 def api_get_sources(series_id):
     """Get all sources for a series."""
     try:
-        from .database import get_series_sources
-        from .site_health import get_site_health
-        sources = get_series_sources(series_id)
-        # Series Settings' red/green dot: red too when the whole site is down
-        health = get_site_health()
-        for s in sources:
-            h = health.get(s['source_type'])
-            s['site_down'] = bool(h and h['status'] == 'down')
-            s['site_error'] = h['error'] if s['site_down'] else None
-        return jsonify({'sources': sources})
+        return jsonify({'sources': _sources_with_health(series_id)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/series/<int:series_id>/settings-data')
+def api_series_settings_data(series_id):
+    """Everything Series Settings fills in when it opens, in one request -
+    it was eight, and a browser only runs six at once to one server, so the
+    last ones queued behind the rest. The single endpoints stay for the
+    other places that refresh just one of them."""
+    from .api import series_chapter_list, genre_list
+    from .database import get_series_covers, get_gallery_covers, get_custom_tags, get_series_custom_tag_ids
+    tags = _series_tags_data(series_id)
+    if tags is None:
+        return jsonify({'error': 'Series not found'}), 404
+    try:
+        genres = genre_list()
+    except Exception as e:
+        # only the tag editor's suggestions - not worth failing the rest over
+        print(f"[Settings data] Genres failed: {e}")
+        genres = []
+    return jsonify({
+        'sources': _sources_with_health(series_id),
+        'uploaded_covers': get_series_covers(series_id),
+        'gallery_covers': get_gallery_covers(series_id),
+        'custom_tags': get_custom_tags(),
+        'custom_tag_ids': get_series_custom_tag_ids(series_id),
+        'tags': tags['tags'],
+        'banned_tags': tags['banned'],
+        'genres': genres,
+        'chapters': series_chapter_list(series_id),
+    })
 
 
 @app.route('/api/series/<int:series_id>/sources', methods=['POST'])
@@ -2214,10 +2249,10 @@ def _clean_tag_edit_list(value, label):
     return names
 
 
-@app.route('/api/series/<int:series_id>/tags')
-def api_get_series_tags(series_id):
+def _series_tags_data(series_id):
     """A series' effective tags (after merges/bans), the name of every banned
-    tag (so the editor can refuse to add one), and its content type."""
+    tag (so the editor can refuse to add one), and its content type - None
+    for an unknown series."""
     from .database import get_db, release_db
     from .tag_utils import load_tag_rules, parse_stored_tags, apply_tag_rules
 
@@ -2230,11 +2265,19 @@ def api_get_series_tags(series_id):
     finally:
         release_db(conn)
     if not row:
-        return jsonify({'error': 'Series not found'}), 404
+        return None
 
     tags = sorted(apply_tag_rules(parse_stored_tags(row[0]), rules), key=str.casefold)
     banned = sorted((r['tag'] for r in rules.values() if r['action'] == 'ban'), key=str.casefold)
-    return jsonify({'tags': tags, 'banned': banned, 'source_type': row[1]})
+    return {'tags': tags, 'banned': banned, 'source_type': row[1]}
+
+
+@app.route('/api/series/<int:series_id>/tags')
+def api_get_series_tags(series_id):
+    data = _series_tags_data(series_id)
+    if data is None:
+        return jsonify({'error': 'Series not found'}), 404
+    return jsonify(data)
 
 
 @app.route('/api/series/<int:series_id>/tags', methods=['PUT'])
