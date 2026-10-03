@@ -3262,6 +3262,14 @@ function createSkeletonCard() {
 }
 
 // ─── Lazy Loading Image Observer ─────────────────────────────────
+// MangaDex serves every cover 512px wide too (<cover>.512.jpg): about a
+// fifth of the original's 500-800 KB, and still sharp at card size on a 2x
+// screen. The card falls back to the original if that one ever fails.
+function cardCoverUrl(url) {
+	const isMangaDexCover = /^https:\/\/uploads\.mangadex\.org\/covers\/[^/]+\/[^/]+\.(jpe?g|png|gif|webp)$/i.test(url);
+	return isMangaDexCover && !/\.(256|512)\.jpg$/i.test(url) ? `${url}.512.jpg` : url;
+}
+
 const imageObserver = new IntersectionObserver((entries) => {
 	entries.forEach(entry => {
 		if (entry.isIntersecting) {
@@ -3275,6 +3283,12 @@ const imageObserver = new IntersectionObserver((entries) => {
 					img.classList.add('loaded');
 				};
 				img.onerror = () => {
+					const full = img.dataset.fullSrc;
+					if (full && full !== src && img.src !== new URL(full, location.href).href) {
+						img.src = full;
+						return;
+					}
+					img.onerror = null;
 					img.classList.remove('loading');
 					img.src = '/static/placeholder.png';
 				};
@@ -3283,7 +3297,9 @@ const imageObserver = new IntersectionObserver((entries) => {
 		}
 	});
 }, {
-	rootMargin: '50px' // Start loading 50px before entering viewport
+	// Covers start loading well before they scroll into view (a page is 50
+	// cards), so they're there when you get to them instead of popping in.
+	rootMargin: '1500px 0px'
 });
 
 // ─── Missing Chapters ────────────────────────────────────────
@@ -3374,7 +3390,10 @@ function renderSeriesCard(series, chapters = null) {
 		else releaseText = 'Just now';
 	}
 	const cleanCoverUrl = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
-	const placeholderUrl = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 221 331"%3E%3Crect fill="%231a2436" width="221" height="331"/%3E%3C/svg%3E';
+	// Single quotes inside: it goes in a src="..." attribute, where double
+	// quotes ended it early - the broken src then showed placeholder.png
+	// (the "no cover" image) on every card whose cover hadn't loaded yet.
+	const placeholderUrl = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 221 331'%3E%3Crect fill='%231a2436' width='221' height='331'/%3E%3C/svg%3E";
 	card.innerHTML = `
 <div class="series-cover-container">
 <div class="series-checkbox">
@@ -3383,7 +3402,7 @@ function renderSeriesCard(series, chapters = null) {
 </svg>
 </div>
 <div class="card-cover-badges"></div>
-<img class="series-cover loading" src="${placeholderUrl}" data-src="${cleanCoverUrl}" loading="lazy" referrerpolicy="no-referrer" onerror="this.src='/static/placeholder.png'">
+<img class="series-cover loading" src="${placeholderUrl}" data-src="${cardCoverUrl(cleanCoverUrl)}" data-full-src="${cleanCoverUrl}" decoding="async" referrerpolicy="no-referrer" onerror="this.src='/static/placeholder.png'">
 ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.title)}</span></div>` : ''}
 </div>
@@ -4784,7 +4803,9 @@ async function loadPage() {
 			data.items.forEach((series, index) => {
 				const chapters = series.chapters || [];
 				const card = renderSeriesCard(series, chapters);
-				card.style.animationDelay = `${index * 0.03}s`;
+				// Capped: only the first screen staggers - card 50 used to
+				// wait 1.5s, so scrolling down found cards still fading in.
+				card.style.animationDelay = `${Math.min(index, 12) * 0.03}s`;
 				seriesGrid.appendChild(card);
 			});
 		}
