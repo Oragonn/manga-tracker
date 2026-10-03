@@ -10308,6 +10308,15 @@ function openBottomSheet(series) {
   document.body.style.overflow = 'hidden';
 }
 
+// The chapters the dashboard already loaded with this series' card - the
+// sheet used to fetch them again (twice), so its Continue button kept the
+// previous series' text ("All caught up"...) until they landed. Only a card
+// without them (refreshed on its own) still fetches.
+function sheetChapters(series) {
+	if (Array.isArray(series.chapters)) return Promise.resolve(series.chapters);
+	return fetch(`/api/series/${series.id}/chapters`).then(r => r.json());
+}
+
 function setupBottomSheetButtons(series, nextChapter) {
   // Search button - opens Google search for next chapter
 	const searchBtn = document.getElementById('sheet-search-btn');
@@ -10337,10 +10346,14 @@ function setupBottomSheetButtons(series, nextChapter) {
     const newContinueBtn = continueBtn.cloneNode(true);
     continueBtn.parentNode.replaceChild(newContinueBtn, continueBtn);
     
-    // Fetch chapters to get the correct URL
-    fetch(`/api/series/${series.id}/chapters`)
-      .then(r => r.json())
+    // Nothing from the previous series while a fetched list loads
+    if (!Array.isArray(series.chapters)) {
+      newContinueBtn.textContent = 'Loading…';
+      newContinueBtn.disabled = true;
+    }
+    sheetChapters(series)
       .then(chapters => {
+        if (mobileState.currentSeries?.id !== series.id) return;
         if (chapters.length === 0) {
           newContinueBtn.textContent = 'No chapters';
           newContinueBtn.disabled = true;
@@ -10427,9 +10440,9 @@ function stopHoldRepeat() {
 	let currentChapterNumber = null;
 	let currentChapterHasExactMatch = false;
 
-	fetch(`/api/series/${series.id}/chapters`)
-	.then(r => r.json())
+	sheetChapters(series)
 	.then(chapters => {
+		if (mobileState.currentSeries?.id !== series.id) return;
 		// Sort chapters using same logic as desktop
 		const hasAnyNullVolume = chapters.some(ch => ch.volume == null || ch.volume === '');
 		const useVolume = !hasAnyNullVolume;
