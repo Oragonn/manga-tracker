@@ -236,7 +236,7 @@ const TYPE_LABELS_FOR_BOOKMARKS = { manga: 'Manga', manhwa: 'Manhwa', manhua: 'M
 const PUB_STATUS_LABELS_FOR_BOOKMARKS = {
 	reading: 'Reading', completed: 'Completed', on_hold: 'On Hold', dropped: 'Dropped', plan_to_read: 'Plan to Read'
 };
-const READABLE_ON_LABELS_FOR_BOOKMARKS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics' };
+const READABLE_ON_LABELS_FOR_BOOKMARKS = { mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', thunder: 'Thunderscans', comix: 'Comix' };
 
 function captureCurrentFilterState() {
 	return {
@@ -2005,6 +2005,8 @@ function renderSources(sources) {
 			'asura': 'AsuraScans',
 			'hive': 'HiveToons',
 			'flame': 'Flame Comics',
+			'thunder': 'Thunderscans',
+			'comix': 'Comix',
 			'unknown': 'Unknown'
 		}[source.source_type.toLowerCase()] || source.source_type;
 
@@ -2206,8 +2208,8 @@ async function addNewSource() {
 	}
 
 	// Validate URL — NOTE: fixed extra spaces in comparison
-	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/')) {
-		showNotification('Only MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, and Flame Comics sources are supported', 'error');
+	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/') && !url.startsWith('https://en-thunderscans.com/comics/') && !url.startsWith('https://comix.to/title/')) {
+		showNotification('Only MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, Flame Comics, Thunderscans, and Comix sources are supported', 'error');
 		return;
 	}
 
@@ -2256,7 +2258,7 @@ async function addNewSource() {
 // ─── Series Settings modal: Source selector (Kenmei-style dropdown,
 // plus add/remove/set-primary which Kenmei doesn't need to support) ──
 const SOURCE_TYPE_LABELS = {
-	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', unknown: 'Unknown'
+	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', thunder: 'Thunderscans', comix: 'Comix', unknown: 'Unknown'
 };
 
 function renderSourceSelector(sources) {
@@ -4332,7 +4334,7 @@ let sourceHealthOutages = []; // sites with many failing series: one row each
 const sourceHealthExpanded = new Set(); // outage rows left open (kept across the 30s refresh)
 let sourceHealthCount = 0;
 const SOURCE_HEALTH_TYPE_LABELS = {
-	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', unknown: 'Unknown'
+	mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', thunder: 'Thunderscans', comix: 'Comix', unknown: 'Unknown'
 };
 
 async function updateSourceHealth() {
@@ -5175,7 +5177,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		'atsu': 'Atsumaru',
 		'asura': 'AsuraScans',
 		'hive': 'HiveToons',
-		'flame': 'Flame Comics'
+		'flame': 'Flame Comics',
+		'thunder': 'Thunderscans',
+		'comix': 'Comix'
 	}, 'Readable On');
 
 	// Genre (Tags) - NOW WITH CONTENT RATING INSIDE THE SAME DROPDOWN
@@ -5677,6 +5681,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		{ label: 'AsuraScans', pattern: /^(?:https?:\/\/)?(?:www\.)?(asurascans\.com\/comics\/[A-Za-z0-9-]+.*)$/i, id: /\/comics\/([A-Za-z0-9-]+?)(?:-[0-9a-f]{8})?(?=[\/?#]|$)/i },
 		{ label: 'HiveToons', pattern: /^(?:https?:\/\/)?(?:www\.)?(hivetoons\.org\/series\/[A-Za-z0-9-]+.*)$/i, id: /\/series\/([A-Za-z0-9-]+)/ },
 		{ label: 'Flame Comics', pattern: /^(?:https?:\/\/)?(?:www\.)?(flamecomics\.xyz\/series\/\d+.*)$/i, id: /\/series\/(\d+)/ },
+		{ label: 'Thunderscans', pattern: /^(?:https?:\/\/)?(?:www\.)?(en-thunderscans\.com\/comics\/[A-Za-z0-9_-]+.*)$/i, id: /\/comics\/([A-Za-z0-9_-]+)/ },
+		{ label: 'Comix', pattern: /^(?:https?:\/\/)?(?:www\.)?(comix\.to\/title\/[A-Za-z0-9]+.*)$/i, id: /\/title\/([A-Za-z0-9]+)/ },
 	];
 	// The trackers store a series' publication status in reading-status
 	// words (MangaDex's _STATUS_MAP: ongoing -> reading, hiatus -> on_hold...)
@@ -6133,7 +6139,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const text = firstAddUrl();
 		const link = normalizeAddLink(text);
 		if (!link) {
-			clearAddPreview(text ? 'Not a series link from MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons or Flame Comics' : null);
+			clearAddPreview(text ? 'Not a series link from MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, Flame Comics, Thunderscans or Comix' : null);
 			return;
 		}
 		// Already shown, or on its way (the timer below may still be pending)
@@ -6504,7 +6510,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (appendAddSources(box.value)) {
 			box.value = '';
 		} else {
-			showNotification('Not a new MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons or Flame Comics link', 'error');
+			showNotification('Not a new MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, Flame Comics, Thunderscans or Comix link', 'error');
 		}
 	}
 	document.getElementById('add-source-new-submit')?.addEventListener('click', addSourceFromMenu);
@@ -7460,7 +7466,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	const sourceTypeLabel = {
 		mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru',
-		asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', unknown: 'Unknown'
+		asura: 'AsuraScans', hive: 'HiveToons', flame: 'Flame Comics', thunder: 'Thunderscans', comix: 'Comix', unknown: 'Unknown'
 	};
 
 	async function renderCoverSourceList() {
@@ -9120,6 +9126,8 @@ function createFilterDrawer() {
               <label><input type="checkbox" value="asura"> AsuraScans</label>
               <label><input type="checkbox" value="hive"> HiveToons</label>
               <label><input type="checkbox" value="flame"> Flame Comics</label>
+              <label><input type="checkbox" value="thunder"> Thunderscans</label>
+              <label><input type="checkbox" value="comix"> Comix</label>
               <button class="btn-select-all">Select All</button>
               <button class="btn-select-none">Clear</button>
             </div>
@@ -9479,7 +9487,9 @@ function createFilterDrawer() {
     'atsu': 'Atsumaru',
     'asura': 'AsuraScans',
     'hive': 'HiveToons',
-    'flame': 'Flame Comics'
+    'flame': 'Flame Comics',
+    'thunder': 'Thunderscans',
+    'comix': 'Comix'
   }, 'Readable On');
 }
 
@@ -10903,6 +10913,8 @@ function renderMobileSources(sources) {
       'asura': 'AsuraScans',
       'hive': 'HiveToons',
       'flame': 'Flame Comics',
+      'thunder': 'Thunderscans',
+      'comix': 'Comix',
       'unknown': 'Unknown'
     }[source.source_type.toLowerCase()] || source.source_type;
 
@@ -11141,7 +11153,7 @@ async function addMobileNewSource() {
     return;
   }
   
-  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/')) {
+  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/') && !url.startsWith('https://en-thunderscans.com/comics/') && !url.startsWith('https://comix.to/title/')) {
     showNotification('This source is not supported', 'error');
     return;
   }

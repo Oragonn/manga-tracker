@@ -16,10 +16,11 @@ import threading
 import time
 from datetime import datetime, timezone, timedelta
 
-SITES = ['mangadex', 'kagane', 'atsu', 'asura', 'hive', 'flame']
+SITES = ['mangadex', 'kagane', 'atsu', 'asura', 'hive', 'flame', 'thunder', 'comix']
 SITE_LABELS = {
     'mangadex': 'MangaDex', 'kagane': 'Kagane', 'atsu': 'Atsumaru',
     'asura': 'AsuraScans', 'hive': 'HiveToons', 'flame': 'Flame Comics',
+    'thunder': 'Thunderscans', 'comix': 'Comix',
 }
 CHECK_INTERVAL = timedelta(minutes=30)
 _REFERENCES_TRIED = 2

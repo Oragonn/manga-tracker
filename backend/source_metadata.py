@@ -27,7 +27,7 @@ from .title_utils import source_titles
 
 # Which source's content rating wins when several are attached - see the
 # long note in main.api_add_source.
-SOURCE_RATING_PRIORITY = {'mangadex': 5, 'kagane': 4, 'atsu': 3, 'hive': 2, 'flame': 1, 'asura': 0}
+SOURCE_RATING_PRIORITY = {'mangadex': 7, 'kagane': 6, 'atsu': 5, 'comix': 4, 'hive': 3, 'flame': 2, 'thunder': 1, 'asura': 0}
 
 
 def fetch_source_info(source_type, source_url, with_gallery=False):
@@ -49,6 +49,10 @@ def fetch_source_info(source_type, source_url, with_gallery=False):
         from .trackers.hivetoons import extract_series_id, get_series_info
     elif source_type == 'flame':
         from .trackers.flamecomics import extract_series_id, get_series_info
+    elif source_type == 'thunder':
+        from .trackers.thunderscans import extract_series_id, get_series_info
+    elif source_type == 'comix':
+        from .trackers.comix import extract_series_id, get_series_info
     else:
         return None
     site_id = extract_series_id(source_url)
@@ -280,6 +284,8 @@ _COVER_SITE_MARKERS = {
     'asura': ('asurascans', 'asuracomic'),
     'hive': ('hivetoons', 'hivecomic'),
     'flame': ('flamecomics',),
+    'thunder': ('thunderscans',),
+    'comix': ('comix.to', '/comix_covers/'),
 }
 
 

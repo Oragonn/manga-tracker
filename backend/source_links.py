@@ -1,7 +1,7 @@
 # backend/source_links.py
 #
 # Recognises a pasted source link (a series page, or a chapter-reader URL, on
-# any of the six tracked sites) and finds the tracked series that has it
+# any of the eight tracked sites) and finds the tracked series that has it
 # attached, so the dashboard search box can take a link instead of a title.
 #
 # Deliberately doesn't import backend.trackers.*: kagane.py pulls in
@@ -25,11 +25,17 @@ _PATTERNS = [
     ('asura', re.compile(_PREFIX + r'asurascans\.com/comics/([A-Za-z0-9-]+)', re.I)),
     ('hive', re.compile(_PREFIX + r'hivetoons\.org/series/([A-Za-z0-9-]+)', re.I)),
     ('flame', re.compile(_PREFIX + r'flamecomics\.xyz/series/(\d+)', re.I)),
+    # Series pages only: chapter links (/<slug>-chapter-N/) sit outside
+    # /comics/ and don't reliably carry the series slug.
+    ('thunder', re.compile(_PREFIX + r'en-thunderscans\.com/comics/([A-Za-z0-9_-]+)', re.I)),
+    # /title/<hid>-<slug>, and its chapters' /title/<hid>-<slug>/<id>-chapter-N
+    ('comix', re.compile(_PREFIX + r'comix\.to/title/([A-Za-z0-9]+)', re.I)),
 ]
 
-# Ids that are UUIDs compare case-insensitively; Atsumaru's short ids are
-# case-sensitive, so those are left exactly as written.
-_CASE_INSENSITIVE_IDS = {'mangadex', 'kagane'}
+# Ids that are UUIDs compare case-insensitively, and so do Thunderscans'
+# WordPress slugs; Atsumaru's short ids are case-sensitive, so those are
+# left exactly as written.
+_CASE_INSENSITIVE_IDS = {'mangadex', 'kagane', 'thunder'}
 
 # AsuraScans ends every series slug with an 8-character hash
 # (.../comics/chronicles-of-the-lazy-sovereign-b57aa235) that it rotates
@@ -39,14 +45,14 @@ _CASE_INSENSITIVE_IDS = {'mangadex', 'kagane'}
 _ASURA_HASH = re.compile(r'-[0-9a-f]{8}$', re.I)
 
 _TRACKED_HOST = re.compile(
-    _PREFIX + r'(?:mangadex\.org|kagane\.(?:to|org)|atsu\.moe|asurascans\.com|hivetoons\.org|flamecomics\.xyz)(?:[/?#]|$)',
+    _PREFIX + r'(?:mangadex\.org|kagane\.(?:to|org)|atsu\.moe|asurascans\.com|hivetoons\.org|flamecomics\.xyz|en-thunderscans\.com|comix\.to)(?:[/?#]|$)',
     re.I
 )
 
 
 def clean_source_url(url):
     """The link to store for a source: surrounding whitespace and any
-    "?query" / "#fragment" dropped when it points at one of the six tracked
+    "?query" / "#fragment" dropped when it points at one of the eight tracked
     sites. A link copied from a browser tab carries UI state along with it
     (MangaDex's ?tab=art / ?tab=chapters, for one) that has no bearing on
     which series it is, and it made the same series look like a different

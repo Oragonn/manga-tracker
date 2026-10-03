@@ -105,7 +105,8 @@ def _check_for_duplicate_titles(data, url, titles):
 
 def _source_for_add(url):
     """Which site the add worker fetches `url` from ('mangadex', 'kagane',
-    'atsu', 'asura', 'hive', 'flame'), or None if it can't add that link."""
+    'atsu', 'asura', 'hive', 'flame', 'thunder', 'comix'), or None if it
+    can't add that link."""
     if url.startswith("https://mangadex.org/title/"):
         return 'mangadex'
     if url.startswith("https://kagane.to/series/") or url.startswith("https://kagane.org/series/"):
@@ -118,6 +119,10 @@ def _source_for_add(url):
         return 'hive'
     if "flamecomics.xyz/series/" in url:
         return 'flame'
+    if "en-thunderscans.com/comics/" in url:
+        return 'thunder'
+    if "comix.to/title/" in url:
+        return 'comix'
     return None
 
 
@@ -167,6 +172,10 @@ def _fetch_for_add(source, url):
         from .trackers.hivetoons import extract_series_id, get_series_info
     elif source == 'flame':
         from .trackers.flamecomics import extract_series_id, get_series_info
+    elif source == 'thunder':
+        from .trackers.thunderscans import extract_series_id, get_series_info
+    elif source == 'comix':
+        from .trackers.comix import extract_series_id, get_series_info
     else:
         return None
     series_id = extract_series_id(url)
@@ -287,9 +296,15 @@ def _add_worker():
                 is_asura = source == 'asura'
                 is_hive = source == 'hive'
                 is_flame = source == 'flame'
+                is_thunder = source == 'thunder'
+                is_comix = source == 'comix'
+                if is_comix:
+                    # a chapter link names the series too - store the series' own
+                    from .trackers.comix import canonical_url
+                    url = canonical_url(url)
 
                 if not source:
-                    result = {'error': 'Only MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, or Flame Comics series URLs are supported'}
+                    result = {'error': 'Only MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, Flame Comics, Thunderscans, or Comix series URLs are supported'}
                     task_processed = True
                     continue
 
@@ -1268,23 +1283,31 @@ def _add_worker():
                                 result = {'error': error_msg}
                                 task_processed = True
 
-                elif is_flame:
-                    from .trackers.flamecomics import extract_series_id, get_series_info
+                elif is_flame or is_thunder or is_comix:
+                    # The Flame Comics, Thunderscans and Comix trackers return
+                    # the same shape, so they share this block
+                    if is_flame:
+                        from .trackers.flamecomics import extract_series_id, get_series_info
+                    elif is_thunder:
+                        from .trackers.thunderscans import extract_series_id, get_series_info
+                    else:
+                        from .trackers.comix import extract_series_id, get_series_info
+                    site_label = _ADD_SOURCE_LABELS[source]
                     flame_id = extract_series_id(url)
                     if not flame_id:
-                        result = {'error': 'Invalid Flame Comics URL'}
+                        result = {'error': f'Invalid {site_label} URL'}
                         task_processed = True
                     else:
                         flame_info = _take_prefetched(url) or get_series_info(flame_id)
                         if not flame_info:
-                            result = {'error': 'Failed to fetch Flame Comics series data'}
+                            result = {'error': f'Failed to fetch {site_label} series data'}
                             task_processed = True
                         else:
                             title = flame_info['title']
                             cover_url = flame_info['cover_url']
                             alt_titles = flame_info.get('alt_titles') or []
                             chapters_to_save = flame_info['chapters']
-                            _chapters_source_type = 'flame'
+                            _chapters_source_type = source
 
                             try:
                                 _check_for_duplicate_titles(data, url, series_search_titles(title, None, None, None, alt_titles))
@@ -1353,7 +1376,7 @@ def _add_worker():
                                             'title': title,
                                             'sources': [{
                                                 'url': url,
-                                                'type': 'Flame Comics',
+                                                'type': site_label,
                                                 'is_primary': True
                                             }],
                                             'status': user_status,
@@ -1605,6 +1628,7 @@ def api_add_status(task_id):
 _ADD_SOURCE_LABELS = {
     'mangadex': 'MangaDex', 'kagane': 'Kagane', 'atsu': 'Atsumaru',
     'asura': 'AsuraScans', 'hive': 'HiveToons', 'flame': 'Flame Comics',
+    'thunder': 'Thunderscans', 'comix': 'Comix',
 }
 
 @app.route('/api/series/preview')
@@ -1616,11 +1640,14 @@ def api_series_preview():
     url = clean_source_url(request.args.get('url', ''))
     source = _source_for_add(url or '')
     if not source or not _prefetch_key(url):
-        return jsonify({'error': 'Not a MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons or Flame Comics series link'}), 400
+        return jsonify({'error': 'Not a MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, Flame Comics, Thunderscans or Comix series link'}), 400
     if source == 'atsu':
         # same canonical form the add stores
         from .source_links import parse_source_link
         url = f"https://atsu.moe/manga/{parse_source_link(url)[1]}"
+    elif source == 'comix':
+        from .trackers.comix import canonical_url
+        url = canonical_url(url)
 
     response = {'url': url, 'source': source, 'source_label': _ADD_SOURCE_LABELS[source]}
 

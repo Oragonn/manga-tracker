@@ -31,7 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from backend.trackers import mangadex, kagane, atsu, asura, hivetoons, flamecomics
+from backend.trackers import mangadex, kagane, atsu, asura, hivetoons, flamecomics, thunderscans, comix
 from backend.trackers.kagane import _extract_season_and_chapter
 
 # Above this, a jump between two consecutive chapters in a single source's
@@ -147,6 +147,20 @@ def fetch_source_chapters(source_type, source_url):
         if not flame_id:
             raise ValueError("could not extract Flame Comics series id from url")
         info = flamecomics.get_series_info(flame_id)
+        return info['chapters'] if info else []
+    elif source_type == 'thunder':
+        slug = thunderscans.extract_series_id(source_url)
+        if not slug:
+            raise ValueError("could not extract Thunderscans slug from url")
+        info = thunderscans.get_series_info(slug)
+        return info['chapters'] if info else []
+    elif source_type == 'comix':
+        # Not quite read-only: the tracker keeps its upload cache
+        # (comix_uploads) in the app's own database, not the --db one
+        hid = comix.extract_series_id(source_url)
+        if not hid:
+            raise ValueError("could not extract Comix series id from url")
+        info = comix.get_series_info(hid)
         return info['chapters'] if info else []
     else:
         raise ValueError(f"unknown source_type '{source_type}'")

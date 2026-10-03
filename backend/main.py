@@ -1269,6 +1269,13 @@ def api_add_source(series_id):
             source_type = 'hive'
         elif 'flamecomics.xyz' in source_url:
             source_type = 'flame'
+        elif 'en-thunderscans.com' in source_url:
+            source_type = 'thunder'
+        elif 'comix.to' in source_url:
+            source_type = 'comix'
+            # a chapter link names the series too - store the series' own
+            from .trackers.comix import canonical_url
+            source_url = canonical_url(source_url)
         else:
             source_type = 'unknown'
 
@@ -1315,6 +1322,16 @@ def api_add_source(series_id):
             flame_id = extract_series_id(source_url)
             if flame_id:
                 new_metadata = get_series_info(flame_id)
+        elif source_type == 'thunder':
+            from .trackers.thunderscans import extract_series_id, get_series_info
+            thunder_id = extract_series_id(source_url)
+            if thunder_id:
+                new_metadata = get_series_info(thunder_id)
+        elif source_type == 'comix':
+            from .trackers.comix import extract_series_id, get_series_info
+            comix_id = extract_series_id(source_url)
+            if comix_id:
+                new_metadata = get_series_info(comix_id)
 
         # Add source to database
         from .database import add_source_to_series, get_db, release_db
@@ -1416,11 +1433,13 @@ def api_add_source(series_id):
                 # series Mature but MangaDex calls it Safe). Trust whichever
                 # attached source ranks highest in SOURCE_RATING_PRIORITY —
                 # MangaDex's rating wins over Kagane's, which wins over
-                # Atsumaru's, which wins over HiveToons', which wins over
-                # Flame Comics', which wins over AsuraScans' (AsuraScans has
-                # no content-rating system at all and always reports 'safe',
-                # so it must never be able to override anything; HiveToons
-                # and Flame Comics only have best-effort tag checks ("Adult"
+                # Atsumaru's, which wins over Comix's, which wins over
+                # HiveToons', which wins over
+                # Flame Comics', which wins over Thunderscans', which wins
+                # over AsuraScans' (AsuraScans has no content-rating system
+                # at all and always reports 'safe', so it must never be able
+                # to override anything; HiveToons, Flame Comics and
+                # Thunderscans only have best-effort tag checks ("Adult"
                 # genre / "Mature" and "Ecchi" tags), which are weaker than
                 # a real rating system but still strictly more informative
                 # than Asura's blanket 'safe' — giving any two of them the

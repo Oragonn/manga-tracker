@@ -3,8 +3,8 @@
 # Related series for the whole library: the sequels, prequels, spin-offs,
 # side stories... MangaDex and Atsumaru list for every tracked series, kept
 # in related_series / related_series_from (database.py). The other sites
-# have no relations to read (AsuraScans, HiveToons and Flame Comics only
-# recommend, Kagane has nothing).
+# have no relations to read (AsuraScans, HiveToons, Flame Comics,
+# Thunderscans and Comix only recommend, Kagane has nothing).
 #
 # They're read while the scheduler fetches a series' chapters (record()),
 # from requests it makes anyway: Atsumaru's series page carries them, and

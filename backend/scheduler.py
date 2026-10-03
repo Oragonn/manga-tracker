@@ -11,6 +11,8 @@ from .trackers import atsu as atsu_tracker
 from .trackers import asura as asura_tracker
 from .trackers import hivetoons as hive_tracker
 from .trackers import flamecomics as flame_tracker
+from .trackers import thunderscans as thunder_tracker
+from .trackers import comix as comix_tracker
 from .backup_manager import BackupManager
 from .series_backup_manager import SeriesBackupManager
 from .discord_backup_uploader import DiscordBackupUploader
@@ -147,17 +149,20 @@ class MangaScheduler:
                 print(f"[Cleanup] Error: {e}")
                 time.sleep(3600)  # Retry in 1 hour on error
 
-    def _get_kagane_series_ids(self):
-        """Series ids with at least one Kagane source. The Kagane browser
+    def _get_browser_lane_series_ids(self, source_type):
+        """Series ids with at least one source of this type. The Kagane browser
         client (camoufox_kagane.py) is a singleton with its own internal
         lock serializing every fetch (each can take up to ~40s waiting out
         a Cloudflare challenge) - submitting several to the general 8-way
         pool just wastes worker slots blocked on that lock instead of doing
         real parallel work for the other trackers, so these get routed to
-        their own single-worker lane instead."""
+        their own single-worker lane instead. Comix's browser client
+        (camoufox_comix.py) is serialized the same way and gets a lane of
+        its own (source_type='comix'), so the two browsers don't queue
+        behind each other."""
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT series_id FROM series_sources WHERE source_type = 'kagane'")
+        cursor.execute("SELECT DISTINCT series_id FROM series_sources WHERE source_type = ?", (source_type,))
         ids = {r[0] for r in cursor.fetchall()}
         release_db(conn)
         return ids
@@ -275,17 +280,19 @@ class MangaScheduler:
                                 state['sweep_started_at'] = now
                         tick_generation[status] = state['scan_generation']
 
-                kagane_ids = self._get_kagane_series_ids()
+                kagane_ids = self._get_browser_lane_series_ids('kagane')
+                comix_ids = self._get_browser_lane_series_ids('comix')
 
                 tick_start = time.time()
                 submitted = 0
                 with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor, \
-                     concurrent.futures.ThreadPoolExecutor(max_workers=1) as kagane_executor:
+                     concurrent.futures.ThreadPoolExecutor(max_workers=1) as kagane_executor, \
+                     concurrent.futures.ThreadPoolExecutor(max_workers=1) as comix_executor:
                     future_to_item = {}
                     for sid, status, last_check in due:
                         if not self.active:
                             break
-                        pool = kagane_executor if sid in kagane_ids else executor
+                        pool = kagane_executor if sid in kagane_ids else comix_executor if sid in comix_ids else executor
                         future = pool.submit(self.scan_series, sid)
                         future_to_item[future] = (sid, status)
                         if status in self._active_futures:
@@ -473,6 +480,18 @@ class MangaScheduler:
                 return None, None
             flame_info = flame_tracker.get_series_info(flame_id)
             return (flame_info['chapters'], flame_info.get('status')) if flame_info else (None, None)
+        elif source_type == 'thunder':
+            thunder_id = thunder_tracker.extract_series_id(source_url)
+            if not thunder_id:
+                return None, None
+            thunder_info = thunder_tracker.get_series_info(thunder_id)
+            return (thunder_info['chapters'], thunder_info.get('status')) if thunder_info else (None, None)
+        elif source_type == 'comix':
+            comix_id = comix_tracker.extract_series_id(source_url)
+            if not comix_id:
+                return None, None
+            comix_info = comix_tracker.get_series_info(comix_id)
+            return (comix_info['chapters'], comix_info.get('status')) if comix_info else (None, None)
         return None, None
 
     def _update_source_status(self, series_id, status):
@@ -621,7 +640,7 @@ class MangaScheduler:
                     # Create missing source entry
                     from .database import add_source_to_series
                     source_url = row[0]
-                    source_type = 'mangadex' if 'mangadex.org' in source_url else 'kagane' if ('kagane.org' in source_url or 'kagane.to' in source_url) else 'atsu' if 'atsu.moe' in source_url else 'asura' if 'asurascans.com' in source_url else 'hive' if 'hivetoons.org' in source_url else 'flame' if 'flamecomics.xyz' in source_url else 'unknown'
+                    source_type = 'mangadex' if 'mangadex.org' in source_url else 'kagane' if ('kagane.org' in source_url or 'kagane.to' in source_url) else 'atsu' if 'atsu.moe' in source_url else 'asura' if 'asurascans.com' in source_url else 'hive' if 'hivetoons.org' in source_url else 'flame' if 'flamecomics.xyz' in source_url else 'thunder' if 'en-thunderscans.com' in source_url else 'comix' if 'comix.to' in source_url else 'unknown'
                     add_source_to_series(series_id, source_url, source_type, is_primary=True)
                     # Retry getting sources
                     sources = get_series_sources(series_id)
@@ -1104,15 +1123,17 @@ class MangaScheduler:
                 with self._status_lock:
                     self._status_state[status]['manual_progress_total'] = len(series_ids)
 
-                kagane_ids = self._get_kagane_series_ids()
+                kagane_ids = self._get_browser_lane_series_ids('kagane')
+                comix_ids = self._get_browser_lane_series_ids('comix')
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=self.CONCURRENT_SCAN_WORKERS) as executor, \
-                     concurrent.futures.ThreadPoolExecutor(max_workers=1) as kagane_executor:
+                     concurrent.futures.ThreadPoolExecutor(max_workers=1) as kagane_executor, \
+                     concurrent.futures.ThreadPoolExecutor(max_workers=1) as comix_executor:
                     future_to_sid = {}
                     for sid in series_ids:
                         if not self.active:
                             break
-                        pool = kagane_executor if sid in kagane_ids else executor
+                        pool = kagane_executor if sid in kagane_ids else comix_executor if sid in comix_ids else executor
                         future = pool.submit(self.scan_series, sid)
                         future_to_sid[future] = sid
                         with self._status_lock:
