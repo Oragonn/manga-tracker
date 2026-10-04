@@ -6683,10 +6683,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		return relations.some(relation => !addRelatedHiddenRelations.has(relation));
 	}
 
-	// Hidden with its series: every one of its ids was there when the series
-	// was hidden (a related series that turned up since isn't)
+	// Hidden with its series: it was there when the series was hidden (a
+	// related series that turned up since isn't). Any of its ids will do -
+	// its ids are one series on several sites, so another site listing it
+	// later is nothing new and doesn't bring the series back.
 	function coveredByHide(ids, hiddenIds) {
-		return !!hiddenIds && ids.every(id => hiddenIds.includes(id));
+		return !!hiddenIds && ids.some(id => hiddenIds.includes(id));
 	}
 
 	// A series' related ones the chips show, and whether the series is hidden
