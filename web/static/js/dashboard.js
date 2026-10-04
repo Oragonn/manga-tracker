@@ -5610,14 +5610,20 @@ document.addEventListener('DOMContentLoaded', () => {
 	// The dashboard's "Search sources" offer when a search finds nothing in
 	// the library: the Add modal's search with that title, run right away.
 	window.searchSourcesForTitle = (title) => {
-		if (!btnAddSeries || !addSeriesSearchToggleBtn || !addSeriesSearchTitleInput || !addSeriesSearchSubmitBtn) return;
+		if (!btnAddSeries) return;
 		btnAddSeries.click();
-		addSeriesSearchToggleBtn.click();
+		searchAddSourcesFor(title);
+	};
+
+	// The open Add modal's search with that title, run right away
+	function searchAddSourcesFor(title) {
+		if (!addSeriesSearchToggleBtn || !addSeriesSearchTitleInput || !addSeriesSearchSubmitBtn) return;
+		if (addSeriesSearchView.classList.contains('hidden')) addSeriesSearchToggleBtn.click();
 		addSeriesSearchTitleInput.value = title;
 		// The extension, when installed, takes this click over (K/Y/U)
 		addSeriesSearchSubmitBtn.click();
 		backToAddLinkAfterSearch();
-	};
+	}
 
 	if (addSeriesUrlView && addSeriesSearchView && addSeriesSearchToggleBtn) {
 		addSeriesSearchToggleBtn.addEventListener('click', () => {
@@ -6881,7 +6887,7 @@ document.addEventListener('DOMContentLoaded', () => {
 						</a>`).join('')}
 					${tracked
 						? `<button type="button" class="add-related-use secondary" data-action="open" title="Open its Series Settings">Open</button>`
-						: '<button type="button" class="add-related-use" data-action="use" title="Put its link here, ready to add">Add</button>'}
+						: '<button type="button" class="add-related-use" data-action="use" title="Search the sites for it, to add it">Add</button>'}
 				</div>
 			</div>
 		`;
@@ -7005,15 +7011,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			.flatMap(({ view }) => view.related), list);
 	}
 
-	// A related series picked: its link(s) go in the field (a MangaDex +
-	// Atsumaru pair becomes primary + extra source) and it's previewed
+	// A related series picked: its title is searched on the sites (as the
+	// search view does), to add it from whichever has it - nothing is added
+	// or previewed until a link is pasted. Its MangaDex/Atsumaru links are on
+	// the row for when those are the ones wanted.
 	function useAddRelated(item) {
-		const input = document.getElementById('new-series-url');
-		if (!input) return;
-		input.value = item.links.map(link => link.url).join(', ');
 		closeAddRelatedView();
-		handleAddUrlInput({ inputType: 'insertFromPaste' });
-		input.focus();
+		searchAddSourcesFor(item.title);
 	}
 
 	async function setAddRelatedHidden(group, hidden) {
@@ -7297,7 +7301,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (action === 'open' && item.tracked) {
 			openTrackedSeriesFromAdd(item.tracked.id);
 		} else if (action === 'use') {
-			// into the Add modal, previewed there, ready to add
+			// into the Add modal, its title searched on the sites
 			closeEditSeriesModal();
 			btnAddSeries?.click();
 			useAddRelated(item);
