@@ -312,6 +312,13 @@ def get_series_info(series_id, with_gallery=False):
     last_real_chapter = 0.0
     anchor = None  # (site number, chapter number) of the latest titled chapter
     from_site_count = 0
+    # A side entry has come since the latest titled chapter. Kagane counts
+    # side entries in its own numbering, so a chapter-less book after one
+    # would be numbered past the slot it took - and what trails an
+    # "Epilogue" is more extras anyway (Love Advice from the Great Duke of
+    # Hell: "Afterwords" and a "NEW SERIES ANNOUNCEMENT" after Episode 131's
+    # epilogue came out as chapters 133 and 134). They're side entries too.
+    after_side_entry = False
 
     for e in entries:
         book, title = e['book'], e['title']
@@ -319,11 +326,12 @@ def get_series_info(series_id, with_gallery=False):
 
         if e['kind'] == 'numbered':
             final_chapter_num = e['final']
+            after_side_entry = False
             if e['site_no'] is not None:
                 anchor = (e['site_no'], final_chapter_num)
         elif e['kind'] == 'oneshot':
             final_chapter_num = 0.0
-        elif e['kind'] == 'unnumbered' and e['site_no'] is not None:
+        elif e['kind'] == 'unnumbered' and e['site_no'] is not None and not after_side_entry:
             # The site's numbering doesn't always agree with the titles' (an
             # "Episode 0" prologue is chapter_no 1, so "Episode 1" is 2), so
             # where a titled chapter is nearby it's the reference point:
@@ -339,6 +347,12 @@ def get_series_info(series_id, with_gallery=False):
                 final_chapter_num = candidate
                 from_site_count += 1
 
+        # Only after a titled chapter: before one, Kagane numbers its books from
+        # the "Prologue" (0) on, and the untitled ones after it are chapters 1,
+        # 2... (Immortal's Way of Life). Never in site numbering, either - no
+        # titled chapter would ever end it there.
+        if e['kind'] == 'special' and anchor is not None:
+            after_side_entry = True
         if final_chapter_num is not None:
             last_real_chapter = final_chapter_num
         else:
