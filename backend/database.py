@@ -4,6 +4,7 @@ import os
 import json
 from datetime import datetime, timezone, timedelta  # ADDED: timedelta
 import threading
+import functools
 from threading import Lock
 import glob
 import re
@@ -2568,7 +2569,7 @@ def update_current_period_stats():
     
     conn = None
     try:
-        now = datetime.now(timezone.utc)
+        now = stats_now()
         conn = get_db()
         cursor = conn.cursor()
         
@@ -2577,15 +2578,16 @@ def update_current_period_stats():
         today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
         today_str = today_start.date().isoformat()
         
-        # Count series added today (use DATE comparison for reliability)
+        # Count series added today (DATETIME() turns the local times into
+        # UTC, which created_at is in)
         cursor.execute("""
-            SELECT COUNT(*) FROM series 
-            WHERE DATE(created_at) = DATE(?)
-        """, (now.isoformat(),))
+            SELECT COUNT(*) FROM series
+            WHERE DATETIME(created_at) >= DATETIME(?) AND DATETIME(created_at) <= DATETIME(?)
+        """, (today_start.isoformat(), today_end.isoformat()))
         series_added_today = cursor.fetchone()[0] or 0
         
         # Count chapters read today
-        chapters_read_today = chapters_read_between(cursor, today_start.isoformat())
+        chapters_read_today = chapters_read_between(cursor, today_start)
         
         # Save today's stats
         cursor.execute("""
@@ -2605,7 +2607,7 @@ def update_current_period_stats():
         """, (week_start.isoformat(), now.isoformat()))
         series_added_week = cursor.fetchone()[0] or 0
         
-        chapters_read_week = chapters_read_between(cursor, week_start.isoformat(), now.isoformat())
+        chapters_read_week = chapters_read_between(cursor, week_start)
         
         cursor.execute("""
             INSERT OR REPLACE INTO stats_history 
@@ -2624,7 +2626,7 @@ def update_current_period_stats():
         """, (month_start.isoformat(), now.isoformat()))
         series_added_month = cursor.fetchone()[0] or 0
         
-        chapters_read_month = chapters_read_between(cursor, month_start.isoformat(), now.isoformat())
+        chapters_read_month = chapters_read_between(cursor, month_start)
         
         cursor.execute("""
             INSERT OR REPLACE INTO stats_history 
@@ -2700,6 +2702,46 @@ def _chapter_progress_delta(old_value, new_value):
         return -float(old_ch)
     return 0.0
 
+# The days the Stats page counts in: the user's own (Paris), not UTC - a
+# chapter read at 1am belongs to that day, not the one before (it broke the
+# streak of a day read only after midnight). TIMEZONE in .env (an IANA name
+# like "Europe/Paris") sets another. Stats rows from before this were cut
+# in UTC; scripts/recount_daily_reads.py recounts the ones the log covers.
+DEFAULT_STATS_TIMEZONE = 'Europe/Paris'
+
+def stats_tz():
+    return _stats_zone(os.environ.get('TIMEZONE') or DEFAULT_STATS_TIMEZONE)
+
+@functools.lru_cache(maxsize=None)
+def _stats_zone(name):
+    # cached: it's asked for every progress entry counted, so a bad name
+    # warns once rather than once per entry
+    from zoneinfo import ZoneInfo
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        print(f"[Stats] Unknown TIMEZONE {name!r} - using {DEFAULT_STATS_TIMEZONE}")
+        return ZoneInfo(DEFAULT_STATS_TIMEZONE)
+
+def stats_now():
+    return datetime.now(stats_tz())
+
+def stats_day(timestamp):
+    """The stats day ('YYYY-MM-DD') a UTC timestamp (the activity log's
+    text, or a datetime) falls on."""
+    if not isinstance(timestamp, datetime):
+        timestamp = _parse_activity_timestamp(str(timestamp))
+    return timestamp.astimezone(stats_tz()).date().isoformat()
+
+def stats_day_start(day):
+    """The start of a stats day ('YYYY-MM-DD'), as an aware datetime."""
+    return datetime.fromisoformat(day).replace(tzinfo=stats_tz())
+
+def _log_time(moment):
+    """An aware datetime as the activity log writes its timestamps (UTC,
+    trailing Z), so the two compare as text."""
+    return moment.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+
 def _progress_value(value):
     if isinstance(value, str):
         try:
@@ -2709,10 +2751,10 @@ def _progress_value(value):
     return value or {}
 
 def progress_chapters_by_day(rows):
-    """{(series key, UTC day): chapters read} over 'progress' activity-log
+    """{(series key, stats day): chapters read} over 'progress' activity-log
     rows (series key, timestamp, old_value, new_value - values as dicts or
-    their JSON text): each series' net change of progress that day, never
-    below 0. Taking a series back cancels what was read of it that same day
+    their JSON text), the day as stats_day() gives it: each series' net
+    change of progress that day, never below 0. Taking a series back cancels what was read of it that same day
     (overshot to 110, back to 109), but no more: correcting a chapter set on
     another day (Snow & Ink, 25 since September, put back to 11) used to
     take 14 off that day's reading of everything else - a day with 10
@@ -2720,19 +2762,21 @@ def progress_chapters_by_day(rows):
     nets = {}
     for key, timestamp, old_value, new_value in rows:
         delta = _chapter_progress_delta(_progress_value(old_value), _progress_value(new_value))
-        day = str(timestamp)[:10]
+        day = stats_day(timestamp)
         nets[(key, day)] = nets.get((key, day), 0.0) + delta
     return {k: max(0.0, v) for k, v in nets.items()}
 
-def chapters_read_between(cursor, start_iso, end_iso=None):
-    """Chapters read from start_iso (to end_iso, both inclusive) - the
-    live (not undone) progress entries, counted by progress_chapters_by_day()."""
+def chapters_read_between(cursor, start, end=None):
+    """Chapters read from start up to end (aware datetimes; end not
+    included, None = now) - the live (not undone) progress entries, counted
+    by progress_chapters_by_day()."""
+    end_text = _log_time(end) if end is not None else None
     cursor.execute("""
         SELECT id, series_id, timestamp, old_value, new_value
         FROM activity_log
         WHERE action_type = 'progress' AND can_undo = 1
-          AND timestamp >= ? AND (? IS NULL OR timestamp <= ?)
-    """, (start_iso, end_iso, end_iso))
+          AND timestamp >= ? AND (? IS NULL OR timestamp < ?)
+    """, (_log_time(start), end_text, end_text))
     rows = [(series_id if series_id is not None else f'log{log_id}', ts, old, new)
             for log_id, series_id, ts, old, new in cursor.fetchall()]
     return round(sum(progress_chapters_by_day(rows).values()), 1)
@@ -2746,7 +2790,7 @@ def _apply_stats_delta(cursor, event_time, chapters_delta=0.0, series_delta=0):
     matches zero rows there."""
     if not chapters_delta and not series_delta:
         return
-    day_start = event_time.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = event_time.astimezone(stats_tz()).replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = day_start - timedelta(days=day_start.weekday())
     month_start = day_start.replace(day=1)
     year_start = day_start.replace(month=1, day=1)
@@ -2775,11 +2819,12 @@ def adjust_stats_for_progress_undo(timestamp_str, old_value, new_value, series_i
         event_time = _parse_activity_timestamp(timestamp_str)
         conn = get_db()
         cursor = conn.cursor()
+        day_start = stats_day_start(stats_day(event_time))
         cursor.execute("""
             SELECT id, timestamp, old_value, new_value FROM activity_log
             WHERE series_id = ? AND action_type = 'progress' AND can_undo = 1
-              AND substr(timestamp, 1, 10) = ?
-        """, (series_id, event_time.date().isoformat()))
+              AND timestamp >= ? AND timestamp < ?
+        """, (series_id, _log_time(day_start), _log_time(day_start + timedelta(days=1))))
         rows = cursor.fetchall()
         others = [(series_id, ts, old, new) for entry_id, ts, old, new in rows if entry_id != log_id]
         with_it = others + [(series_id, timestamp_str, old_value, new_value)]
@@ -2822,7 +2867,7 @@ def adjust_stats_for_deletion(created_at_str, progress_rows=()):
         days = progress_chapters_by_day([(0, ts, old, new) for ts, old, new in progress_rows])
         for (_, day), read in days.items():
             try:
-                _apply_stats_delta(cursor, _parse_activity_timestamp(day), chapters_delta=-read)
+                _apply_stats_delta(cursor, stats_day_start(day), chapters_delta=-read)
             except Exception:
                 continue
 
@@ -2866,7 +2911,7 @@ def restore_stats_for_series(created_at_str, progress_history=()):
                                          for entry in progress_history if entry.get('timestamp')])
         for (_, day), read in days.items():
             try:
-                _apply_stats_delta(cursor, _parse_activity_timestamp(day), chapters_delta=read)
+                _apply_stats_delta(cursor, stats_day_start(day), chapters_delta=read)
             except Exception:
                 continue
 

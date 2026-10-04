@@ -2829,12 +2829,14 @@ def save_completed_period_stats():
     Check if any periods have ended and save their stats.
     Call this periodically (e.g., daily via scheduler or on stats page load).
     """
-    from .database import get_db, release_db, chapters_read_between
-    from datetime import datetime, timezone, timedelta
+    from .database import get_db, release_db, chapters_read_between, stats_now
+    from datetime import timedelta
     
     conn = None
     try:
-        now = datetime.now(timezone.utc)
+        # In the user's own time (see database.stats_tz), like the rows
+        # update_current_period_stats() keeps
+        now = stats_now()
         conn = get_db()
         cursor = conn.cursor()
         
@@ -2860,7 +2862,7 @@ def save_completed_period_stats():
             series_added = cursor.fetchone()[0] or 0
             
             # Count chapters read yesterday
-            chapters_read = chapters_read_between(cursor, yesterday.isoformat(), yesterday_end.isoformat())
+            chapters_read = chapters_read_between(cursor, yesterday, yesterday_end + timedelta(microseconds=1))
             
             # Use existing cursor instead of calling save_period_stats() to avoid deadlock
             cursor.execute("""
@@ -2883,7 +2885,7 @@ def save_completed_period_stats():
                 """, (last_week_start.isoformat(), last_week_end.isoformat()))
                 series_added = cursor.fetchone()[0] or 0
                 
-                chapters_read = chapters_read_between(cursor, last_week_start.isoformat(), last_week_end.isoformat())
+                chapters_read = chapters_read_between(cursor, last_week_start, last_week_end + timedelta(microseconds=1))
                 
                 # Use existing cursor instead of calling save_period_stats() to avoid deadlock
                 cursor.execute("""
@@ -2905,7 +2907,7 @@ def save_completed_period_stats():
                 """, (last_month_start.isoformat(), last_month_end.isoformat()))
                 series_added = cursor.fetchone()[0] or 0
                 
-                chapters_read = chapters_read_between(cursor, last_month_start.isoformat(), last_month_end.isoformat())
+                chapters_read = chapters_read_between(cursor, last_month_start, last_month_end + timedelta(microseconds=1))
                 
                 # Use existing cursor instead of calling save_period_stats() to avoid deadlock
                 cursor.execute("""
@@ -2980,7 +2982,9 @@ def api_get_stats():
 
         HISTORY_DAYS = 30
         BULK_DAY_CHAPTERS = 500
-        today = datetime.now(timezone.utc).date()
+        # The stats rows' days are the user's own (database.stats_tz)
+        from .database import stats_now
+        today = stats_now().date()
         history_start = today - timedelta(days=HISTORY_DAYS - 1)
 
         conn = get_db()
