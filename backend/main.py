@@ -415,7 +415,7 @@ def api_undo_log(log_id):
                 # undo it at the day/week/month/year it actually happened on.
                 try:
                     from .database import adjust_stats_for_progress_undo
-                    adjust_stats_for_progress_undo(timestamp_str, old_value, new_value)
+                    adjust_stats_for_progress_undo(timestamp_str, old_value, new_value, series_id, log_id)
                 except Exception as e:
                     print(f"[Undo] Failed to reverse progress stats: {e}")
         
@@ -839,7 +839,7 @@ def api_undo_bulk(bulk_id):
                         continue
                     try:
                         from .database import adjust_stats_for_progress_undo
-                        adjust_stats_for_progress_undo(log_timestamp, old_value, new_value)
+                        adjust_stats_for_progress_undo(log_timestamp, old_value, new_value, series_id, log_id)
                     except Exception as e:
                         print(f"[Undo Bulk] Failed to reverse progress stats for series {series_id}: {e}")
             

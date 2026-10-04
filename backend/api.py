@@ -2829,9 +2829,8 @@ def save_completed_period_stats():
     Check if any periods have ended and save their stats.
     Call this periodically (e.g., daily via scheduler or on stats page load).
     """
-    from .database import get_db, release_db
+    from .database import get_db, release_db, chapters_read_between
     from datetime import datetime, timezone, timedelta
-    import json
     
     conn = None
     try:
@@ -2861,25 +2860,7 @@ def save_completed_period_stats():
             series_added = cursor.fetchone()[0] or 0
             
             # Count chapters read yesterday
-            cursor.execute("""
-                SELECT old_value, new_value
-                FROM activity_log
-                WHERE action_type = 'progress'
-                AND can_undo = 1
-                AND timestamp >= ? AND timestamp <= ?
-            """, (yesterday.isoformat(), yesterday_end.isoformat()))
-            
-            chapters_read = 0
-            for old_str, new_str in cursor.fetchall():
-                try:
-                    old_val = json.loads(old_str) if old_str else {}
-                    new_val = json.loads(new_str) if new_str else {}
-                    old_ch = old_val.get('chapter', -1)
-                    new_ch = new_val.get('chapter', -1)
-                    if old_ch >= 0 and new_ch >= 0:
-                        chapters_read += float(new_ch) - float(old_ch)
-                except:
-                    continue
+            chapters_read = chapters_read_between(cursor, yesterday.isoformat(), yesterday_end.isoformat())
             
             # Use existing cursor instead of calling save_period_stats() to avoid deadlock
             cursor.execute("""
@@ -2902,25 +2883,7 @@ def save_completed_period_stats():
                 """, (last_week_start.isoformat(), last_week_end.isoformat()))
                 series_added = cursor.fetchone()[0] or 0
                 
-                cursor.execute("""
-                    SELECT old_value, new_value
-                    FROM activity_log
-                    WHERE action_type = 'progress'
-                    AND can_undo = 1
-                    AND timestamp >= ? AND timestamp <= ?
-                """, (last_week_start.isoformat(), last_week_end.isoformat()))
-                
-                chapters_read = 0
-                for old_str, new_str in cursor.fetchall():
-                    try:
-                        old_val = json.loads(old_str) if old_str else {}
-                        new_val = json.loads(new_str) if new_str else {}
-                        old_ch = old_val.get('chapter', -1)
-                        new_ch = new_val.get('chapter', -1)
-                        if old_ch >= 0 and new_ch >= 0:
-                            chapters_read += float(new_ch) - float(old_ch)
-                    except:
-                        continue
+                chapters_read = chapters_read_between(cursor, last_week_start.isoformat(), last_week_end.isoformat())
                 
                 # Use existing cursor instead of calling save_period_stats() to avoid deadlock
                 cursor.execute("""
@@ -2942,25 +2905,7 @@ def save_completed_period_stats():
                 """, (last_month_start.isoformat(), last_month_end.isoformat()))
                 series_added = cursor.fetchone()[0] or 0
                 
-                cursor.execute("""
-                    SELECT old_value, new_value
-                    FROM activity_log
-                    WHERE action_type = 'progress'
-                    AND can_undo = 1
-                    AND timestamp >= ? AND timestamp <= ?
-                """, (last_month_start.isoformat(), last_month_end.isoformat()))
-                
-                chapters_read = 0
-                for old_str, new_str in cursor.fetchall():
-                    try:
-                        old_val = json.loads(old_str) if old_str else {}
-                        new_val = json.loads(new_str) if new_str else {}
-                        old_ch = old_val.get('chapter', -1)
-                        new_ch = new_val.get('chapter', -1)
-                        if old_ch >= 0 and new_ch >= 0:
-                            chapters_read += float(new_ch) - float(old_ch)
-                    except:
-                        continue
+                chapters_read = chapters_read_between(cursor, last_month_start.isoformat(), last_month_end.isoformat())
                 
                 # Use existing cursor instead of calling save_period_stats() to avoid deadlock
                 cursor.execute("""

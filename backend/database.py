@@ -2585,37 +2585,7 @@ def update_current_period_stats():
         series_added_today = cursor.fetchone()[0] or 0
         
         # Count chapters read today
-        cursor.execute("""
-            SELECT old_value, new_value
-            FROM activity_log
-            WHERE action_type = 'progress'
-            AND can_undo = 1
-            AND timestamp >= ?
-        """, (today_start.isoformat(),))
-        
-        chapters_read_today = 0
-        for old_str, new_str in cursor.fetchall():
-            try:
-                old_val = json.loads(old_str) if old_str else {}
-                new_val = json.loads(new_str) if new_str else {}
-                old_ch = old_val.get('chapter', -1)
-                new_ch = new_val.get('chapter', -1)
-                
-                # CHANGED: Handle both forward and backward progress
-                if new_ch >= 0:  # New chapter is valid
-                    if old_ch == -1:
-                        # Started reading: count from 0 to new_ch
-                        chapters_read_today += float(new_ch)
-                    elif old_ch >= 0:
-                        # Normal progress: count difference (can be negative if unread)
-                        chapters_read_today += float(new_ch) - float(old_ch)
-                elif new_ch == -1 and old_ch >= 0:
-                    # ADDED: Reset to "Not started" - subtract all read chapters
-                    chapters_read_today -= float(old_ch)
-            except:
-                continue
-        
-        chapters_read_today = round(chapters_read_today, 1)
+        chapters_read_today = chapters_read_between(cursor, today_start.isoformat())
         
         # Save today's stats
         cursor.execute("""
@@ -2635,35 +2605,7 @@ def update_current_period_stats():
         """, (week_start.isoformat(), now.isoformat()))
         series_added_week = cursor.fetchone()[0] or 0
         
-        cursor.execute("""
-            SELECT old_value, new_value
-            FROM activity_log
-            WHERE action_type = 'progress'
-            AND can_undo = 1
-            AND timestamp >= ? AND timestamp <= ?
-        """, (week_start.isoformat(), now.isoformat()))
-        
-        chapters_read_week = 0
-        for old_str, new_str in cursor.fetchall():
-            try:
-                old_val = json.loads(old_str) if old_str else {}
-                new_val = json.loads(new_str) if new_str else {}
-                old_ch = old_val.get('chapter', -1)
-                new_ch = new_val.get('chapter', -1)
-                
-                # CHANGED: Handle both forward and backward progress
-                if new_ch >= 0:
-                    if old_ch == -1:
-                        chapters_read_week += float(new_ch)
-                    elif old_ch >= 0:
-                        chapters_read_week += float(new_ch) - float(old_ch)
-                elif new_ch == -1 and old_ch >= 0:
-                    # ADDED: Reset to "Not started" - subtract all read chapters
-                    chapters_read_week -= float(old_ch)
-            except:
-                continue
-        
-        chapters_read_week = round(chapters_read_week, 1)
+        chapters_read_week = chapters_read_between(cursor, week_start.isoformat(), now.isoformat())
         
         cursor.execute("""
             INSERT OR REPLACE INTO stats_history 
@@ -2682,35 +2624,7 @@ def update_current_period_stats():
         """, (month_start.isoformat(), now.isoformat()))
         series_added_month = cursor.fetchone()[0] or 0
         
-        cursor.execute("""
-            SELECT old_value, new_value
-            FROM activity_log
-            WHERE action_type = 'progress'
-            AND can_undo = 1
-            AND timestamp >= ? AND timestamp <= ?
-        """, (month_start.isoformat(), now.isoformat()))
-        
-        chapters_read_month = 0
-        for old_str, new_str in cursor.fetchall():
-            try:
-                old_val = json.loads(old_str) if old_str else {}
-                new_val = json.loads(new_str) if new_str else {}
-                old_ch = old_val.get('chapter', -1)
-                new_ch = new_val.get('chapter', -1)
-                
-                # CHANGED: Handle both forward and backward progress
-                if new_ch >= 0:
-                    if old_ch == -1:
-                        chapters_read_month += float(new_ch)
-                    elif old_ch >= 0:
-                        chapters_read_month += float(new_ch) - float(old_ch)
-                elif new_ch == -1 and old_ch >= 0:
-                    # ADDED: Reset to "Not started" - subtract all read chapters
-                    chapters_read_month -= float(old_ch)
-            except:
-                continue
-        
-        chapters_read_month = round(chapters_read_month, 1)
+        chapters_read_month = chapters_read_between(cursor, month_start.isoformat(), now.isoformat())
         
         cursor.execute("""
             INSERT OR REPLACE INTO stats_history 
@@ -2770,10 +2684,10 @@ def _parse_activity_timestamp(timestamp_str):
     return dt
 
 def _chapter_progress_delta(old_value, new_value):
-    """The net chapters_read a single 'progress' activity-log entry added at
-    the time - mirrors the summation in update_current_period_stats()/
-    save_completed_period_stats(), so reversing it (negate the result)
-    exactly cancels what the original change added."""
+    """The change in chapters one 'progress' activity-log entry made:
+    starting a series counts every chapter up to the new one, a reset to
+    "Not started" takes them all back. Summed per series and day by
+    progress_chapters_read(), which is what's counted."""
     old_ch = (old_value or {}).get('chapter', -1)
     new_ch = (new_value or {}).get('chapter', -1)
     if new_ch >= 0:
@@ -2785,6 +2699,43 @@ def _chapter_progress_delta(old_value, new_value):
     if new_ch == -1 and old_ch >= 0:
         return -float(old_ch)
     return 0.0
+
+def _progress_value(value):
+    if isinstance(value, str):
+        try:
+            return json.loads(value) if value else {}
+        except ValueError:
+            return {}
+    return value or {}
+
+def progress_chapters_by_day(rows):
+    """{(series key, UTC day): chapters read} over 'progress' activity-log
+    rows (series key, timestamp, old_value, new_value - values as dicts or
+    their JSON text): each series' net change of progress that day, never
+    below 0. Taking a series back cancels what was read of it that same day
+    (overshot to 110, back to 109), but no more: correcting a chapter set on
+    another day (Snow & Ink, 25 since September, put back to 11) used to
+    take 14 off that day's reading of everything else - a day with 10
+    chapters read came out at -4 and broke the streak."""
+    nets = {}
+    for key, timestamp, old_value, new_value in rows:
+        delta = _chapter_progress_delta(_progress_value(old_value), _progress_value(new_value))
+        day = str(timestamp)[:10]
+        nets[(key, day)] = nets.get((key, day), 0.0) + delta
+    return {k: max(0.0, v) for k, v in nets.items()}
+
+def chapters_read_between(cursor, start_iso, end_iso=None):
+    """Chapters read from start_iso (to end_iso, both inclusive) - the
+    live (not undone) progress entries, counted by progress_chapters_by_day()."""
+    cursor.execute("""
+        SELECT id, series_id, timestamp, old_value, new_value
+        FROM activity_log
+        WHERE action_type = 'progress' AND can_undo = 1
+          AND timestamp >= ? AND (? IS NULL OR timestamp <= ?)
+    """, (start_iso, end_iso, end_iso))
+    rows = [(series_id if series_id is not None else f'log{log_id}', ts, old, new)
+            for log_id, series_id, ts, old, new in cursor.fetchall()]
+    return round(sum(progress_chapters_by_day(rows).values()), 1)
 
 def _apply_stats_delta(cursor, event_time, chapters_delta=0.0, series_delta=0):
     """Adds chapters_delta/series_delta (either can be negative, to reverse
@@ -2809,20 +2760,32 @@ def _apply_stats_delta(cursor, event_time, chapters_delta=0.0, series_delta=0):
             WHERE period_type = ? AND period_start = ?
         """, (chapters_delta, series_delta, period_type, period_start.date().isoformat()))
 
-def adjust_stats_for_progress_undo(timestamp_str, old_value, new_value):
-    """Reverses the chapters_read a 'progress' activity-log entry added, at
-    the day/week/month/year buckets its OWN timestamp falls in - call this
-    when that entry is undone, or a chapter marked read on a past day would
-    inflate that day's (and week's/month's/year's) totals forever, since
-    reverting series.current_chapter alone never touches stats_history."""
-    delta = _chapter_progress_delta(old_value, new_value)
-    if not delta:
-        return
+def adjust_stats_for_progress_undo(timestamp_str, old_value, new_value, series_id, log_id):
+    """Reverses the chapters_read a 'progress' activity-log entry (log_id)
+    added, at the day/week/month/year buckets its OWN timestamp falls in -
+    call this when that entry is undone, or a chapter marked read on a past
+    day would inflate that day's (and week's/month's/year's) totals forever,
+    since reverting series.current_chapter alone never touches stats_history.
+    What it added is its series' count for that day with it, less without it
+    (see progress_chapters_by_day). The entry is closed out (can_undo = 0)
+    here, so a bulk undo reversing several of one series' entries in a row
+    counts each against the ones still standing."""
     conn = None
     try:
         event_time = _parse_activity_timestamp(timestamp_str)
         conn = get_db()
-        _apply_stats_delta(conn.cursor(), event_time, chapters_delta=-delta)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, timestamp, old_value, new_value FROM activity_log
+            WHERE series_id = ? AND action_type = 'progress' AND can_undo = 1
+              AND substr(timestamp, 1, 10) = ?
+        """, (series_id, event_time.date().isoformat()))
+        rows = cursor.fetchall()
+        others = [(series_id, ts, old, new) for entry_id, ts, old, new in rows if entry_id != log_id]
+        with_it = others + [(series_id, timestamp_str, old_value, new_value)]
+        added = sum(progress_chapters_by_day(with_it).values()) - sum(progress_chapters_by_day(others).values())
+        _apply_stats_delta(cursor, event_time, chapters_delta=-added)
+        cursor.execute("UPDATE activity_log SET can_undo = 0 WHERE id = ?", (log_id,))
     except Exception as e:
         print(f"[Stats] Failed to reverse stats for undone progress: {e}")
     finally:
@@ -2855,20 +2818,16 @@ def adjust_stats_for_deletion(created_at_str, progress_rows=()):
 
         _apply_stats_delta(cursor, created_at, series_delta=-1)
 
-        reversed_count = 0
-        for timestamp_str, old_str, new_str in progress_rows:
+        # Its count for each day it was read (see progress_chapters_by_day)
+        days = progress_chapters_by_day([(0, ts, old, new) for ts, old, new in progress_rows])
+        for (_, day), read in days.items():
             try:
-                old_value = json.loads(old_str) if old_str else {}
-                new_value = json.loads(new_str) if new_str else {}
-                delta = _chapter_progress_delta(old_value, new_value)
-                if delta:
-                    _apply_stats_delta(cursor, _parse_activity_timestamp(timestamp_str), chapters_delta=-delta)
-                    reversed_count += 1
+                _apply_stats_delta(cursor, _parse_activity_timestamp(day), chapters_delta=-read)
             except Exception:
                 continue
 
         print(f"[Stats] Adjusted stats for deleted series (created: {created_at.date()}, "
-              f"{reversed_count} progress entries reversed)")
+              f"{len(progress_rows)} progress entries reversed over {len(days)} day(s))")
 
     except Exception as e:
         print(f"[Stats] Failed to adjust stats for deletion: {e}")
@@ -2903,18 +2862,16 @@ def restore_stats_for_series(created_at_str, progress_history=()):
 
         _apply_stats_delta(cursor, created_at, series_delta=1)
 
-        restored_count = 0
-        for entry in progress_history:
+        days = progress_chapters_by_day([(0, entry['timestamp'], entry.get('old_value'), entry.get('new_value'))
+                                         for entry in progress_history if entry.get('timestamp')])
+        for (_, day), read in days.items():
             try:
-                delta = _chapter_progress_delta(entry.get('old_value'), entry.get('new_value'))
-                if delta:
-                    _apply_stats_delta(cursor, _parse_activity_timestamp(entry['timestamp']), chapters_delta=delta)
-                    restored_count += 1
+                _apply_stats_delta(cursor, _parse_activity_timestamp(day), chapters_delta=read)
             except Exception:
                 continue
 
         print(f"[Stats] Restored stats for undeleted series (created: {created_at.date()}, "
-              f"{restored_count} progress entries restored)")
+              f"{len(progress_history)} progress entries restored over {len(days)} day(s))")
 
     except Exception as e:
         print(f"[Stats] Failed to restore stats for undeleted series: {e}")
