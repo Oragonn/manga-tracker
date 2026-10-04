@@ -474,9 +474,10 @@ def get_related_list(series_id=None):
         library = {row[0]: {'id': row[0], 'title': row[1], 'status': row[2]} for row in cursor.fetchall()}
         cursor.execute("SELECT series_id, related_ids FROM related_hidden")
         hidden = {}
-        for series_id, related_ids in cursor.fetchall():
+        # not `series_id` - that's the filter the query below uses
+        for hidden_id, related_ids in cursor.fetchall():
             try:
-                hidden[series_id] = json.loads(related_ids)
+                hidden[hidden_id] = json.loads(related_ids)
             except (ValueError, TypeError):
                 pass
         cursor.execute("""
@@ -496,8 +497,8 @@ def get_related_list(series_id=None):
         rows = cursor.fetchall()
         cursor.execute("SELECT series_id, source_url, source_type FROM series_sources ORDER BY is_primary DESC, id")
         series_sources = {}
-        for series_id, url, source_type in cursor.fetchall():
-            series_sources.setdefault(series_id, []).append({'url': url, 'source_type': source_type})
+        for source_series_id, url, source_type in cursor.fetchall():
+            series_sources.setdefault(source_series_id, []).append({'url': url, 'source_type': source_type})
     finally:
         release_db(conn)
 
