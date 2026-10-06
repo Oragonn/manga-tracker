@@ -84,6 +84,11 @@ class ComixNotFound(Exception):
     """The series doesn't exist on Comix (any more)."""
 
 
+class ComixHTTPError(RuntimeError):
+    """Comix answered with a server error (5xx) or didn't answer at all -
+    it's down, not us."""
+
+
 class ComixBrowserClient:
     def __init__(self):
         self.lock = threading.Lock()
@@ -201,20 +206,45 @@ class ComixBrowserClient:
         if self._ready:
             return
         self._patched = False
-        await self._page.goto(f"{_SITE}/title/{hid}", timeout=timeout * 1000, wait_until="domcontentloaded")
-        from .trackers.redirects import redirect_error
-        moved = redirect_error(_SITE + "/", self._page.url)
-        if moved:
-            raise moved
-        deadline = asyncio.get_event_loop().time() + timeout
-        while asyncio.get_event_loop().time() < deadline:
+        # The page's own document responses: the challenge, then (once it
+        # clears) the series page itself
+        navigations = []
+
+        def on_response(resp):
             try:
-                if await self._page.get_attribute('html', 'data-cx-ready'):
-                    self._ready = True
-                    return
+                if resp.request.is_navigation_request() and resp.frame == self._page.main_frame:
+                    navigations.append(resp)
             except Exception:
-                pass  # mid-navigation (the Cloudflare challenge reloads the page)
-            await asyncio.sleep(0.25)
+                pass
+
+        self._page.on('response', on_response)
+        try:
+            from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+            try:
+                await self._page.goto(f"{_SITE}/title/{hid}", timeout=timeout * 1000, wait_until="domcontentloaded")
+            except PlaywrightTimeoutError:
+                # Not even the challenge page came back: Comix isn't answering
+                raise ComixHTTPError(f"Comix didn't answer within {timeout}s")
+            from .trackers.redirects import redirect_error
+            moved = redirect_error(_SITE + "/", self._page.url)
+            if moved:
+                raise moved
+            deadline = asyncio.get_event_loop().time() + timeout
+            while asyncio.get_event_loop().time() < deadline:
+                try:
+                    if await self._page.get_attribute('html', 'data-cx-ready'):
+                        self._ready = True
+                        return
+                except Exception:
+                    pass  # mid-navigation (the Cloudflare challenge reloads the page)
+                # A server error page (a 502 while Comix is down) will never
+                # get the API client: fail now instead of waiting out the timeout
+                error = await self._error_page(navigations)
+                if error:
+                    raise error
+                await asyncio.sleep(0.25)
+        finally:
+            self._page.remove_listener('response', on_response)
         try:
             title = (await self._page.title() or '').lower()
         except Exception:
@@ -224,6 +254,23 @@ class ComixBrowserClient:
         if not self._patched:
             raise RuntimeError("Comix's site code changed - its API client wasn't found (tracker needs updating)")
         raise RuntimeError(f"Comix page didn't finish loading after {timeout}s")
+
+    async def _error_page(self, navigations):
+        """A ComixHTTPError if the page is a server error (5xx) rather than
+        Comix or a Cloudflare challenge still being solved, else None. Not
+        4xx: a missing series is told apart by the API's own 404."""
+        if not navigations or navigations[-1].status < 500:
+            return None
+        resp = navigations[-1]
+        if (resp.headers.get('cf-mitigated') or '').lower() == 'challenge':
+            return None
+        try:
+            title = (await self._page.title() or '').strip()
+        except Exception:
+            return None  # mid-navigation
+        if 'moment' in title.lower():
+            return None  # "Just a moment..." - the challenge
+        return ComixHTTPError(f"Comix answered HTTP {resp.status}{f' ({title})' if title else ''}")
 
     async def _call(self, path, params, timeout=30):
         rid = next(self._rid)
@@ -252,6 +299,8 @@ class ComixBrowserClient:
                     return out.get('data')
                 if out.get('status') == 404:
                     raise ComixNotFound(f"Comix has no {path}")
+                if (out.get('status') or 0) >= 500:
+                    raise ComixHTTPError(f"Comix API {path} answered HTTP {out['status']}")
                 raise RuntimeError(f"Comix API {path} failed: {out.get('error')}")
             await asyncio.sleep(0.05)
         raise RuntimeError(f"Comix API {path} timed out after {timeout}s")
@@ -285,7 +334,8 @@ class ComixBrowserClient:
         """One signed+decrypted Comix API call (e.g. '/manga/<hid>',
         '/manga/<hid>/chapters'). `hid` is the series the call is about,
         used to load a page if the browser isn't on comix.to yet. Retries
-        once on a reloaded page, then once on a fresh browser."""
+        once on a reloaded page, then once on a fresh browser - or, when
+        Comix itself answered with a server error, just once more."""
         with self.lock:
             last_error = None
             for attempt in range(3):
@@ -294,10 +344,16 @@ class ComixBrowserClient:
                 except ComixNotFound:
                     raise
                 except Exception as e:
-                    last_error = e
                     from .trackers.redirects import SiteRedirectError
                     if isinstance(e, SiteRedirectError):
                         raise
+                    # A fresh page or browser won't change Comix's own answer
+                    if isinstance(e, ComixHTTPError):
+                        if isinstance(last_error, ComixHTTPError):
+                            break
+                        last_error = e
+                        continue
+                    last_error = e
                     # A cleared session or the page's signing key can expire:
                     # reload the page first, then start over with a new browser
                     self._ready = False

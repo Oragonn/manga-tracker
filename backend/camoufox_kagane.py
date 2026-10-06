@@ -20,6 +20,7 @@ import threading
 import time
 
 from camoufox.async_api import AsyncCamoufox
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 _CHALLENGE_TITLE_MARKERS = (
     'un instant', 'just a moment', 'un momento', 'momento',
@@ -85,6 +86,11 @@ def _lookup_series_title(series_id):
         return None
 
 
+class KaganeHTTPError(RuntimeError):
+    """Kagane answered with an HTTP error page instead of JSON, or didn't
+    answer at all - its side, so a fresh browser won't help."""
+
+
 class KaganeBrowserClient:
     def __init__(self):
         self.lock = threading.Lock()
@@ -128,7 +134,47 @@ class KaganeBrowserClient:
         await self._init_browser()
 
     async def _fetch_json_async(self, url, timeout=45):
-        await self._page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+        # The page's own document responses: the challenge, then (once it
+        # clears) the API's real answer
+        navigations = []
+
+        def on_response(resp):
+            try:
+                if resp.request.is_navigation_request() and resp.frame == self._page.main_frame:
+                    navigations.append(resp)
+            except Exception:
+                pass
+
+        self._page.on('response', on_response)
+        try:
+            return await self._wait_for_json(url, timeout, navigations)
+        finally:
+            self._page.remove_listener('response', on_response)
+
+    async def _error_page(self, url, navigations):
+        """A KaganeHTTPError if the page is an HTTP error (Kagane's API
+        down, the series gone) rather than the API's answer or a Cloudflare
+        challenge still being solved, else None."""
+        if not navigations or navigations[-1].status < 400:
+            return None
+        resp = navigations[-1]
+        if (resp.headers.get('cf-mitigated') or '').lower() == 'challenge':
+            return None
+        try:
+            title = (await self._page.title() or '').strip()
+        except Exception:
+            return None  # mid-navigation
+        if any(marker in title.lower() for marker in _CHALLENGE_TITLE_MARKERS):
+            return None
+        return KaganeHTTPError(f"Kagane answered HTTP {resp.status}"
+                               f"{f' ({title})' if title else ''} at {url}")
+
+    async def _wait_for_json(self, url, timeout, navigations):
+        try:
+            await self._page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+        except PlaywrightTimeoutError:
+            # Not even the challenge page came back: Kagane isn't answering
+            raise KaganeHTTPError(f"Kagane didn't answer within {timeout}s at {url}")
         # Sent off to another site (down or moved) - no <pre> to wait for
         from .trackers.redirects import redirect_error
         moved = redirect_error(url, self._page.url)
@@ -145,6 +191,11 @@ class KaganeBrowserClient:
                         return json.loads(text)
             except Exception:
                 pass  # transient (mid-navigation) -- keep polling
+            # An error page (a 502 while Kagane's API is down) will never
+            # turn into JSON: fail now instead of waiting out the timeout
+            error = await self._error_page(url, navigations)
+            if error:
+                raise error
             await asyncio.sleep(0.5)
 
         try:
@@ -212,6 +263,10 @@ class KaganeBrowserClient:
                     )
                 except Exception as e:
                     last_error = e
+                    # Kagane itself answered with an error: a fresh browser
+                    # won't change that, so the retry just asks again
+                    if isinstance(e, KaganeHTTPError):
+                        continue
                     try:
                         self._run_coro(self._reinit_browser())
                     except Exception:

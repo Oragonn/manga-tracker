@@ -19,6 +19,7 @@
 # counts as down: chapters can't be fetched either way.
 
 import asyncio
+import re
 import threading
 import time
 from datetime import datetime, timezone, timedelta
@@ -36,6 +37,12 @@ HOMEPAGES = {
     'thunder': 'https://en-thunderscans.com/', 'comix': 'https://comix.to/',
 }
 _USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
+# A fetch error meaning the site didn't answer (timed out, refused the
+# connection) rather than answering something wrong about one series
+_NOT_ANSWERING = re.compile(
+    r"timed? ?out|timeout|didn't answer|max retries exceeded|failed to establish"
+    r"|connection (?:aborted|refused|reset)|name or service not known|getaddrinfo failed",
+    re.IGNORECASE)
 CHECK_INTERVAL = timedelta(minutes=30)
 _REFERENCES_TRIED = 2
 
@@ -125,6 +132,10 @@ def check_site(source_type, fetch):
                 error = error or 'Answered, but without a chapter list'
             except Exception as e:
                 error = error or (str(e) or type(e).__name__)
+                # The site isn't answering at all: another series won't do
+                # better, and each try waits out its timeouts again
+                if _NOT_ANSWERING.search(str(e)):
+                    break
         duration_ms = int((time.time() - started) * 1000)
         website_up = website_loads(source_type) if status == 'down' else None
         _store(source_type, status, (error or '')[:500] or None, used, duration_ms, website_up)
@@ -134,7 +145,7 @@ def check_site(source_type, fetch):
             _checking.discard(source_type)
 
 
-async def browser_page_loads(page, url, timeout=45):
+async def browser_page_loads(page, url, timeout=30):
     """Whether `url` loads in a camoufox page (run on that browser's own
     loop): its document must come back below HTTP 400 once any Cloudflare
     challenge has cleared, without being sent off to another site."""
@@ -188,7 +199,7 @@ def website_loads(source_type):
             return get_client().website_loads(url)
         import requests
         from .trackers.redirects import redirect_error
-        resp = requests.get(url, headers={'User-Agent': _USER_AGENT}, timeout=20)
+        resp = requests.get(url, headers={'User-Agent': _USER_AGENT}, timeout=10)
         return resp.status_code < 400 and not redirect_error(url, resp.url)
     except Exception as e:
         print(f"[Site Health] {SITE_LABELS.get(source_type, source_type)} home page check failed: {e}")
