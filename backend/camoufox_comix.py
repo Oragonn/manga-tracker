@@ -308,6 +308,18 @@ class ComixBrowserClient:
                             pass
             raise RuntimeError(f"Comix fetch failed: {last_error}")
 
+    def website_loads(self, url):
+        """Whether a comix.to page (the home page) loads - the site check's
+        "is it only the API that's down?" probe. Leaves the series page the
+        API calls run from, so the next call loads one again."""
+        from .site_health import browser_page_loads
+        with self.lock:
+            self._ready = False
+            try:
+                return self._run(browser_page_loads(self._page, url), timeout=100)
+            except Exception:
+                return False
+
     def download_cover(self, hid, url):
         """Local /static URL of a Comix cover, downloading it through the
         cleared page if it isn't cached yet. None on any failure - a missing

@@ -11,7 +11,14 @@
 # for before, so an empty answer means the site is broken rather than the
 # series being empty. If it fails, a second series is tried before calling
 # the whole site down - one removed series isn't a site outage.
+#
+# A site found down is then asked for its home page too: if that loads,
+# only the API (or the series pages) is down while the website itself is
+# up - Kagane, 2026-10 - and the Scheduler page shows it orange instead of
+# red. Everywhere else (fallback to other sources, outage grouping) it still
+# counts as down: chapters can't be fetched either way.
 
+import asyncio
 import threading
 import time
 from datetime import datetime, timezone, timedelta
@@ -22,6 +29,13 @@ SITE_LABELS = {
     'asura': 'AsuraScans', 'hive': 'HiveToons', 'flame': 'Flame Comics',
     'thunder': 'Thunderscans', 'comix': 'Comix',
 }
+HOMEPAGES = {
+    'mangadex': 'https://mangadex.org/', 'kagane': 'https://kagane.to/',
+    'atsu': 'https://atsu.moe/', 'asura': 'https://asurascans.com/',
+    'hive': 'https://hivetoons.org/', 'flame': 'https://flamecomics.xyz/',
+    'thunder': 'https://en-thunderscans.com/', 'comix': 'https://comix.to/',
+}
+_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
 CHECK_INTERVAL = timedelta(minutes=30)
 _REFERENCES_TRIED = 2
 
@@ -47,9 +61,13 @@ def _ensure_table(cursor):
             checked_url TEXT,       -- the series link the check used
             duration_ms INTEGER,
             down_since TEXT,
-            last_up_at TEXT
+            last_up_at TEXT,
+            website_up INTEGER      -- when down: 1 if the home page still loads (only the API is down)
         )
     """)
+    cursor.execute("PRAGMA table_info(site_health)")
+    if 'website_up' not in {r[1] for r in cursor.fetchall()}:
+        cursor.execute("ALTER TABLE site_health ADD COLUMN website_up INTEGER")
 
 
 def _reference_sources(source_type):
@@ -107,14 +125,77 @@ def check_site(source_type, fetch):
                 error = error or 'Answered, but without a chapter list'
             except Exception as e:
                 error = error or (str(e) or type(e).__name__)
-        _store(source_type, status, (error or '')[:500] or None, used, int((time.time() - started) * 1000))
+        duration_ms = int((time.time() - started) * 1000)
+        website_up = website_loads(source_type) if status == 'down' else None
+        _store(source_type, status, (error or '')[:500] or None, used, duration_ms, website_up)
         return get_site_health().get(source_type)
     finally:
         with _check_lock:
             _checking.discard(source_type)
 
 
-def _store(source_type, status, error, checked_url, duration_ms):
+async def browser_page_loads(page, url, timeout=45):
+    """Whether `url` loads in a camoufox page (run on that browser's own
+    loop): its document must come back below HTTP 400 once any Cloudflare
+    challenge has cleared, without being sent off to another site."""
+    from .trackers.redirects import redirect_error
+    statuses = []
+
+    def on_response(resp):
+        try:
+            if resp.request.is_navigation_request() and resp.frame == page.main_frame:
+                statuses.append(resp.status)
+        except Exception:
+            pass
+
+    page.on('response', on_response)
+    try:
+        try:
+            await page.goto(url, timeout=timeout * 1000, wait_until='domcontentloaded')
+        except Exception:
+            return False
+        loop = asyncio.get_event_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            if redirect_error(url, page.url):
+                return False
+            last = statuses[-1] if statuses else None
+            if last is not None and last < 400:
+                return True
+            # 403/503 is Cloudflare's challenge, which reloads the page once
+            # it clears; anything else (a 521 "web server is down") is final
+            if last is not None and last not in (403, 503):
+                return False
+            await asyncio.sleep(0.5)
+        return False
+    finally:
+        page.remove_listener('response', on_response)
+
+
+def website_loads(source_type):
+    """Whether the site's home page loads. Never raises."""
+    url = HOMEPAGES.get(source_type)
+    if not url:
+        return False
+    try:
+        # Behind a Cloudflare challenge plain requests can't pass: loaded in
+        # the site's own camoufox browser instead
+        if source_type == 'kagane':
+            from .camoufox_kagane import kagane_browser
+            return kagane_browser.website_loads(url)
+        if source_type == 'comix':
+            from .camoufox_comix import get_client
+            return get_client().website_loads(url)
+        import requests
+        from .trackers.redirects import redirect_error
+        resp = requests.get(url, headers={'User-Agent': _USER_AGENT}, timeout=20)
+        return resp.status_code < 400 and not redirect_error(url, resp.url)
+    except Exception as e:
+        print(f"[Site Health] {SITE_LABELS.get(source_type, source_type)} home page check failed: {e}")
+        return False
+
+
+def _store(source_type, status, error, checked_url, duration_ms, website_up=None):
     from .database import get_db, release_db
     now = _now()
     conn = get_db()
@@ -126,20 +207,23 @@ def _store(source_type, status, error, checked_url, duration_ms):
         was_down = row and row[0] == 'down'
         down_since = (row[1] if was_down else now) if status == 'down' else None
         cursor.execute("""
-            INSERT INTO site_health (source_type, status, checked_at, error, checked_url, duration_ms, down_since, last_up_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO site_health (source_type, status, checked_at, error, checked_url, duration_ms, down_since, last_up_at, website_up)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_type) DO UPDATE SET
                 status = excluded.status, checked_at = excluded.checked_at, error = excluded.error,
                 checked_url = excluded.checked_url, duration_ms = excluded.duration_ms,
                 down_since = excluded.down_since,
-                last_up_at = COALESCE(excluded.last_up_at, site_health.last_up_at)
+                last_up_at = COALESCE(excluded.last_up_at, site_health.last_up_at),
+                website_up = excluded.website_up
         """, (source_type, status, now, error, checked_url, duration_ms, down_since,
-              now if status == 'up' else None))
+              now if status == 'up' else None,
+              (1 if website_up else 0) if status == 'down' else None))
     finally:
         release_db(conn)
     _remember(source_type, status == 'down')
     if status == 'down':
-        print(f"[Site Health] {SITE_LABELS.get(source_type, source_type)} is DOWN: {error}")
+        what = 'API is DOWN (website still loads)' if website_up else 'is DOWN'
+        print(f"[Site Health] {SITE_LABELS.get(source_type, source_type)} {what}: {error}")
 
 
 def _remember(source_type, is_down):
@@ -173,7 +257,7 @@ def note_site_ok(source_type):
         _ensure_table(cursor)
         cursor.execute("""
             UPDATE site_health SET status = 'up', error = NULL, down_since = NULL,
-                   checked_at = ?, last_up_at = ?
+                   website_up = NULL, checked_at = ?, last_up_at = ?
             WHERE source_type = ? AND status = 'down'
         """, (now, now, source_type))
     finally:
@@ -190,14 +274,17 @@ def get_site_health():
         cursor = conn.cursor()
         _ensure_table(cursor)
         cursor.execute("""
-            SELECT source_type, status, checked_at, error, checked_url, duration_ms, down_since, last_up_at
+            SELECT source_type, status, checked_at, error, checked_url, duration_ms, down_since, last_up_at, website_up
             FROM site_health
         """)
         rows = cursor.fetchall()
     finally:
         release_db(conn)
-    keys = ('source_type', 'status', 'checked_at', 'error', 'checked_url', 'duration_ms', 'down_since', 'last_up_at')
-    return {r[0]: dict(zip(keys, r)) for r in rows}
+    keys = ('source_type', 'status', 'checked_at', 'error', 'checked_url', 'duration_ms', 'down_since', 'last_up_at', 'website_up')
+    out = {r[0]: dict(zip(keys, r)) for r in rows}
+    for h in out.values():
+        h['website_up'] = bool(h['website_up'])
+    return out
 
 
 def down_sites():

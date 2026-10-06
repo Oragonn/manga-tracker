@@ -228,6 +228,16 @@ class KaganeBrowserClient:
                 pass
             raise RuntimeError(f"Kagane fetch failed after recovery: {last_error}")
 
+    def website_loads(self, url):
+        """Whether a kagane.to page (the home page) loads - the site check's
+        "is it only the API that's down?" probe."""
+        from .site_health import browser_page_loads
+        with self.lock:
+            try:
+                return self._run_coro(browser_page_loads(self._page, url), timeout=100)
+            except Exception:
+                return False
+
     async def _fetch_all_async(self, series_id, with_gallery=False):
         meta_url = f"https://kagane.to/api/v2/series/{series_id}"
         raw = await self._fetch_json_async(meta_url)

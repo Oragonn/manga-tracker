@@ -37,6 +37,7 @@
 
     .site-health-dot.up { background: #4ade80; }
     .site-health-dot.down { background: #ef4444; }
+    .site-health-dot.api-down { background: #f97316; }
     .site-health-dot.checking { background: #fbbf24; }
 
     .site-health-info {
@@ -65,6 +66,10 @@
 
     .site-health-meta.down {
       color: #f87171;
+    }
+
+    .site-health-meta.api-down {
+      color: #fb923c;
     }
 
     .site-health-error {
@@ -620,6 +625,11 @@ function renderSiteHealth() {
     } else if (site.status === 'up') {
       dot = 'up';
       meta = `Up · checked ${formatRelativeTime(site.checked_at)}${site.duration_ms != null ? ` · ${(site.duration_ms / 1000).toFixed(1)}s` : ''}`;
+    } else if (site.website_up) {
+      // Chapters can't be fetched, but the site's home page loads: only its API is down
+      dot = 'api-down';
+      metaClass = 'api-down';
+      meta = `API down since ${formatRelativeTime(site.down_since)} · website still loads · checked ${formatRelativeTime(site.checked_at)}`;
     } else {
       dot = 'down';
       metaClass = 'down';
