@@ -1148,6 +1148,7 @@ def api_source_health():
                 outages.append(outage)
             outage.update({
                 'confirmed': True,  # the site check itself failed, not just some series
+                'website_up': h['website_up'],  # only its API is down - the website still loads
                 'series_count': using.get(source_type, outage.get('series_count', 0)),
                 'last_error': h['error'] or outage.get('last_error'),
                 'down_since': h['down_since'],

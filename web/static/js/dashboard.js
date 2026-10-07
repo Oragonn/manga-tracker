@@ -4399,12 +4399,17 @@ function renderSourceHealthList(listId, panelId) {
 	// A site that's down is one row ("Atsumaru looks down - 1,800 series"),
 	// its series listed only when expanded. Their chapters keep coming from
 	// each series' other sources meanwhile (MangaScheduler.scan_series).
+	// The site check also says when only the site's API is down while its
+	// website still loads (site_health.py) - shown orange.
 	const outagesHtml = sourceHealthOutages.map(o => {
 		const label = SOURCE_HEALTH_TYPE_LABELS[o.source_type] || o.source_type;
+		const apiOnly = o.confirmed && o.website_up;
+		const title = apiOnly ? `${label}'s API is down` : `${label} ${o.confirmed ? 'is down' : 'looks down'}`;
 		return `
-			<div class="source-health-outage">
+			<div class="source-health-outage${apiOnly ? ' api-down' : ''}">
 				<button type="button" class="source-health-item source-health-outage-head" data-outage="${escapeHtml(o.source_type)}" aria-expanded="false">
-					<div class="source-health-item-title">${escapeHtml(label)} ${o.confirmed ? 'is down' : 'looks down'}</div>
+					<div class="source-health-item-title">${escapeHtml(title)}</div>
+					${apiOnly ? '<div class="source-health-item-note">The website still loads — only chapter fetching is failing</div>' : ''}
 					<div class="source-health-item-meta">${o.series_count.toLocaleString()} series ${o.confirmed ? 'use it' : 'failing'} — their other sources are used meanwhile</div>
 					${o.last_error ? `<div class="source-health-item-error" title="${escapeHtml(o.last_error)}">${escapeHtml(o.last_error)}</div>` : ''}
 				</button>

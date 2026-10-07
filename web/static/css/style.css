@@ -238,6 +238,17 @@ html {
   border-bottom: none;
 }
 
+/* Only the site's API is down, its website still loads */
+.source-health-outage.api-down .source-health-item-meta {
+  color: #fb923c;
+}
+
+.source-health-item-note {
+  color: #fb923c;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
 .source-health-outage .source-health-outage-head {
   border-bottom: none;
   position: relative;
