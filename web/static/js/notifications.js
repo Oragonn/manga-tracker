@@ -176,8 +176,13 @@ function showNotification(message, type = 'added', duration = 4000) {
   // Add to container
   notificationContainer.appendChild(notification);
 
-  // Auto-close after duration
-  setTimeout(() => {
+  // Auto-close after duration (held off while a finger is on it -- see
+  // attachSwipeToDismiss)
+  notification._autoCloseTimer = setTimeout(() => {
+    if (notification._touching) {
+      notification._autoCloseDue = true;
+      return;
+    }
     closeNotification(notification);
   }, duration);
 }
@@ -185,40 +190,76 @@ function showNotification(message, type = 'added', duration = 4000) {
 // Touch-drag a notification upward to dismiss it (mobile only in practice --
 // nothing here fires without touch events). Downward drags rubber-band back
 // instead of dismissing, since "up" is the only direction that means dismiss.
-const SWIPE_DISMISS_THRESHOLD = 60;
+// Either a long enough drag or a quick upward flick counts: a fast flick often
+// travels only 20-40px, which used to fall short and snap back.
+const SWIPE_DISMISS_DISTANCE = 40;
+const SWIPE_FLICK_DISTANCE = 12;
+const SWIPE_FLICK_VELOCITY = 0.3; // px/ms, upward
 
 function attachSwipeToDismiss(notification) {
-  let startY = null;
+  let touchId = null;
+  let startY = 0;
   let deltaY = 0;
-  let dragging = false;
+  // Last two samples, for the release velocity
+  let prevY = 0, prevT = 0, lastY = 0, lastT = 0;
+
+  const findTouch = (list) => {
+    for (const t of list) {
+      if (t.identifier === touchId) return t;
+    }
+    return null;
+  };
 
   notification.addEventListener('touchstart', (e) => {
-    if (notification.dataset.closing) return;
-    startY = e.touches[0].clientY;
-    dragging = true;
+    if (notification.dataset.closing || touchId !== null) return;
+    const t = e.changedTouches[0];
+    touchId = t.identifier;
+    startY = prevY = lastY = t.clientY;
+    prevT = lastT = e.timeStamp;
+    deltaY = 0;
+    notification._touching = true;
+    // The slide-in keyframes own `transform` while they run and would swallow
+    // the drag for the first 0.3s -- drop them so the toast follows the finger.
+    notification.style.animation = 'none';
     notification.style.transition = 'none';
   }, { passive: true });
 
   notification.addEventListener('touchmove', (e) => {
-    if (!dragging || startY === null) return;
-    const rawDelta = e.touches[0].clientY - startY;
+    if (touchId === null) return;
+    const t = findTouch(e.changedTouches);
+    if (!t) return;
+    prevY = lastY; prevT = lastT;
+    lastY = t.clientY; lastT = e.timeStamp;
+    const rawDelta = t.clientY - startY;
     deltaY = rawDelta < 0 ? rawDelta : rawDelta * 0.25; // resist downward drags
     notification.style.transform = `translateY(${deltaY}px)`;
-    const progress = Math.min(1, Math.abs(Math.min(0, deltaY)) / (SWIPE_DISMISS_THRESHOLD * 2));
+    const progress = Math.min(1, Math.abs(Math.min(0, deltaY)) / (SWIPE_DISMISS_DISTANCE * 2));
     notification.style.opacity = String(1 - progress * 0.6);
   }, { passive: true });
 
-  const endDrag = () => {
-    if (!dragging) return;
-    dragging = false;
-    notification.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
-    if (deltaY <= -SWIPE_DISMISS_THRESHOLD) {
+  const endDrag = (e) => {
+    if (touchId === null) return;
+    if (e && !findTouch(e.changedTouches)) return; // a different finger lifted
+    touchId = null;
+    notification._touching = false;
+
+    // A finger that stopped before lifting isn't flicking, whatever its last move
+    const dt = lastT - prevT;
+    const stale = e && e.timeStamp - lastT > 100;
+    const velocity = dt > 0 && !stale ? (lastY - prevY) / dt : 0;
+    const isFlick = velocity <= -SWIPE_FLICK_VELOCITY && deltaY <= -SWIPE_FLICK_DISTANCE;
+
+    if (deltaY <= -SWIPE_DISMISS_DISTANCE || isFlick) {
       closeNotification(notification, 'up');
     } else {
+      notification.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
       notification.style.transform = 'translateY(0)';
       notification.style.opacity = '1';
+      // It expired while being held -- give it a moment, then go
+      if (notification._autoCloseDue) {
+        notification._autoCloseTimer = setTimeout(() => closeNotification(notification), 1500);
+      }
     }
-    startY = null;
     deltaY = 0;
   };
 
@@ -234,12 +275,17 @@ function attachSwipeToDismiss(notification) {
 function closeNotification(notification, direction = 'right') {
   if (!notification || notification.dataset.closing) return;
   notification.dataset.closing = 'true';
+  clearTimeout(notification._autoCloseTimer);
 
   if (direction === 'up') {
+    notification.style.animation = 'none';
     notification.style.transition = 'transform 0.25s ease-in, opacity 0.25s ease-in';
     notification.style.transform = 'translateY(-120%)';
     notification.style.opacity = '0';
   } else {
+    // A touch leaves an inline `animation: none` (see attachSwipeToDismiss),
+    // which would block the .closing slide-out
+    notification.style.animation = '';
     notification.classList.add('closing');
   }
 
