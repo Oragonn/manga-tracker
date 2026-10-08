@@ -5018,7 +5018,8 @@ async function applyAddSeriesExtras(seriesId, extras) {
 	if (!extras || !seriesId) return true;
 	const requests = [];
 	if (extras.chapter >= 0) {
-		const payload = { current_chapter: extras.chapter };
+		// _on_add: where the series is up to, not chapters read today
+		const payload = { current_chapter: extras.chapter, _on_add: true };
 		if (extras.volume !== null) payload.current_volume = extras.volume;
 		requests.push(fetch(`/api/series/${seriesId}`, {
 			method: 'PATCH',

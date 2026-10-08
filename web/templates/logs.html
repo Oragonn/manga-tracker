@@ -652,7 +652,8 @@ function getLogDetails(log) {
           // Format chapter display (handle -1 as "Not started")
           const oldChapter = oldVal.chapter === -1 ? 'Not started' : `Ch.${oldVal.chapter}`;
           const newChapter = newVal.chapter === -1 ? 'Not started' : `Ch.${newVal.chapter}`;
-          return `${oldChapter} → ${newChapter}`;
+          // on_add: picked in the Add Series preview - not counted as read
+          return `${oldChapter} → ${newChapter}${newVal.on_add ? ' (set when added)' : ''}`;
         }
         return 'Chapter progress updated';
       case 'status':

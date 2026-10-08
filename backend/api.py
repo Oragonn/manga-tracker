@@ -2474,7 +2474,10 @@ def api_update_series(series_id):
     # Strip internal bulk tracking fields
     _bulk_id = data.pop('_bulk_id', None)
     _is_bulk = data.pop('_is_bulk', False)
-    
+    # The Last Read chapter picked in the Add Series preview, saved right
+    # after the add: not chapters read (see database._chapter_progress_delta)
+    _on_add = bool(data.pop('_on_add', False))
+
     # REMOVE 'source_url' from allowed_fields
     allowed_fields = {'current_chapter', 'current_volume', 'status', 'cover_url', 'title', 'source_type', 'content_rating', 'notes'}
     updates = {k: v for k, v in data.items() if k in allowed_fields}
@@ -2527,12 +2530,15 @@ def api_update_series(series_id):
             # at once (Series Settings sends chapter, status, title and
             # cover together) logs - and can undo - each of them
             if 'current_chapter' in updates and old_chapter != updates['current_chapter']:
+                new_progress = {'chapter': updates['current_chapter']}
+                if _on_add and (old_chapter is None or old_chapter < 0):
+                    new_progress['on_add'] = True
                 log_activity(
                     action_type='progress',
                     series_id=series_id,
                     series_title=old_title,
                     old_value={'chapter': old_chapter},
-                    new_value={'chapter': updates['current_chapter']},
+                    new_value=new_progress,
                     is_bulk=_is_bulk,
                     bulk_id=_bulk_id
                 )

@@ -2689,9 +2689,13 @@ def _chapter_progress_delta(old_value, new_value):
     """The change in chapters one 'progress' activity-log entry made:
     starting a series counts every chapter up to the new one, a reset to
     "Not started" takes them all back. Summed per series and day by
-    progress_chapters_read(), which is what's counted."""
+    progress_chapters_read(), which is what's counted. The chapter picked
+    when adding a series (flagged on_add) is where it was already up to,
+    not chapters read that day, so it counts for nothing."""
     old_ch = (old_value or {}).get('chapter', -1)
     new_ch = (new_value or {}).get('chapter', -1)
+    if (new_value or {}).get('on_add'):
+        return 0.0
     if new_ch >= 0:
         if old_ch == -1:
             return float(new_ch)
