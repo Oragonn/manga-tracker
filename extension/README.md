@@ -92,8 +92,8 @@ way.
 
 ## Already-tracked badges on Kenmei
 
-On kenmei.co's **Search** (`/search`) and **Discovery** (`/discovery`)
-pages, every series your tracker already has gets a coloured ring and a
+On kenmei.co's **Search** (`/search`), **Discovery** (`/discovery`) and
+series pages, every series your tracker already has gets a coloured ring and a
 badge on its cover with its status and progress there, e.g.
 `✓ Reading · 45/120` (green Reading, blue Plan to read, amber On hold,
 red Dropped, purple Completed). Hover it for the tracker's title for the
@@ -101,12 +101,23 @@ series; click it to open the tracker dashboard searched for that series
 (the click doesn't also open the series on Kenmei). Discovery's top
 carousel is covered too.
 
+On a series page (`/series/...`) the same label sits beside the series'
+title and on its cover - or, if nothing in the tracker matches, a grey
+**Not in your tracker** beside the title. Its "Similar series" cards get
+badges like any other card.
+
 Matching is by title, like the tracker's own Add Series duplicate check:
 all of Kenmei's titles for a card (its alternative titles too, read from
 the API responses behind the page by `content_kenmei_hook.js`) against all
 of the tracker's titles for each series, normalised the same way
 (`normalize_search_text`). So "Omniscient Reader's Viewpoint" on Kenmei
-finds a series the tracker calls "Omniscient Reader".
+finds a series the tracker calls "Omniscient Reader". When no title is the
+same, a title with the same words in another order still counts ("Love
+Tears Apart Zombies" / "Love Tears Zombies Apart"). On a series page,
+where Kenmei lists the sites it has the series on, a source link shared
+with a tracked series counts first of all - so a series found under a
+completely different name still gets marked. The badge's tooltip says
+when a match came from a link, an alternate title or reordered words.
 
 The extension learns the tracker's address from the last tracker page
 (`http://<host>:8080/...`) opened in this browser - open the tracker once

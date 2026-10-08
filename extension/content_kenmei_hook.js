@@ -23,8 +23,13 @@
       out.push({
         slug: node.slug,
         title: node.title,
-        alternativeTitles: Array.isArray(node.alternativeTitles)
-          ? node.alternativeTitles.filter((t) => typeof t === 'string')
+        // A series page's data also has titleEN / titleENJP (often null).
+        alternativeTitles: [node.titleEN, node.titleENJP]
+          .concat(Array.isArray(node.alternativeTitles) ? node.alternativeTitles : [])
+          .filter((t) => typeof t === 'string' && t),
+        // Only a series page's data lists the sites Kenmei has it on.
+        links: Array.isArray(node.mangaSources)
+          ? node.mangaSources.map((src) => src && src.seriesURL).filter((u) => typeof u === 'string')
           : []
       });
     }

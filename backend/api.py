@@ -1631,26 +1631,40 @@ def api_series_title_index():
     extension to mark the series already tracked on kenmei.co's search and
     discovery pages. `titles` are the ones the duplicate check compares
     (comparable_titles), main title first; the extension normalises Kenmei's
-    titles the same way and looks them up in these."""
+    titles the same way and looks them up in these. `links` are its source
+    links as "site:id" (parse_source_link), matched against the sites a
+    Kenmei series page lists when no title lines up."""
     from .search_utils import comparable_titles, normalize_search_text, TITLE_SEP
+    from .source_links import parse_source_link
     conn = get_db()
     try:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT id, title, status, current_chapter, latest_chapter, searchable_text FROM series"
+            "SELECT id, title, status, current_chapter, latest_chapter, searchable_text, source_url FROM series"
         )
         rows = cursor.fetchall()
+        cursor.execute("SELECT series_id, source_url FROM series_sources")
+        source_rows = cursor.fetchall()
     finally:
         release_db(conn)
 
+    links = {}
+    for series_id, url in [(row[0], row[6]) for row in rows] + list(source_rows):
+        parsed = parse_source_link(url)
+        if parsed:
+            key = f"{parsed[0]}:{parsed[1]}"
+            series_links = links.setdefault(series_id, [])
+            if key not in series_links:
+                series_links.append(key)
+
     series = []
-    for series_id, title, status, current_chapter, latest_chapter, text in rows:
+    for series_id, title, status, current_chapter, latest_chapter, text, _url in rows:
         all_titles = (text or '').split(TITLE_SEP)
         kept = comparable_titles(all_titles)
         main = normalize_search_text(title)
         titles = [main] if main in kept else []
         titles += [t for t in all_titles if t in kept and t != main]
-        if not titles:
+        if not titles and series_id not in links:
             continue
         series.append({
             'id': series_id,
@@ -1659,6 +1673,7 @@ def api_series_title_index():
             'current_chapter': current_chapter,
             'latest_chapter': latest_chapter,
             'titles': titles,
+            'links': links.get(series_id, []),
         })
     return jsonify({'series': series})
 

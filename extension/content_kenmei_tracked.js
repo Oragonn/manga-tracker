@@ -1,7 +1,9 @@
-// "Already tracked" badges on kenmei.co's search and discovery pages.
+// "Already tracked" badges on kenmei.co's search, discovery and series
+// pages.
 //
 // Every series card linking to /series/<slug> (and every slide of
-// Discovery's top carousel) is checked against the
+// Discovery's top carousel, and the series a /series/ page is about) is
+// checked against the
 // tracker's own library (background.js fetches /api/series/title-index from
 // the tracker) and, when the tracker already has it, gets a badge on its
 // cover with its status and progress there - e.g. "✓ Reading · 45/120".
@@ -36,8 +38,18 @@
     console.log('[Kenmei tracked]', ...args);
   }
 
-  function onListPage() {
-    return /^\/(search|discovery)(\/|$)/.test(location.pathname);
+  function isSupportedPath(path) {
+    return /^\/(search|discovery)(\/|$)/.test(path) || SERIES_PATH.test(path);
+  }
+
+  function onSupportedPage() {
+    return isSupportedPath(location.pathname);
+  }
+
+  // The series a /series/<slug> page (or one of its tabs) is about.
+  function seriesPageSlug() {
+    const m = SERIES_PATH.exec(location.pathname);
+    return m ? decodeURIComponent(m[1]) : null;
   }
 
   // --- title normalising: a port of search_utils.normalize_search_text ---
@@ -75,22 +87,43 @@
   let trackerOrigin = null;
   let byTitle = new Map(); // normalised title -> [tracker series]
   let byDespaced = new Map(); // same, spaces removed - only for slug fallbacks
+  let byWords = new Map(); // a title's words, sorted -> [tracker series]
+  let byLink = new Map(); // sourceKey() of a source link -> tracker series
   let indexLoaded = false;
   let indexRequest = null;
   let noticeShown = false;
 
+  function addTo(map, key, s) {
+    if (!map.has(key)) map.set(key, []);
+    const list = map.get(key);
+    if (!list.includes(s)) list.push(s);
+  }
+
+  // "love tears zombies apart" and "love tears apart zombies" -> the same
+  // key. Only for titles of 2+ words; a single word is left to the exact
+  // comparison.
+  function wordsKey(title) {
+    const words = Array.from(new Set(title.split(' '))).sort();
+    return words.length >= 2 ? words.join(' ') : null;
+  }
+
   function buildIndex(series) {
     byTitle = new Map();
     byDespaced = new Map();
+    byWords = new Map();
+    byLink = new Map();
     for (const s of series) {
+      s.titles = s.titles || [];
       s.mainTitle = s.titles[0];
       s.titleSet = new Set(s.titles);
       for (const t of s.titles) {
-        if (!byTitle.has(t)) byTitle.set(t, []);
-        byTitle.get(t).push(s);
-        const despaced = t.replace(/ /g, '');
-        if (!byDespaced.has(despaced)) byDespaced.set(despaced, []);
-        byDespaced.get(despaced).push(s);
+        addTo(byTitle, t, s);
+        addTo(byDespaced, t.replace(/ /g, ''), s);
+        const words = wordsKey(t);
+        if (words) addTo(byWords, words, s);
+      }
+      for (const link of s.links || []) {
+        if (!byLink.has(link)) byLink.set(link, s);
       }
     }
   }
@@ -130,7 +163,7 @@
   }
 
   function showNotice(text) {
-    if (noticeShown || !onListPage()) return;
+    if (noticeShown || !onSupportedPage()) return;
     noticeShown = true;
     const el = document.createElement('div');
     el.textContent = text;
@@ -147,24 +180,90 @@
 
   // --- Kenmei's own data for each card, from content_kenmei_hook.js ---
 
-  const kenmeiSeries = new Map(); // slug -> [normalised titles], main first
-  const kenmeiByTitle = new Map(); // normalised main title -> the same list
+  // slug -> { titles: [normalised, main first], links: [sourceKey()s] }.
+  // Search results carry no source links; a series page's data does, so
+  // what's known about a slug is merged rather than replaced.
+  const kenmeiSeries = new Map();
+  const kenmeiByTitle = new Map(); // normalised main title -> the same entry
 
   window.addEventListener('message', (e) => {
     if (e.source !== window || !e.data || e.data.source !== HOOK_SOURCE) return;
     for (const item of e.data.series || []) {
-      const titles = [];
+      const entry = kenmeiSeries.get(item.slug) || { titles: [], links: [] };
       for (const raw of [item.title, ...(item.alternativeTitles || [])]) {
         const t = normalizeTitle(decodeEntities(raw));
-        if (t && !titles.includes(t)) titles.push(t);
+        if (t && !entry.titles.includes(t)) entry.titles.push(t);
       }
-      if (titles.length) {
-        kenmeiSeries.set(item.slug, titles);
-        kenmeiByTitle.set(titles[0], titles);
+      for (const url of item.links || []) {
+        const key = sourceKey(url);
+        if (key && !entry.links.includes(key)) entry.links.push(key);
+      }
+      if (entry.titles.length || entry.links.length) {
+        kenmeiSeries.set(item.slug, entry);
+        if (entry.titles.length) kenmeiByTitle.set(entry.titles[0], entry);
       }
     }
     scheduleScan();
   });
+
+  // A port of source_links.parse_source_link: "site:id" for a link to a
+  // series on one of the tracked sites, else null. The tracker sends its
+  // series' links in the same form.
+  const LINK_PREFIX = '^(?:https?://)?(?:www\\.)?';
+  const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+  const LINK_PATTERNS = [
+    ['mangadex', new RegExp(LINK_PREFIX + 'mangadex\\.org/(?:title|manga)/(' + UUID + ')', 'i')],
+    ['kagane', new RegExp(LINK_PREFIX + 'kagane\\.(?:to|org)/series/(' + UUID + ')', 'i')],
+    ['atsu', new RegExp(LINK_PREFIX + 'atsu\\.moe/(?:manga|read)/([A-Za-z0-9_-]+)', 'i')],
+    ['asura', new RegExp(LINK_PREFIX + 'asurascans\\.com/comics/([A-Za-z0-9-]+)', 'i')],
+    ['hive', new RegExp(LINK_PREFIX + 'hivetoons\\.org/series/([A-Za-z0-9-]+)', 'i')],
+    ['flame', new RegExp(LINK_PREFIX + 'flamecomics\\.xyz/series/(\\d+)', 'i')],
+    ['thunder', new RegExp(LINK_PREFIX + 'en-thunderscans\\.com/comics/([A-Za-z0-9_-]+)', 'i')],
+    ['comix', new RegExp(LINK_PREFIX + 'comix\\.to/title/([A-Za-z0-9]+)', 'i')]
+  ];
+  const CASE_INSENSITIVE_IDS = new Set(['mangadex', 'kagane', 'thunder']);
+  const SITE_NAMES = {
+    mangadex: 'MangaDex', kagane: 'Kagane', atsu: 'Atsumaru', asura: 'AsuraScans',
+    hive: 'HiveToons', flame: 'Flame Comics', thunder: 'Thunderscans', comix: 'Comix'
+  };
+
+  function sourceKey(url) {
+    const text = String(url || '').trim();
+    for (const [site, pattern] of LINK_PATTERNS) {
+      const m = pattern.exec(text);
+      if (!m) continue;
+      let id = m[1];
+      if (CASE_INSENSITIVE_IDS.has(site)) id = id.toLowerCase();
+      else if (site === 'asura') id = id.replace(/-[0-9a-f]{8}$/i, '');
+      return `${site}:${id}`;
+    }
+    return null;
+  }
+
+  // A tracker series sharing a source link: the surest match there is, and
+  // the one that still works when the titles have nothing in common.
+  function matchLinks(links) {
+    for (const link of links || []) {
+      const s = byLink.get(link);
+      if (s) return { series: s, rank: -1, via: SITE_NAMES[link.split(':')[0]] || link };
+    }
+    return null;
+  }
+
+  // No title in common: one with the same words in another order ("Love
+  // Tears Apart Zombies" / "Love Tears Zombies Apart").
+  function matchWordSets(titles) {
+    for (const t of titles.filter(isComparable)) {
+      const key = wordsKey(t);
+      const hits = key ? byWords.get(key) : null;
+      if (hits) return { series: hits[0], rank: 3, via: t };
+    }
+    return null;
+  }
+
+  function matchKenmei(entry) {
+    return matchLinks(entry.links) || matchTitles(entry.titles) || matchWordSets(entry.titles);
+  }
 
   // The tracker series best matching these Kenmei titles (main title
   // first), ranked like search_utils.same_title_rank: same main title, then
@@ -188,10 +287,10 @@
 
   function matchCard(slug, anchor) {
     const known = kenmeiSeries.get(slug);
-    if (known) return matchTitles(known);
+    if (known) return matchKenmei(known);
     const visible = normalizeTitle((anchor.textContent || '').trim());
     if (visible) {
-      const found = matchTitles([visible]);
+      const found = matchTitles([visible]) || matchWordSets([visible]);
       if (found) return found;
     }
     // Last resort: Kenmei's slug is its title lower-cased with every other
@@ -211,7 +310,8 @@
       || (img ? img.getAttribute('alt').replace(/^Cover for\s+/i, '').trim() : '');
     const title = normalizeTitle(shown);
     if (!title) return null;
-    return matchTitles(kenmeiByTitle.get(title) || [title]);
+    const known = kenmeiByTitle.get(title);
+    return known ? matchKenmei(known) : (matchTitles([title]) || matchWordSets([title]));
   }
 
   // --- badges ---
@@ -232,6 +332,7 @@
         text-overflow: ellipsis; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,.45);
       }
       .mt-tracked-badge:hover { filter: brightness(1.12); }
+      .mt-tracked-badge.mt-missing { cursor: default; filter: none; }
       .mt-tracked-badge.mt-inline {
         position: static; display: inline-block; margin: 2px 0 2px 6px; vertical-align: middle;
         max-width: 100%;
@@ -266,7 +367,9 @@
   function badgeTooltip(match) {
     const s = match.series;
     const lines = [`In your tracker: ${s.title}`, badgeText(s).replace('✓ ', '')];
-    if (match.rank === 2) lines.push(`(matched by the alternate title “${match.via}”)`);
+    if (match.rank === -1) lines.push(`(matched by the same ${match.via} link)`);
+    else if (match.rank === 2) lines.push(`(matched by the alternate title “${match.via}”)`);
+    else if (match.rank === 3) lines.push(`(matched by “${match.via}” - same words, another order)`);
     lines.push('Click to open it on the tracker dashboard');
     return lines.join('\n');
   }
@@ -340,9 +443,14 @@
   // (the search page's list rows) gets just a tick there, and the label
   // goes in a pill after the title link instead. No cover found at all:
   // only the pill.
+  function badgeKey(match) {
+    const s = match.series;
+    return `${s.id}|${s.status}|${s.current_chapter}|${s.latest_chapter}|${match.rank}`;
+  }
+
   function placeBadges(cover, anchor, match) {
     const s = match.series;
-    const key = `${s.id}|${s.status}|${s.current_chapter}|${s.latest_chapter}|${match.rank}`;
+    const key = badgeKey(match);
     const width = cover ? cover.getBoundingClientRect().width : 0;
     const compact = !!anchor && (!cover || (width > 0 && width < 120));
     const coverBadge = cover && cover.querySelector(':scope > .mt-tracked-badge');
@@ -364,6 +472,45 @@
     if (compact) anchor.insertAdjacentElement('afterend', makeBadge(match, color, key, text, true));
   }
 
+  // A series page: the full label as a pill beside the title - or, since
+  // a page about one series is where "do I have this?" gets asked, a grey
+  // "Not in your tracker" when nothing matched - and the ring and badge on
+  // its big cover.
+  function scanSeriesPage(slug, seen) {
+    const h1 = document.querySelector('h1');
+    const shown = h1 ? h1.textContent.trim() : '';
+    const known = kenmeiSeries.get(slug);
+    if (!h1 || (!known && !shown)) return;
+    const match = known ? matchKenmei(known) : matchCard(slug, { textContent: shown });
+    seen.add(h1);
+
+    const key = match ? badgeKey(match) : `none|${slug}`;
+    const pill = pillAfter(h1);
+    if (!pill || pill.dataset.mtKey !== key) {
+      if (pill) pill.remove();
+      let el;
+      if (match) {
+        el = makeBadge(match, STATUS_COLORS[match.series.status] || '#16a34a', key, badgeText(match.series), true);
+      } else {
+        el = document.createElement('span');
+        el.className = 'mt-tracked-badge mt-inline mt-missing';
+        el.dataset.mtKey = key;
+        el.style.setProperty('--mt-color', '#64748b');
+        el.textContent = 'Not in your tracker';
+        el.title = 'No series in your tracker shares a title with this one';
+      }
+      h1.insertAdjacentElement('afterend', el);
+    }
+
+    const img = Array.from(document.querySelectorAll('img[alt^="Cover for"]'))
+      .find((i) => !i.closest('a[href*="/series/"], .splide__slide'));
+    const cover = img && ((img.closest('picture') || img).parentElement);
+    if (!cover) return;
+    seen.add(cover);
+    if (match) placeBadges(cover, null, match);
+    else removeBadges(cover, null);
+  }
+
   let scanTimer = null;
   function scheduleScan() {
     if (scanTimer) return;
@@ -376,13 +523,13 @@
   let lastPath = null;
   function scan() {
     if (lastPath !== location.pathname) {
-      const wasList = lastPath !== null && /^\/(search|discovery)(\/|$)/.test(lastPath);
+      const wasList = lastPath !== null && isSupportedPath(lastPath);
       lastPath = location.pathname;
       // Back on a list page after a while elsewhere: pick up series added
       // to the tracker since (background.js caches for 30s).
-      if (onListPage() && indexLoaded && !wasList) loadIndex(false).then((ok) => ok && scheduleScan());
+      if (onSupportedPage() && indexLoaded && !wasList) loadIndex(false).then((ok) => ok && scheduleScan());
     }
-    if (!onListPage()) return;
+    if (!onSupportedPage()) return;
     if (!indexLoaded) {
       loadIndex(false).then((ok) => ok && scheduleScan());
       return;
@@ -390,9 +537,12 @@
     injectStyles();
 
     const seen = new Set(); // covers and title links handled this pass
+    const pageSlug = seriesPageSlug();
+    if (pageSlug) scanSeriesPage(pageSlug, seen);
     for (const anchor of document.querySelectorAll('a[href*="/series/"]')) {
       const slug = slugOf(anchor);
-      if (!slug) continue;
+      // Links to the page's own series are its tabs (reviews...), not cards.
+      if (!slug || slug === pageSlug) continue;
       const cover = coverFor(anchor, slug);
       // A card can link to its series more than once (cover and title):
       // one set of badges per card.
@@ -440,7 +590,7 @@
   // background.js still serves its copy if it's under 30s old, since the
   // index is ~450 KB even gzipped.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && onListPage() && indexLoaded) {
+    if (document.visibilityState === 'visible' && onSupportedPage() && indexLoaded) {
       loadIndex(false).then((ok) => ok && scheduleScan());
     }
   });
