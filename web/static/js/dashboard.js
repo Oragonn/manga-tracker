@@ -1034,6 +1034,21 @@ async function handleLaterAddSubmit(e) {
 	const submitBtn = document.getElementById('later-add-submit');
 	if (submitBtn) submitBtn.disabled = true;
 	try {
+		if (await saveLaterItem(title, url)) {
+			renderLaterList();
+			if (titleInput) titleInput.value = '';
+			if (urlInput) { urlInput.value = ''; urlInput.style.height = 'auto'; }
+			titleInput?.focus();
+		}
+	} finally {
+		if (submitBtn) submitBtn.disabled = false;
+	}
+}
+
+// POSTs one Later item and adds it to the cache; notifies either way.
+// Returns true when it was saved.
+async function saveLaterItem(title, url) {
+	try {
 		const res = await fetch('/api/later', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -1042,20 +1057,15 @@ async function handleLaterAddSubmit(e) {
 		if (res.ok) {
 			const data = await res.json();
 			laterItemsCache.unshift({ id: data.id, title: title || null, url: url || null, created_at: new Date().toISOString() });
-			renderLaterList();
-			if (titleInput) titleInput.value = '';
-			if (urlInput) { urlInput.value = ''; urlInput.style.height = 'auto'; }
-			titleInput?.focus();
 			showNotification('Saved for later', 'added');
-		} else {
-			const data = await res.json().catch(() => ({}));
-			showNotification(data.error || 'Failed to save item', 'error');
+			return true;
 		}
+		const data = await res.json().catch(() => ({}));
+		showNotification(data.error || 'Failed to save item', 'error');
 	} catch (e) {
 		showNotification('Failed to save item', 'error');
-	} finally {
-		if (submitBtn) submitBtn.disabled = false;
 	}
+	return false;
 }
 
 function initLaterList() {
@@ -4513,9 +4523,12 @@ function renderSearchSuggestions(grid, suggestions) {
 // A title search that found nothing in the library at all (not even hidden
 // by a filter): offer to look it up on the sources instead - the Add
 // modal's search, with that title, so the link found can be pasted right in.
+// On mobile it saves the title to Save for Later instead.
 function renderSourceSearchOffer(grid, query) {
 	if (!query || /^(https?:\/\/|www\.)|\.(org|com|moe|to|xyz)\//i.test(query)) return;
-	if (grid.querySelector('.search-hidden-matches') || typeof window.searchSourcesForTitle !== 'function') return;
+	if (grid.querySelector('.search-hidden-matches')) return;
+	const saveForLater = isMobileDevice();
+	if (!saveForLater && typeof window.searchSourcesForTitle !== 'function') return;
 
 	const box = document.createElement('div');
 	box.className = 'search-source-offer';
@@ -4525,9 +4538,18 @@ function renderSourceSearchOffer(grid, query) {
 	const button = document.createElement('button');
 	button.type = 'button';
 	button.className = 'search-suggestion-chip';
-	button.textContent = `Search the sources for "${query}"`;
-	button.title = 'Opens the Add Series search on every source';
-	button.addEventListener('click', () => window.searchSourcesForTitle(query));
+	if (saveForLater) {
+		button.textContent = `Save "${query}" for later`;
+		button.addEventListener('click', async () => {
+			button.disabled = true;
+			if (await saveLaterItem(query, '')) button.textContent = `Saved "${query}" for later`;
+			else button.disabled = false;
+		});
+	} else {
+		button.textContent = `Search the sources for "${query}"`;
+		button.title = 'Opens the Add Series search on every source';
+		button.addEventListener('click', () => window.searchSourcesForTitle(query));
+	}
 	box.appendChild(button);
 
 	grid.querySelector(':scope > p')?.classList.add('has-suggestions');
