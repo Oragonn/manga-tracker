@@ -10,8 +10,11 @@
 //   Y - copy the running "url, url, ..." list to the clipboard, close the tab
 //   U - no match on a source tab, just close it
 //   I - on a source tab, re-run the last search (start over)
-// Same clipboard-only end result as the kenmei.co flow - nothing is filled
-// in or submitted on the page, paste the list wherever you want it.
+// Same clipboard result as the kenmei.co flow; on top of that, once every
+// tab of an Add Series search is closed, the links are handed to the page
+// (a 'manga-tracker:source-links' event) and land in the Add modal's link
+// box. Nothing is ever submitted. Series Settings searches stay
+// clipboard-only.
 //
 // Intercepted with window-level capture listeners, which run before the
 // page's own handlers on the buttons/input themselves - the page and
@@ -36,6 +39,9 @@
   const SEARCH_SITES = ['atsu', 'asura', 'mangadex', 'hive', 'kagane'];
 
   let lastTitle = null;
+  // Which button started the search: 'add' (the Add Series search, also run
+  // by the dashboard's "Search the sources" offer) or 'settings'
+  let lastFrom = null;
   let badgeEl = null;
   let hideTimer = null;
 
@@ -80,10 +86,11 @@
     if (state.done) hideTimer = setTimeout(() => renderBadge(null), 8000);
   }
 
-  function startSearch(title) {
+  function startSearch(title, from) {
     title = (title || '').trim();
     if (!title) return;
     lastTitle = title;
+    if (from) lastFrom = from;
     const urls = SEARCH_SITES.map((site) => searchUrl(site, title));
     chrome.runtime.sendMessage({ type: 'startRow', title, urls, mode: 'dashboard' });
   }
@@ -96,18 +103,18 @@
     return document.getElementById('edit-series-title-heading')?.textContent;
   }
 
-  function intercept(e, title) {
+  function intercept(e, title, from) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    startSearch(title);
+    startSearch(title, from);
   }
 
   window.addEventListener(
     'click',
     (e) => {
       if (e.button !== 0) return;
-      if (e.target.closest?.('#btn-add-series-search-submit')) intercept(e, addSeriesTitle());
-      else if (e.target.closest?.('#settings-source-search-btn')) intercept(e, settingsTitle());
+      if (e.target.closest?.('#btn-add-series-search-submit')) intercept(e, addSeriesTitle(), 'add');
+      else if (e.target.closest?.('#settings-source-search-btn')) intercept(e, settingsTitle(), 'settings');
     },
     true
   );
@@ -118,7 +125,7 @@
     'auxclick',
     (e) => {
       if (e.button !== 1) return;
-      if (e.target.closest?.('#btn-add-series-search-submit')) intercept(e, addSeriesTitle());
+      if (e.target.closest?.('#btn-add-series-search-submit')) intercept(e, addSeriesTitle(), 'add');
     },
     true
   );
@@ -127,7 +134,7 @@
     'keydown',
     (e) => {
       if (e.key !== 'Enter' || e.isComposing) return;
-      if (e.target.id === 'add-series-search-title') intercept(e, addSeriesTitle());
+      if (e.target.id === 'add-series-search-title') intercept(e, addSeriesTitle(), 'add');
     },
     true
   );
@@ -138,6 +145,11 @@
     if (msg.type === 'updateUrls') {
       if (msg.submit) {
         renderBadge({ title: msg.title, capturedCount: msg.urls.length, total: msg.total, openCount: 0, done: true });
+        // Every tab closed: an Add Series search's links go into the Add
+        // modal's link box (dashboard.js listens for this event)
+        if (lastFrom === 'add' && msg.urls.length) {
+          window.dispatchEvent(new CustomEvent('manga-tracker:source-links', { detail: msg.urls.join(', ') }));
+        }
       }
     } else if (msg.type === 'stateUpdate') {
       renderBadge(msg.state);

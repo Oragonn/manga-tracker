@@ -106,8 +106,11 @@ extension installed, those open the 5 tabs through the extension instead:
 
 Same clipboard behavior as the kenmei.co lookup: the title is copied when
 the search starts, and every `Y` overwrites it with all links captured so
-far. Nothing is filled in on the page - paste the list wherever you want
-it. A badge (bottom-right of the dashboard) shows progress and hides itself
+far. For an Add Series search (including the dashboard's "Search the
+sources for ..." offer when a search finds nothing), once every source tab
+is closed the captured links are also put into the Add modal's link box -
+the modal reopens if it was closed, unless another modal is open. Nothing is
+ever submitted. Series Settings searches stay clipboard-only. A badge (bottom-right of the dashboard) shows progress and hides itself
 a few seconds after the last tab closes. Without the extension the buttons
 keep their normal open-5-tabs behavior.
 

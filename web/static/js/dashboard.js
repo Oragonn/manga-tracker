@@ -5653,6 +5653,32 @@ document.addEventListener('DOMContentLoaded', () => {
 		backToAddLinkAfterSearch();
 	}
 
+	// The extension's K/Y/U flow, started from the Add modal's search (or the
+	// "Search the sources" offer): once every source tab is closed, the links
+	// copied with Y ("url, url") land in the Add modal's link box as its
+	// sources - opening the modal again if it was closed, unless another
+	// modal is open (then they're only on the clipboard, as before).
+	window.addEventListener('manga-tracker:source-links', (e) => {
+		const links = typeof e.detail === 'string' ? e.detail : '';
+		if (!links.trim() || !btnAddSeries) return;
+		if (addModal.classList.contains('hidden')) {
+			if (document.querySelector('.modal:not(.hidden)')) {
+				showNotification('Links copied - paste them into Add Series', 'info');
+				return;
+			}
+			btnAddSeries.click();
+		} else if (addSeriesSearchView && !addSeriesSearchView.classList.contains('hidden')) {
+			resetAddSeriesModalView(true);
+		}
+		if (!appendAddSources(links)) {
+			showNotification('Those links are already in the list', 'info');
+			return;
+		}
+		const input = document.getElementById('new-series-url');
+		input?.focus();
+		input?.setSelectionRange(input.value.length, input.value.length);
+	});
+
 	if (addSeriesUrlView && addSeriesSearchView && addSeriesSearchToggleBtn) {
 		addSeriesSearchToggleBtn.addEventListener('click', () => {
 			if (addSeriesSearchView.classList.contains('hidden')) {
