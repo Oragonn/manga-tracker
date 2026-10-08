@@ -1,5 +1,6 @@
-// Kenmei Import Helper - runs on the 5 source sites (MangaDex/Atsumaru/
-// AsuraScans/Kagane/HiveToons). Plain, unmodified single-key shortcuts:
+// Kenmei Import Helper - runs on the source sites (MangaDex/Atsumaru/
+// AsuraScans/Kagane/HiveToons/Thunderscans/Comix). Plain, unmodified
+// single-key shortcuts:
 //   K - jump into the first result on a search-results page
 //   Y - capture this tab's URL for the row being matched, close the tab
 //   U - no match here, just close the tab
@@ -11,7 +12,7 @@
 // series lookup - see content_import.js / content_kenmei.js). Y always just
 // reports the capture to the background worker; for the kenmei flow, the
 // worker is the one that copies the running list to the clipboard (via an
-// offscreen document - see background.js), since none of these 5 tabs can
+// offscreen document - see background.js), since none of these tabs can
 // be relied on to actually have document focus.
 //
 // For the kenmei flow only, a red/green dot shows up next to the first
@@ -44,7 +45,12 @@
     // "/series/" link (its all-series browse page) that a plain substring
     // check would wrongly match if it sits earlier in the DOM than the
     // actual results grid, same trap MangaDex's UUID check above avoids.
-    { hostRe: /(^|\.)hivetoons\.org$/, hrefRe: /\/series\/[a-z0-9-]+\/?$/i }
+    { hostRe: /(^|\.)hivetoons\.org$/, hrefRe: /\/series\/[a-z0-9-]+\/?$/i },
+    // Slug required for the same reason - the nav's browse links are
+    // /comics/?type=... on the same path
+    { hostRe: /(^|\.)en-thunderscans\.com$/, hrefRe: /\/comics\/[a-z0-9-]+\/?$/i },
+    // Series page only, not a /title/<id>-<slug>/<chapter> link
+    { hostRe: /(^|\.)comix\.to$/, hrefRe: /\/title\/[a-z0-9]+-[^/?#]+\/?$/i }
   ];
 
   function isVisible(el) {

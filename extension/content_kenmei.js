@@ -2,9 +2,9 @@
 // page. Same source-matching step as the CSV import flow (content_import.js
 // / content_source.js), but for looking one series up directly on kenmei.co
 // instead of importing a full CSV export:
-//   I - open the same 5 source searches for this page's title, and (in the
+//   I - open the same 7 source searches for this page's title, and (in the
 //       background) peek at Kenmei's own "Add to your Dashboard" source
-//       list to show which of the 5 it already knows about
+//       list to show which of the 7 it already knows about
 //   K - jump into the first result on a source tab (content_source.js)
 //   Y - capture a source tab's URL, close it (content_source.js)
 //   U - no match on a source tab, just close it (content_source.js)
@@ -32,13 +32,15 @@
       case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
       case 'asura': return `https://asurascans.com/browse?q=${q}`;
       case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
+      case 'thunder': return `https://en-thunderscans.com/?s=${q}`;
+      case 'comix': return `https://comix.to/browse?q=${q}&sort=relevance%3Adesc`;
       default: return null;
     }
   }
-  // Same opening order as the import flow - Kagane last, its Cloudflare
-  // Turnstile challenge makes it the slowest tab to load.
-  const SEARCH_SITES = ['atsu', 'asura', 'mangadex', 'hive', 'kagane'];
-  const SITE_LABELS = { mangadex: 'MangaDex', atsu: 'Atsumaru', asura: 'AsuraScans', kagane: 'Kagane', hive: 'HiveToons' };
+  // Same opening order as the import flow - Comix and Kagane last, their
+  // Cloudflare challenges make them the slowest tabs to load.
+  const SEARCH_SITES = ['atsu', 'asura', 'mangadex', 'hive', 'thunder', 'comix', 'kagane'];
+  const SITE_LABELS = { mangadex: 'MangaDex', atsu: 'Atsumaru', asura: 'AsuraScans', kagane: 'Kagane', hive: 'HiveToons', thunder: 'Thunderscans', comix: 'Comix' };
   // How Kenmei's own source-select labels its options, lowercased.
   const KENMEI_NAME_TO_SITE = {
     'mangadex': 'mangadex',
@@ -47,7 +49,10 @@
     'asurascans': 'asura',
     'kagane': 'kagane',
     'hive toon': 'hive',
-    'hivetoons': 'hive'
+    'hivetoons': 'hive',
+    'thunder scans': 'thunder',
+    'thunderscans': 'thunder',
+    'comix': 'comix'
   };
 
   // Not scoped to Kenmei's Vue `data-v-*` hash - that hash changes on every
@@ -259,7 +264,7 @@
         const haveSites = mapNamesToSites(names);
         kenmeiNote = describeKenmeiSources(haveSites);
         refreshBadge();
-        // Tell each of the 5 tabs this row just opened whether Kenmei
+        // Tell each of the 7 tabs this row just opened whether Kenmei
         // already lists its source, so they can show a red/green dot -
         // only once we actually have an answer, so a failed lookup leaves
         // them undotted instead of falsely marking everything red.

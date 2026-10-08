@@ -5542,9 +5542,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	// ─── Add Series modal: cross-source title search view ────────
 	// Same "open each source's own search page in a new tab" pattern as the
 	// Kenmei import page's per-row search buttons - this isn't a real
-	// aggregated search API, just a shortcut to the 5 sites' own search UIs
+	// aggregated search API, just a shortcut to the sites' own search UIs
 	// so you can find the right link to paste back into the URL field.
-	const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'hive', 'kagane'];
+	// (Flame Comics is left out on purpose.)
+	const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'hive', 'thunder', 'comix', 'kagane'];
 
 	function addSeriesSearchUrl(site, title) {
 		const q = encodeURIComponent(title).replace(/%20/g, '+');
@@ -5554,6 +5555,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
 			case 'asura': return `https://asurascans.com/browse?q=${q}`;
 			case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
+			case 'thunder': return `https://en-thunderscans.com/?s=${q}`;
+			// What Comix's own header search opens - the plain ?keyword= browse
+			// sorts by latest update, burying the actual match
+			case 'comix': return `https://comix.to/browse?q=${q}&sort=relevance%3Adesc`;
 		}
 		return '#';
 	}

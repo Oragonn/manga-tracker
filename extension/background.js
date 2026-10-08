@@ -16,9 +16,9 @@
 //              copyToClipboard() below and offscreen.js) - a service worker
 //              has no clipboard access itself, and writing from the source
 //              tab that captured the match doesn't work either, since only
-//              the first of the row's 5 tabs is ever made active/focused.
+//              the first of the row's 7 tabs is ever made active/focused.
 //   'dashboard' - content_dashboard.js, the tracker dashboard's own "search
-//              all 5 sources" buttons (Add Series / Series Settings). Same
+//              all 7 sources" buttons (Add Series / Series Settings). Same
 //              clipboard behavior as 'kenmei', just started from a
 //              different page.
 //
@@ -84,7 +84,9 @@ const SITE_PATTERNS = [
   { re: /^https:\/\/atsu\.moe\//, site: 'atsu' },
   { re: /^https:\/\/asurascans\.com\//, site: 'asura' },
   { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' },
-  { re: /^https:\/\/hivetoons\.org\//, site: 'hive' }
+  { re: /^https:\/\/hivetoons\.org\//, site: 'hive' },
+  { re: /^https:\/\/en-thunderscans\.com\//, site: 'thunder' },
+  { re: /^https:\/\/comix\.to\//, site: 'comix' }
 ];
 
 function siteFor(url) {

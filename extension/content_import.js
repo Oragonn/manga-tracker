@@ -1,14 +1,14 @@
 // Kenmei Import Helper - runs on /import-kenmei. Intercepts the page's own
 // "All" button (capturing-phase click on the tbody, ahead of the page's own
-// bubble-phase handler) so it opens the 5 search tabs through the
+// bubble-phase handler) so it opens the 7 search tabs through the
 // background service worker instead of window.open()/synthetic anchors -
 // no popup-permission dance needed. Reads everything it needs straight off
-// the already-rendered row: title text, the 4 search anchors' hrefs, the
+// the already-rendered row: title text, the search anchors' hrefs, the
 // URL input, and the Add button - the page itself is never modified.
 //
 // As each source tab is captured (Y) or skipped (U), the background worker
 // pushes the running list of URLs here and this fills the URL input live.
-// Once all 4 tabs are resolved, the last push also carries submit:true,
+// Once all the tabs are resolved, the last push also carries submit:true,
 // which clicks Add for real - the page's own addRow() logic (validation,
 // the add/poll pipeline, toasts) runs completely untouched. "I" (here or
 // relayed from a source tab) starts the next pending row on demand - there
@@ -21,15 +21,17 @@
   chrome.runtime.sendMessage({ type: 'registerImportTab' });
 
   // Tab-opening order, independent of the page's own MD/AT/AS/KG/HT button
-  // layout (left untouched). Kagane goes last since its Cloudflare Turnstile
-  // challenge makes it the slowest tab to load.
-  const SITE_OPEN_ORDER = ['atsu', 'asura', 'mangadex', 'hive', 'kagane'];
+  // layout (left untouched). Comix and Kagane go last since their Cloudflare
+  // challenges make them the slowest tabs to load.
+  const SITE_OPEN_ORDER = ['atsu', 'asura', 'mangadex', 'hive', 'thunder', 'comix', 'kagane'];
   const HREF_SITE_PATTERNS = [
     { re: /^https:\/\/mangadex\.org\//, site: 'mangadex' },
     { re: /^https:\/\/atsu\.moe\//, site: 'atsu' },
     { re: /^https:\/\/asurascans\.com\//, site: 'asura' },
     { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' },
-    { re: /^https:\/\/hivetoons\.org\//, site: 'hive' }
+    { re: /^https:\/\/hivetoons\.org\//, site: 'hive' },
+    { re: /^https:\/\/en-thunderscans\.com\//, site: 'thunder' },
+    { re: /^https:\/\/comix\.to\//, site: 'comix' }
   ];
 
   function siteForHref(href) {

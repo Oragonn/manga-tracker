@@ -1,7 +1,7 @@
 # Kenmei Import Helper
 
 Companion Chrome/Brave extension for `/import-kenmei`. Speeds up matching
-rows from a Kenmei CSV export to MangaDex/Atsumaru/AsuraScans/Kagane/HiveToons.
+rows from a Kenmei CSV export to MangaDex/Atsumaru/AsuraScans/Kagane/HiveToons/Thunderscans/Comix.
 Also works directly on a `kenmei.co/series/...` page for looking up one
 series at a time outside of a CSV - see [Kenmei series lookup](#kenmei-series-lookup)
 below.
@@ -27,16 +27,16 @@ pressing **I**. The extension takes over from there:
 Starting a row (**I** or **All**) also copies the series name to the
 clipboard, ready to paste into a source's own search box.
 
-There's no separate "confirm" key - once all 5 of a row's tabs are closed
+There's no separate "confirm" key - once all 7 of a row's tabs are closed
 (by Y, U, or even a manual Ctrl+W), whatever got captured is submitted
 automatically: no clicking Add per source, no 1-by-1 adds. Keys are
 ignored while focus is in a text field, so they don't interfere with
 actually using the sites' own search boxes. A small status badge
 (bottom-right of the import page) shows the current row and how many of
-the 5 tabs are still open/captured.
+the 7 tabs are still open/captured.
 
 Moving to the next row is always manual (**I**) - nothing auto-advances,
-so the loop is "I to start, look/Y/U ×5, [auto-submits], I for the next
+so the loop is "I to start, look/Y/U ×7, [auto-submits], I for the next
 row" whenever you're ready.
 
 ## Kenmei series lookup
@@ -46,7 +46,7 @@ works without a CSV import in progress:
 
 | Key | Where              | Does |
 |-----|--------------------|------|
-| `I` | on the series page | open the same 5 source searches for this page's title, and copy the title to the clipboard |
+| `I` | on the series page | open the same 7 source searches for this page's title, and copy the title to the clipboard |
 | `K` | on a source tab    | jump into the first result on a search-results page |
 | `Y` | on a source tab    | copy the running `url, url, ...` list to the clipboard, close the tab |
 | `U` | on a source tab    | no match here - just close the tab |
@@ -55,15 +55,15 @@ works without a CSV import in progress:
 `I` also peeks at Kenmei's own **Add to your Dashboard** → source dropdown in
 the background (expanding that form and opening its source list just long
 enough to read it, then closing the list with Escape) and shows which of the
-5 sources Kenmei itself already lists for this series on the badge - e.g.
+7 sources Kenmei itself already lists for this series on the badge - e.g.
 `Kenmei has: Atsumaru, AsuraScans, HiveToons (not MangaDex, Kagane)`. That
 form is left expanded but nothing is ever saved - the dashboard add only
 commits on a separate Save click, which this never makes, so your Kenmei
-library is untouched. Purely informational: all 5 search tabs still open
+library is untouched. Purely informational: all 7 search tabs still open
 either way, so it's still your call whether to bother waiting on a source
 Kenmei doesn't list.
 
-Once that check comes back, each of the 5 opened tabs also gets a small dot
+Once that check comes back, each of the 7 opened tabs also gets a small dot
 just to the left of the first result (the same one `K` would jump into) -
 green if Kenmei's list includes that tab's source, red if not. It sits
 beside the result, not on it: the dot means "Kenmei says this *site* has the
@@ -92,10 +92,10 @@ way.
 
 ## Dashboard source search
 
-The tracker's own "search all 5 sources" buttons use the same keys:
+The tracker's own "search all 7 sources" buttons use the same keys:
 **Search** in the Add Series modal's *Search title* view (or Enter in that
 box), and the search button in Series Settings' source section. With the
-extension installed, those open the 5 tabs through the extension instead:
+extension installed, those open the 7 tabs through the extension instead:
 
 | Key | Where           | Does |
 |-----|-----------------|------|
@@ -112,7 +112,7 @@ is closed the captured links are also put into the Add modal's link box -
 the modal reopens if it was closed, unless another modal is open. Nothing is
 ever submitted. Series Settings searches stay clipboard-only. A badge (bottom-right of the dashboard) shows progress and hides itself
 a few seconds after the last tab closes. Without the extension the buttons
-keep their normal open-5-tabs behavior.
+keep their normal open-7-tabs behavior.
 
 ## Known limitations (scaffold, not polished)
 
