@@ -1625,6 +1625,43 @@ def api_add_status(task_id):
         return jsonify({'status': 'pending'}), 200
     return jsonify(result), 200
 
+@app.route('/api/series/title-index')
+def api_series_title_index():
+    """Every tracked series with its normalised titles, for the browser
+    extension to mark the series already tracked on kenmei.co's search and
+    discovery pages. `titles` are the ones the duplicate check compares
+    (comparable_titles), main title first; the extension normalises Kenmei's
+    titles the same way and looks them up in these."""
+    from .search_utils import comparable_titles, normalize_search_text, TITLE_SEP
+    conn = get_db()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, title, status, current_chapter, latest_chapter, searchable_text FROM series"
+        )
+        rows = cursor.fetchall()
+    finally:
+        release_db(conn)
+
+    series = []
+    for series_id, title, status, current_chapter, latest_chapter, text in rows:
+        all_titles = (text or '').split(TITLE_SEP)
+        kept = comparable_titles(all_titles)
+        main = normalize_search_text(title)
+        titles = [main] if main in kept else []
+        titles += [t for t in all_titles if t in kept and t != main]
+        if not titles:
+            continue
+        series.append({
+            'id': series_id,
+            'title': title,
+            'status': status,
+            'current_chapter': current_chapter,
+            'latest_chapter': latest_chapter,
+            'titles': titles,
+        })
+    return jsonify({'series': series})
+
 _ADD_SOURCE_LABELS = {
     'mangadex': 'MangaDex', 'kagane': 'Kagane', 'atsu': 'Atsumaru',
     'asura': 'AsuraScans', 'hive': 'HiveToons', 'flame': 'Flame Comics',

@@ -90,6 +90,31 @@ status badge (bottom-right of the series page, showing the title so you
 don't lose track of which series you're matching) shows progress the same
 way.
 
+## Already-tracked badges on Kenmei
+
+On kenmei.co's **Search** (`/search`) and **Discovery** (`/discovery`)
+pages, every series your tracker already has gets a coloured ring and a
+badge on its cover with its status and progress there, e.g.
+`✓ Reading · 45/120` (green Reading, blue Plan to read, amber On hold,
+red Dropped, purple Completed). Hover it for the tracker's title for the
+series; click it to open the tracker dashboard searched for that series
+(the click doesn't also open the series on Kenmei). Discovery's top
+carousel is covered too.
+
+Matching is by title, like the tracker's own Add Series duplicate check:
+all of Kenmei's titles for a card (its alternative titles too, read from
+the API responses behind the page by `content_kenmei_hook.js`) against all
+of the tracker's titles for each series, normalised the same way
+(`normalize_search_text`). So "Omniscient Reader's Viewpoint" on Kenmei
+finds a series the tracker calls "Omniscient Reader".
+
+The extension learns the tracker's address from the last tracker page
+(`http://<host>:8080/...`) opened in this browser - open the tracker once
+after installing, or a notice on the Kenmei page says so. The library
+(`/api/series/title-index`) is cached for 30 seconds, and refreshed when
+you come back to the Kenmei tab, so a series added on the tracker gets its
+badge shortly after.
+
 ## Dashboard source search
 
 The tracker's own "search all 7 sources" buttons use the same keys:

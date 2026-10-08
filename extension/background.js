@@ -217,7 +217,51 @@ function resolveTab(tabId, capturedUrl) {
 
 // Every message waits for the saved state first (the worker may have just been
 // restarted to deliver it), then gets a reply - null unless it asked for one.
+// The tracker's address (e.g. http://192.168.1.20:8080), learned from
+// whichever tracker page last loaded content_dashboard.js /
+// content_import.js - kept in chrome.storage.local so it survives browser
+// restarts. content_kenmei.js needs it to mark the series already tracked
+// on kenmei.co's search/discovery pages, and can't fetch it itself (a
+// kenmei.co page can't read an http:// LAN address - this worker can,
+// thanks to the http://*:8080/* host permission).
+function rememberTrackerOrigin(sender) {
+  const origin = sender.origin || (sender.tab && sender.tab.url && new URL(sender.tab.url).origin);
+  if (origin && origin.startsWith('http')) chrome.storage.local.set({ trackerOrigin: origin });
+}
+
+// /api/series/title-index, cached for a short while so scrolling through
+// Kenmei's results (or several Kenmei tabs) doesn't refetch it per page of
+// cards, but a series added on the tracker still shows up within seconds.
+const TRACKER_INDEX_MAX_AGE = 30 * 1000;
+let trackerIndex = null; // { origin, fetchedAt, series }
+let trackerIndexRequest = null;
+
+async function getTrackerIndex(fresh) {
+  const { trackerOrigin } = await chrome.storage.local.get('trackerOrigin');
+  if (!trackerOrigin) return { ok: false, error: 'no-origin' };
+  if (!fresh && trackerIndex && trackerIndex.origin === trackerOrigin
+      && Date.now() - trackerIndex.fetchedAt < TRACKER_INDEX_MAX_AGE) {
+    return { ok: true, origin: trackerOrigin, series: trackerIndex.series };
+  }
+  if (!trackerIndexRequest) {
+    trackerIndexRequest = fetch(`${trackerOrigin}/api/series/title-index`, { credentials: 'include' })
+      .then(async (res) => {
+        if (!res.ok) return { ok: false, origin: trackerOrigin, error: `HTTP ${res.status}` };
+        const data = await res.json();
+        trackerIndex = { origin: trackerOrigin, fetchedAt: Date.now(), series: data.series || [] };
+        return { ok: true, origin: trackerOrigin, series: trackerIndex.series };
+      })
+      .catch((err) => ({ ok: false, origin: trackerOrigin, error: (err && err.message) || 'unreachable' }))
+      .finally(() => { trackerIndexRequest = null; });
+  }
+  return trackerIndexRequest;
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'getTrackerIndex') {
+    getTrackerIndex(!!msg.fresh).then(sendResponse);
+    return true;
+  }
   restoreState().then(() => {
     let response = null;
     handleMessage(msg, sender, (value) => { response = value; });
@@ -229,6 +273,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 function handleMessage(msg, sender, sendResponse) {
   switch (msg.type) {
     case 'registerImportTab':
+      rememberTrackerOrigin(sender);
       if (sender.tab) importTabId = sender.tab.id;
       saveState();
       return;
@@ -237,6 +282,7 @@ function handleMessage(msg, sender, sendResponse) {
       saveState();
       return;
     case 'registerDashboardTab':
+      rememberTrackerOrigin(sender);
       if (sender.tab) dashboardTabId = sender.tab.id;
       saveState();
       return;
