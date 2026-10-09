@@ -124,7 +124,12 @@ The extension learns the tracker's address from the last tracker page
 after installing, or a notice on the Kenmei page says so. The library
 (`/api/series/title-index`) is cached for 30 seconds, and refreshed when
 you come back to the Kenmei tab, so a series added on the tracker gets its
-badge shortly after.
+badge shortly after. The last copy is also saved in the extension's
+storage, so right after the browser (or PC) starts, badges show at once
+from that copy while a fresh one loads in the background - only a "not
+changed" reply when the library is the same. If the tracker can't be
+reached (network not up yet), the page retries by itself after 2, 5, 15,
+30 and 60 seconds.
 
 ## Dashboard source search
 

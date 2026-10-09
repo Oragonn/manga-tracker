@@ -92,6 +92,7 @@
   let indexLoaded = false;
   let indexRequest = null;
   let noticeShown = false;
+  let noticeEl = null;
 
   function addTo(map, key, s) {
     if (!map.has(key)) map.set(key, []);
@@ -128,36 +129,82 @@
     }
   }
 
-  function loadIndex(fresh) {
-    if (indexRequest) return indexRequest;
-    indexRequest = new Promise((resolve) => {
+  // Asks background.js for the library. The first ask takes its saved copy
+  // from the last session if the in-memory one is gone (browser just
+  // started), so badges show at once; that answer comes back `stale` and a
+  // second ask then waits for the refresh background.js started, and the
+  // badges are redrawn from it. A failed load (tracker unreachable, e.g.
+  // the network not up yet right after the PC starts) is retried a few
+  // times instead of waiting for the page to change.
+  const RETRY_DELAYS = [2000, 5000, 15000, 30000, 60000];
+  let retryCount = 0;
+  let retryTimer = null;
+
+  function requestIndex(fresh, allowStale) {
+    return new Promise((resolve) => {
       try {
-        chrome.runtime.sendMessage({ type: 'getTrackerIndex', fresh }, (res) => {
+        chrome.runtime.sendMessage({ type: 'getTrackerIndex', fresh, allowStale }, (res) => {
           if (chrome.runtime.lastError || !res) {
             log('could not reach the extension:', chrome.runtime.lastError && chrome.runtime.lastError.message);
-            resolve(false);
+            resolve(null);
             return;
           }
-          if (!res.ok) {
-            log('tracker library unavailable:', res.error, res.origin || '');
-            showNotice(res.error === 'no-origin'
-              ? 'Manga Tracker: open your tracker once in this browser so the extension learns its address.'
-              : `Manga Tracker: couldn’t load your library from ${res.origin} (${res.error}).`);
-            resolve(false);
-            return;
-          }
-          trackerOrigin = res.origin;
-          buildIndex(res.series);
-          indexLoaded = true;
-          log(`library loaded: ${res.series.length} series from ${res.origin}`);
-          resolve(true);
+          resolve(res);
         });
       } catch (err) {
         // "Extension context invalidated" - the extension was reloaded
         // after this tab loaded.
         log('extension was reloaded, reload this tab (F5):', err && err.message);
-        resolve(false);
+        resolve(null);
       }
+    });
+  }
+
+  function applyIndex(res) {
+    trackerOrigin = res.origin;
+    buildIndex(res.series);
+    indexLoaded = true;
+    retryCount = 0;
+    if (noticeEl) noticeEl.remove(); // a "couldn't load, retrying" one
+    log(`library loaded: ${res.series.length} series from ${res.origin}${res.stale ? ' (saved copy, refreshing)' : ''}`);
+  }
+
+  function retryLater() {
+    if (retryTimer || retryCount >= RETRY_DELAYS.length) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      if (onSupportedPage()) loadIndex(false).then((ok) => ok && scheduleScan());
+    }, RETRY_DELAYS[retryCount++]);
+  }
+
+  function loadIndex(fresh) {
+    if (indexRequest) return indexRequest;
+    indexRequest = requestIndex(fresh, !indexLoaded).then((res) => {
+      if (!res) return false;
+      if (!res.ok) {
+        log('tracker library unavailable:', res.error, res.origin || '');
+        if (res.error === 'no-origin') {
+          showNotice('Manga Tracker: open your tracker once in this browser so the extension learns its address.');
+        } else {
+          if (!indexLoaded) {
+            showNotice(`Manga Tracker: couldn’t load your library from ${res.origin} (${res.error}) - retrying.`);
+          }
+          retryLater();
+        }
+        return false;
+      }
+      applyIndex(res);
+      if (res.stale) {
+        requestIndex(false, false).then((fresher) => {
+          if (fresher && fresher.ok) {
+            applyIndex(fresher);
+            scheduleScan();
+          } else {
+            retryLater();
+          }
+        });
+      }
+      return true;
     }).finally(() => { indexRequest = null; });
     return indexRequest;
   }
@@ -175,6 +222,7 @@
     ].join(';');
     el.addEventListener('click', () => el.remove());
     document.body.appendChild(el);
+    noticeEl = el;
     setTimeout(() => el.remove(), 10000);
   }
 

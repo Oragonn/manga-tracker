@@ -1675,7 +1675,11 @@ def api_series_title_index():
             'titles': titles,
             'links': links.get(series_id, []),
         })
-    return jsonify({'series': series})
+    # The extension keeps its last copy and asks with If-None-Match, so an
+    # unchanged library costs a 304 instead of re-sending ~500 KB.
+    response = jsonify({'series': series})
+    response.set_etag(hashlib.sha1(response.get_data()).hexdigest())
+    return response.make_conditional(request)
 
 _ADD_SOURCE_LABELS = {
     'mangadex': 'MangaDex', 'kagane': 'Kagane', 'atsu': 'Atsumaru',

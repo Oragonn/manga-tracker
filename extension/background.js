@@ -230,37 +230,91 @@ function rememberTrackerOrigin(sender) {
   if (origin && origin.startsWith('http')) chrome.storage.local.set({ trackerOrigin: origin });
 }
 
-// /api/series/title-index, cached for a short while so scrolling through
+// /api/series/title-index. Kept in memory for 30s so scrolling through
 // Kenmei's results (or several Kenmei tabs) doesn't refetch it per page of
 // cards, but a series added on the tracker still shows up within seconds.
+//
+// The last copy is also saved in chrome.storage.local: a freshly started
+// browser (and its freshly started worker) would otherwise have nothing,
+// and every Kenmei tab reopened at startup waited on a ~500 KB download -
+// or, with the network not up yet, on a request that failed outright. A
+// caller passing allowStale gets that saved copy at once (marked stale)
+// while a refresh runs; the refresh sends If-None-Match, so an unchanged
+// library costs only a 304.
 const TRACKER_INDEX_MAX_AGE = 30 * 1000;
-let trackerIndex = null; // { origin, fetchedAt, series }
+const TRACKER_INDEX_TIMEOUT = 15 * 1000;
+const TRACKER_INDEX_KEY = 'trackerIndexCache';
+let trackerIndex = null; // { origin, fetchedAt, etag, series }
 let trackerIndexRequest = null;
 
-async function getTrackerIndex(fresh) {
-  const { trackerOrigin } = await chrome.storage.local.get('trackerOrigin');
-  if (!trackerOrigin) return { ok: false, error: 'no-origin' };
-  if (!fresh && trackerIndex && trackerIndex.origin === trackerOrigin
-      && Date.now() - trackerIndex.fetchedAt < TRACKER_INDEX_MAX_AGE) {
-    return { ok: true, origin: trackerOrigin, series: trackerIndex.series };
+async function savedTrackerIndex(origin) {
+  if (!trackerIndex || trackerIndex.origin !== origin) {
+    const data = await chrome.storage.local.get(TRACKER_INDEX_KEY);
+    const saved = data && data[TRACKER_INDEX_KEY];
+    if (saved && saved.origin === origin && Array.isArray(saved.series)) trackerIndex = saved;
   }
-  if (!trackerIndexRequest) {
-    trackerIndexRequest = fetch(`${trackerOrigin}/api/series/title-index`, { credentials: 'include' })
-      .then(async (res) => {
-        if (!res.ok) return { ok: false, origin: trackerOrigin, error: `HTTP ${res.status}` };
-        const data = await res.json();
-        trackerIndex = { origin: trackerOrigin, fetchedAt: Date.now(), series: data.series || [] };
-        return { ok: true, origin: trackerOrigin, series: trackerIndex.series };
-      })
-      .catch((err) => ({ ok: false, origin: trackerOrigin, error: (err && err.message) || 'unreachable' }))
-      .finally(() => { trackerIndexRequest = null; });
+  return trackerIndex && trackerIndex.origin === origin ? trackerIndex : null;
+}
+
+function refreshTrackerIndex(origin) {
+  if (trackerIndexRequest) return trackerIndexRequest;
+  const headers = {};
+  if (trackerIndex && trackerIndex.origin === origin && trackerIndex.etag) {
+    headers['If-None-Match'] = trackerIndex.etag;
   }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TRACKER_INDEX_TIMEOUT);
+  trackerIndexRequest = fetch(`${origin}/api/series/title-index`, {
+    credentials: 'include', cache: 'no-store', headers, signal: controller.signal
+  })
+    .then(async (res) => {
+      if (res.status === 304 && trackerIndex && trackerIndex.origin === origin) {
+        trackerIndex.fetchedAt = Date.now();
+        return { ok: true, origin, series: trackerIndex.series };
+      }
+      if (!res.ok) return { ok: false, origin, error: `HTTP ${res.status}` };
+      const data = await res.json();
+      trackerIndex = { origin, fetchedAt: Date.now(), etag: res.headers.get('ETag'), series: data.series || [] };
+      chrome.storage.local.set({ [TRACKER_INDEX_KEY]: trackerIndex });
+      return { ok: true, origin, series: trackerIndex.series };
+    })
+    .catch((err) => ({
+      ok: false, origin,
+      error: err && err.name === 'AbortError' ? 'timed out' : (err && err.message) || 'unreachable'
+    }))
+    .finally(() => {
+      clearTimeout(timer);
+      trackerIndexRequest = null;
+    });
   return trackerIndexRequest;
 }
 
+async function getTrackerIndex(fresh, allowStale) {
+  const { trackerOrigin } = await chrome.storage.local.get('trackerOrigin');
+  if (!trackerOrigin) return { ok: false, error: 'no-origin' };
+  const cached = await savedTrackerIndex(trackerOrigin);
+  if (cached && !fresh && Date.now() - cached.fetchedAt < TRACKER_INDEX_MAX_AGE) {
+    return { ok: true, origin: trackerOrigin, series: cached.series };
+  }
+  if (cached && allowStale) {
+    refreshTrackerIndex(trackerOrigin);
+    return { ok: true, origin: trackerOrigin, series: cached.series, stale: true };
+  }
+  return refreshTrackerIndex(trackerOrigin);
+}
+
+// Browser start: fetch the library before any Kenmei tab asks for it.
+chrome.runtime.onStartup.addListener(() => {
+  chrome.storage.local.get('trackerOrigin').then(async ({ trackerOrigin }) => {
+    if (!trackerOrigin) return;
+    await savedTrackerIndex(trackerOrigin);
+    refreshTrackerIndex(trackerOrigin);
+  });
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'getTrackerIndex') {
-    getTrackerIndex(!!msg.fresh).then(sendResponse);
+    getTrackerIndex(!!msg.fresh, !!msg.allowStale).then(sendResponse);
     return true;
   }
   restoreState().then(() => {
