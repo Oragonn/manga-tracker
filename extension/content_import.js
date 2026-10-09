@@ -1,6 +1,6 @@
 // Kenmei Import Helper - runs on /import-kenmei. Intercepts the page's own
 // "All" button (capturing-phase click on the tbody, ahead of the page's own
-// bubble-phase handler) so it opens the 7 search tabs through the
+// bubble-phase handler) so it opens the 8 search tabs through the
 // background service worker instead of window.open()/synthetic anchors -
 // no popup-permission dance needed. Reads everything it needs straight off
 // the already-rendered row: title text, the search anchors' hrefs, the
@@ -23,13 +23,14 @@
   // Tab-opening order, independent of the page's own MD/AT/AS/KG/HT button
   // layout (left untouched). Comix and Kagane go last since their Cloudflare
   // challenges make them the slowest tabs to load.
-  const SITE_OPEN_ORDER = ['atsu', 'asura', 'mangadex', 'hive', 'thunder', 'comix', 'kagane'];
+  const SITE_OPEN_ORDER = ['atsu', 'asura', 'mangadex', 'hive', 'flame', 'thunder', 'comix', 'kagane'];
   const HREF_SITE_PATTERNS = [
     { re: /^https:\/\/mangadex\.org\//, site: 'mangadex' },
     { re: /^https:\/\/atsu\.moe\//, site: 'atsu' },
     { re: /^https:\/\/asurascans\.com\//, site: 'asura' },
     { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' },
     { re: /^https:\/\/hivetoons\.org\//, site: 'hive' },
+    { re: /^https:\/\/flamecomics\.xyz\//, site: 'flame' },
     { re: /^https:\/\/en-thunderscans\.com\//, site: 'thunder' },
     { re: /^https:\/\/comix\.to\//, site: 'comix' }
   ];

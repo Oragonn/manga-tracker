@@ -5544,8 +5544,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Kenmei import page's per-row search buttons - this isn't a real
 	// aggregated search API, just a shortcut to the sites' own search UIs
 	// so you can find the right link to paste back into the URL field.
-	// (Flame Comics is left out on purpose.)
-	const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'hive', 'thunder', 'comix', 'kagane'];
+	const SEARCH_SITES = ['mangadex', 'atsu', 'asura', 'hive', 'flame', 'thunder', 'comix', 'kagane'];
 
 	function addSeriesSearchUrl(site, title) {
 		const q = encodeURIComponent(title).replace(/%20/g, '+');
@@ -5555,6 +5554,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
 			case 'asura': return `https://asurascans.com/browse?q=${q}`;
 			case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
+			// Flame's search is client-side only and ignores this parameter -
+			// the extension types it into the search box (content_source.js);
+			// without it this is just the browse page
+			case 'flame': return `https://flamecomics.xyz/browse?search=${q}`;
 			case 'thunder': return `https://en-thunderscans.com/?s=${q}`;
 			// What Comix's own header search opens - the plain ?keyword= browse
 			// sorts by latest update, burying the actual match

@@ -1,6 +1,6 @@
 // Kenmei Import Helper - runs on the source sites (MangaDex/Atsumaru/
-// AsuraScans/Kagane/HiveToons/Thunderscans/Comix). Plain, unmodified
-// single-key shortcuts:
+// AsuraScans/Kagane/HiveToons/Flame Comics/Thunderscans/Comix). Plain,
+// unmodified single-key shortcuts:
 //   K - jump into the first result on a search-results page
 //   Y - capture this tab's URL for the row being matched, close the tab
 //   U - no match here, just close the tab
@@ -46,6 +46,8 @@
     // check would wrongly match if it sits earlier in the DOM than the
     // actual results grid, same trap MangaDex's UUID check above avoids.
     { hostRe: /(^|\.)hivetoons\.org$/, hrefRe: /\/series\/[a-z0-9-]+\/?$/i },
+    // Numeric id required - the nav's own links are /browse, /novel/...
+    { hostRe: /(^|\.)flamecomics\.xyz$/, hrefRe: /\/series\/\d+\/?$/ },
     // Slug required for the same reason - the nav's browse links are
     // /comics/?type=... on the same path
     { hostRe: /(^|\.)en-thunderscans\.com$/, hrefRe: /\/comics\/[a-z0-9-]+\/?$/i },
@@ -90,6 +92,39 @@
     }
     return null;
   }
+
+  // Flame Comics' search is client-side only: its /browse page ignores
+  // every URL parameter and filters as you type. The tracker's search links
+  // carry the title as ?search= anyway, and it gets typed into the box here.
+  // Next.js hydrates after document_idle can fire, and a hydrating React can
+  // wipe an early value - so keep re-filling (only while the box is still
+  // empty, never over the user's own typing) until it sticks.
+  async function fillFlameSearch() {
+    if (!/(^|\.)flamecomics\.xyz$/.test(location.hostname) || location.pathname !== '/browse') return;
+    const query = new URLSearchParams(location.search).get('search');
+    if (!query) return;
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    let stuck = 0;
+    const start = Date.now();
+    while (Date.now() - start < 15000 && stuck < 3) {
+      const input = document.querySelector('input[placeholder="Search for series"]');
+      if (input) {
+        if (input.value === query) {
+          stuck++;
+        } else if (!input.value) {
+          stuck = 0;
+          // The native setter, so React's input tracker sees a real change
+          setValue.call(input, query);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          return; // the user is typing their own search
+        }
+      }
+      await sleep(400);
+    }
+  }
+
+  fillFlameSearch();
 
   let sourceDot = null;
 

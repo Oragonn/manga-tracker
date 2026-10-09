@@ -1,9 +1,9 @@
 // Dashboard Search Helper - runs on the tracker's own dashboard. Takes over
-// the two "search this title on all 7 sources" buttons:
+// the two "search this title on all 8 sources" buttons:
 //   - Add Series modal -> search view -> "Search" (click, middle-click, or
 //     Enter in the "Search title" box)
 //   - Series Settings modal -> the source section's search button
-// and opens the 7 tabs through the background worker instead of the page's
+// and opens the 8 tabs through the background worker instead of the page's
 // own synthetic <a> clicks, so the same K/Y/U keys as the kenmei.co lookup
 // flow work on them (content_source.js):
 //   K - jump into the first result on a source tab
@@ -19,7 +19,7 @@
 // Intercepted with window-level capture listeners, which run before the
 // page's own handlers on the buttons/input themselves - the page and
 // dashboard.js are never modified, and without the extension the buttons
-// keep their plain open-7-tabs behavior.
+// keep their plain open-8-tabs behavior.
 
 (function () {
   // Mirrors addSeriesSearchUrl() in dashboard.js.
@@ -31,6 +31,7 @@
       case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
       case 'asura': return `https://asurascans.com/browse?q=${q}`;
       case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
+      case 'flame': return `https://flamecomics.xyz/browse?search=${q}`;
       case 'thunder': return `https://en-thunderscans.com/?s=${q}`;
       case 'comix': return `https://comix.to/browse?q=${q}&sort=relevance%3Adesc`;
       default: return null;
@@ -38,7 +39,7 @@
   }
   // Same opening order as the other flows - Comix and Kagane last, their
   // Cloudflare challenges make them the slowest tabs to load.
-  const SEARCH_SITES = ['atsu', 'asura', 'mangadex', 'hive', 'thunder', 'comix', 'kagane'];
+  const SEARCH_SITES = ['atsu', 'asura', 'mangadex', 'hive', 'flame', 'thunder', 'comix', 'kagane'];
 
   let lastTitle = null;
   // Which button started the search: 'add' (the Add Series search, also run
