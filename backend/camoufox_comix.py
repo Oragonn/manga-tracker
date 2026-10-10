@@ -11,9 +11,11 @@
 # Instead this lets Comix's own code do the work. A camoufox page loads
 # comix.to once, and two of the site's script files are patched as they
 # arrive:
-#   - env-*.js holds the site's API client, `var k={get:async(e,t)=>...}`,
+#   - the script holding the site's API client, `var k={get:async(e,t)=>...}`,
 #     whose interceptors sign each request and decrypt each answer. A line
-#     appended to it exposes that client as window.__cxGet.
+#     appended to it exposes that client as window.__cxGet. It's found by
+#     its code, not its file name: it was env-*.js until 2026-10, then
+#     Comix renamed its chunks to hashes (tmonyg-*.js).
 #   - main-*.js gets a small "bridge": camoufox runs our page.evaluate()
 #     calls in an isolated world that can't see the page's window, so
 #     requests and answers pass through attributes on <html> (the DOM is
@@ -46,7 +48,7 @@ _COVER_CONTENT_TYPE_EXT = {
     'image/gif': '.gif',
 }
 
-# The site's API client in env-*.js: `var k={get:async(e,t)=>(await ro.get(e,t)).data,...`
+# The site's API client (in one of the dist/*.js chunks):`var k={get:async(e,t)=>(await ro.get(e,t)).data,...`
 _CLIENT_RE = re.compile(r'var (\w+)=\{get:async\((\w+),(\w+)\)=>\(await \w+\.get\(\2,\3\)\)\.data')
 # Fallback: the chapters call inside it, `chapters:(e,t={})=>k.get(F.manga.chapters(e),{params:t})`
 _CHAPTERS_CALL_RE = re.compile(r'chapters:\((\w+),(\w+)=\{\}\)=>(\w+)\.get\(\w+\.manga\.chapters\(\1\),\{params:\2\}\)')
@@ -122,8 +124,7 @@ class ComixBrowserClient:
         self._camoufox_cm = AsyncCamoufox(headless=True)
         self._browser = await self._camoufox_cm.__aenter__()
         self._page = await self._browser.new_page()
-        await self._page.route('**/dist/main-*.js', self._patch_main)
-        await self._page.route('**/dist/env-*.js', self._patch_env)
+        await self._page.route('**/dist/*.js', self._patch_script)
         self._ready = False
 
     async def _reinit_browser(self):
@@ -171,17 +172,21 @@ class ComixBrowserClient:
                    if k.lower() not in ('content-encoding', 'content-length')}
         await route.fulfill(status=resp.status, headers=headers, body=js)
 
-    async def _patch_main(self, route):
+    async def _patch_script(self, route):
+        name = route.request.url.rsplit('/', 1)[-1]
+        if name.startswith('secure-'):
+            # The request signing code - nothing to patch there
+            return await route.fallback()
         resp, js = await self._fetch_script(route)
         if js is None:
             return await route.fulfill(response=resp)
-        await self._fulfill(route, resp, _BRIDGE_JS + '\n' + js)
+        if name.startswith('main-'):
+            return await self._fulfill(route, resp, _BRIDGE_JS + '\n' + js)
+        await self._fulfill(route, resp, self._expose_client(js))
 
-    async def _patch_env(self, route):
-        resp, js = await self._fetch_script(route)
-        if js is None:
-            self._patched = False
-            return await route.fulfill(response=resp)
+    def _expose_client(self, js):
+        """The script with the API client exposed as window.__cxGet when the
+        client is in it (sets self._patched), else unchanged."""
         m = _CLIENT_RE.search(js)
         if m:
             js += f'\n;window.__cxGet=(u,p)=>{m.group(1)}.get(u,{{params:p}});'
@@ -195,9 +200,7 @@ class ComixBrowserClient:
                                 + m.group(0).split('=>', 1)[1] + ')')
                 js = js[:m.start()] + patched_call + js[m.end():]
                 self._patched = True
-            else:
-                self._patched = False
-        await self._fulfill(route, resp, js)
+        return js
 
     async def _ensure_ready(self, hid, timeout=60):
         """Load a Comix page (the series' own, which also makes the site ask

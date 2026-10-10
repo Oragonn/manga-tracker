@@ -4232,6 +4232,11 @@ a.btn-icon {
   background: #ef4444;
 }
 
+/* Only the site's API is down, its website still loads */
+.settings-source-dot.down.api-down {
+  background: #f97316;
+}
+
 .settings-source-name {
   font-weight: 600;
   overflow: hidden;

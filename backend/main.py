@@ -1192,6 +1192,7 @@ def _sources_with_health(series_id):
         h = health.get(s['source_type'])
         s['site_down'] = bool(h and h['status'] == 'down')
         s['site_error'] = h['error'] if s['site_down'] else None
+        s['site_website_up'] = bool(s['site_down'] and h['website_up'])  # orange: only the API is down
     return sources
 
 

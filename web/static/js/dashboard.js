@@ -2293,6 +2293,7 @@ function renderSourceSelector(sources) {
 	dot.classList.remove('inactive');
 	const health = sourceHealthState(primary);
 	dot.classList.toggle('down', health.down);
+	dot.classList.toggle('api-down', !!health.apiDown);
 	dot.title = health.tip;
 	nameEl.textContent = SOURCE_TYPE_LABELS[primary.source_type] || primary.source_type;
 	chapEl.textContent = (currentSeriesLatestChapter !== null && currentSeriesLatestChapter !== undefined)
@@ -2302,9 +2303,14 @@ function renderSourceSelector(sources) {
 // Green: the source's last fetch worked. Red: it's failing (site down,
 // Cloudflare block, link gone...) - hover says how long and why. While the
 // primary is red, the scan takes the chapter links from the other sources.
-// Also red when the 30-minute site check found the whole site down.
+// Also red when the 30-minute site check found the whole site down - orange
+// when only its API is down and the website still loads.
 function sourceHealthState(source) {
 	const failures = source.consecutive_failures || 0;
+	if (source.site_down && source.site_website_up) {
+		// Orange: only the site's API is down, its website still loads
+		return { down: true, apiDown: true, tip: `API down - website still loads${source.site_error ? `: ${source.site_error}` : ''}` };
+	}
 	if (source.site_down) {
 		return { down: true, tip: `Site down${source.site_error ? `: ${source.site_error}` : ''}` };
 	}
@@ -2315,8 +2321,8 @@ function sourceHealthState(source) {
 }
 
 function sourceHealthDot(source) {
-	const { down, tip } = sourceHealthState(source);
-	return `<span class="settings-source-dot ${down ? 'down' : ''}" title="${escapeHtml(tip)}"></span>`;
+	const { down, apiDown, tip } = sourceHealthState(source);
+	return `<span class="settings-source-dot ${down ? 'down' : ''} ${apiDown ? 'api-down' : ''}" title="${escapeHtml(tip)}"></span>`;
 }
 
 function renderSourceList(sources) {
