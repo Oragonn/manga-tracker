@@ -22,6 +22,7 @@
 # accurate to the hour; ones from the first full read can be months coarse.
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 
 SITE_BASE = "https://comix.to"
@@ -29,6 +30,12 @@ SITE_BASE = "https://comix.to"
 _PAGE_SIZE = 100          # the API's maximum (500 is refused with a 422)
 _MAX_INCREMENTAL_PAGES = 3
 _FULL_RESYNC_EVERY = timedelta(days=7)
+# The weekly re-read is a safety net, not urgent: at most one of those per
+# this many seconds, so a backlog of them (after Comix was unreachable for a
+# week) is spread out instead of read back to back. Others wait their turn
+# and are read incrementally meanwhile.
+_RESYNC_SPACING = 600
+_last_resync_at = None
 
 _HID_RE = re.compile(r'comix\.to/title/([A-Za-z0-9]+)(?:-[^/?#]*)?', re.I)
 
@@ -194,15 +201,19 @@ def _chapter_page(client, hid, page, order):
 
 def _sync_uploads(client, hid):
     """Bring comix_uploads up to date for `hid`; returns every stored upload."""
+    global _last_resync_at
     known, sync = _load_cache(hid)
     now = datetime.now(timezone.utc)
     full = not sync or not known
     if not full and sync[1]:
         try:
             last_full = datetime.fromisoformat(sync[1].replace('Z', '+00:00'))
-            full = now - last_full > _FULL_RESYNC_EVERY
+            due = now - last_full > _FULL_RESYNC_EVERY
         except ValueError:
+            due = True
+        if due and (_last_resync_at is None or time.monotonic() - _last_resync_at >= _RESYNC_SPACING):
             full = True
+            _last_resync_at = time.monotonic()
 
     if not full:
         new_rows, total = [], None

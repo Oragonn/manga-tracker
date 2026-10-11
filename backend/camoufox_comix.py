@@ -95,9 +95,29 @@ class ComixHTTPError(RuntimeError):
     it's down, not us."""
 
 
+class ComixBlocked(RuntimeError):
+    """Comix's Cloudflare has blocked this IP address ("Sorry, you have been
+    blocked") - a firewall rule, not the challenge the browser gets past.
+    Every Comix request is paused for a while (see _BLOCK_PAUSE) instead of
+    retrying, which would only keep the block going."""
+
+
+# After a block: no Comix request at all for this long, doubling each time
+# the block is still there, up to the cap. Reset by the next successful call.
+_BLOCK_PAUSE = 3600       # seconds
+_BLOCK_PAUSE_MAX = 6 * 3600
+# Spacing between API calls: a full chapter-list read is one call per 100
+# uploads, and a burst of them (every series' weekly re-read falling due at
+# once) got this IP blocked on 2026-10-11
+_MIN_CALL_GAP = 1.0       # seconds
+
+
 class ComixBrowserClient:
     def __init__(self):
         self.lock = threading.Lock()
+        self._blocked_until = 0
+        self._block_pause = _BLOCK_PAUSE
+        self._last_call_at = 0
         self._loop = None
         self._camoufox_cm = None
         self._browser = None
@@ -244,6 +264,8 @@ class ComixBrowserClient:
                         return
                 except Exception:
                     pass  # mid-navigation (the Cloudflare challenge reloads the page)
+                if await self._blocked_page():
+                    raise ComixBlocked("Comix has blocked this IP address (Cloudflare)")
                 # A server error page (a 502 while Comix is down) will never
                 # get the API client: fail now instead of waiting out the timeout
                 error = await self._error_page(navigations)
@@ -261,6 +283,16 @@ class ComixBrowserClient:
         if not self._patched:
             raise RuntimeError("Comix's site code changed - its API client wasn't found (tracker needs updating)")
         raise RuntimeError(f"Comix page didn't finish loading after {timeout}s")
+
+    async def _blocked_page(self):
+        """Whether the page is Cloudflare's "Sorry, you have been blocked"
+        (titled "Attention Required! | Cloudflare"; the challenge that
+        clears by itself is "Just a moment...")."""
+        try:
+            title = (await self._page.title() or '').lower()
+        except Exception:
+            return False  # mid-navigation
+        return 'attention required' in title
 
     async def _error_page(self, navigations):
         """A ComixHTTPError if the page is a server error (5xx) rather than
@@ -314,7 +346,13 @@ class ComixBrowserClient:
 
     async def _api_async(self, hid, path, params):
         await self._ensure_ready(hid)
-        return await self._call(path, params)
+        wait = self._last_call_at + _MIN_CALL_GAP - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        try:
+            return await self._call(path, params)
+        finally:
+            self._last_call_at = time.monotonic()
 
     async def _cover_async(self, hid, url, timeout=20):
         await self._ensure_ready(hid)
@@ -342,14 +380,21 @@ class ComixBrowserClient:
         '/manga/<hid>/chapters'). `hid` is the series the call is about,
         used to load a page if the browser isn't on comix.to yet. Retries
         once on a reloaded page, then once on a fresh browser - or, when
-        Comix itself answered with a server error, just once more."""
+        Comix itself answered with a server error, just once more. Never
+        while Comix has this IP blocked (ComixBlocked at once)."""
         with self.lock:
+            self._check_block_pause()
             last_error = None
             for attempt in range(3):
                 try:
-                    return self._run(self._api_async(hid, path, params), timeout=100)
+                    data = self._run(self._api_async(hid, path, params), timeout=100)
+                    self._block_pause = _BLOCK_PAUSE
+                    return data
                 except ComixNotFound:
                     raise
+                except ComixBlocked as e:
+                    self._pause_after_block()
+                    raise ComixBlocked(f"{e} - {self._paused_message()}")
                 except Exception as e:
                     from .trackers.redirects import SiteRedirectError
                     if isinstance(e, SiteRedirectError):
@@ -371,12 +416,27 @@ class ComixBrowserClient:
                             pass
             raise RuntimeError(f"Comix fetch failed: {last_error}")
 
+    def _check_block_pause(self):
+        if time.time() < self._blocked_until:
+            raise ComixBlocked(f"Comix has blocked this IP address (Cloudflare) - {self._paused_message()}")
+
+    def _pause_after_block(self):
+        self._ready = False
+        self._blocked_until = time.time() + self._block_pause
+        print(f"[Comix] Blocked by Comix's Cloudflare - {self._paused_message()}")
+        self._block_pause = min(self._block_pause * 2, _BLOCK_PAUSE_MAX)
+
+    def _paused_message(self):
+        return f"Comix requests paused until {time.strftime('%H:%M', time.localtime(self._blocked_until))}"
+
     def website_loads(self, url):
         """Whether a comix.to page (the home page) loads - the site check's
         "is it only the API that's down?" probe. Leaves the series page the
         API calls run from, so the next call loads one again."""
         from .site_health import browser_page_loads
         with self.lock:
+            if time.time() < self._blocked_until:
+                return False
             self._ready = False
             try:
                 return self._run(browser_page_loads(self._page, url), timeout=100)
@@ -395,8 +455,13 @@ class ComixBrowserClient:
             if os.path.exists(os.path.join(_COVER_DIR, f"{name}{ext}")):
                 return f"/static/uploads/comix_covers/{name}{ext}"
         with self.lock:
+            if time.time() < self._blocked_until:
+                return None
             try:
                 body, content_type = self._run(self._cover_async(hid, url), timeout=40)
+            except ComixBlocked:
+                self._pause_after_block()
+                return None
             except Exception as e:
                 print(f"[Comix] Cover download failed for {url}: {e}")
                 return None
