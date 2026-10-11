@@ -1162,22 +1162,67 @@ def api_source_health():
 
 @app.route('/api/site-health')
 def api_site_health():
-    """Every source site's last up/down check, for the Scheduler page."""
+    """Every source site's last up/down check, for the Scheduler page, with
+    each running "check series" (site_scan: current/total)."""
     from .site_health import summary
-    return jsonify(summary())
+    from . import api
+    data = summary()
+    scans = api.manga_scheduler.site_scan_progress() if hasattr(api, 'manga_scheduler') else {}
+    for site in data['sites']:
+        site['site_scan'] = scans.get(site['source_type'])
+    return jsonify(data)
 
 
 @app.route('/api/site-health/check', methods=['POST'])
 def api_site_health_check():
-    """Check every site now ({site: 'atsu'} for just one), in the background."""
-    from .site_health import check_all, SITES
+    """Check every site now ({site: 'atsu'} for just one), in the background.
+    Paused sites are left out."""
+    from .site_health import check_all, SITES, SITE_LABELS
     from . import api
     site = (request.get_json(silent=True) or {}).get('site')
     if site is not None and site not in SITES:
         return jsonify({'error': 'Unknown site'}), 400
     if not hasattr(api, 'manga_scheduler'):
         return jsonify({'error': 'Scheduler not running'}), 500
+    from .site_pause import is_paused
+    if site is not None and is_paused(site):
+        return jsonify({'error': f"{SITE_LABELS[site]} is paused - unpause it to check it"}), 409
     check_all(api.manga_scheduler.fetch_for_site_check, only=site)
+    return jsonify({'success': True}), 202
+
+
+@app.route('/api/site-health/pause', methods=['POST'])
+def api_site_health_pause():
+    """Pause ({site, paused: true}) or unpause a source site: while paused
+    nothing contacts it - no scan, no site check, no preview (site_pause.py)."""
+    from .site_health import SITES
+    from .site_pause import set_paused
+    data = request.get_json(silent=True) or {}
+    site = data.get('site')
+    if site not in SITES:
+        return jsonify({'error': 'Unknown site'}), 400
+    paused = bool(data.get('paused'))
+    set_paused(site, paused)
+    print(f"[Site Pause] {site} {'paused' if paused else 'unpaused'}")
+    return jsonify({'success': True, 'paused': paused})
+
+
+@app.route('/api/site-health/scan-series', methods=['POST'])
+def api_site_health_scan_series():
+    """Fetch this site's source of every series that has one, now - only
+    that source, not the series' others ({site})."""
+    from .site_health import SITES, SITE_LABELS
+    from .site_pause import is_paused
+    from . import api
+    site = (request.get_json(silent=True) or {}).get('site')
+    if site not in SITES:
+        return jsonify({'error': 'Unknown site'}), 400
+    if not hasattr(api, 'manga_scheduler'):
+        return jsonify({'error': 'Scheduler not running'}), 500
+    if is_paused(site):
+        return jsonify({'error': f"{SITE_LABELS[site]} is paused - unpause it first"}), 409
+    if not api.manga_scheduler.scan_site_series_now(site):
+        return jsonify({'error': f"Already checking {SITE_LABELS[site]}'s series"}), 409
     return jsonify({'success': True}), 202
 
 

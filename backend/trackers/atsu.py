@@ -7,13 +7,14 @@ import threading
 import requests
 
 from .redirects import watch_redirects, SiteRedirectError
+from ..site_pause import guard_session
 from collections import OrderedDict
 from datetime import datetime, timezone
 
 from ..tag_utils import merge_tag_lists
 
 # Redirected to another site = down or moved, said straight away
-_session = watch_redirects(requests.Session())
+_session = guard_session(watch_redirects(requests.Session()), 'atsu')
 _session.headers.update({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
 })

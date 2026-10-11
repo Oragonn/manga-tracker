@@ -136,6 +136,10 @@ class MangaScheduler:
             status: set()
             for status in ('reading', 'plan_to_read', 'on_hold', 'dropped', 'completed')
         }
+        # Source Sites' "check series" runs: {source_type: {'current', 'total'}}
+        # while one is running (scan_site_series_now)
+        self._site_scans = {}
+        self._site_scans_lock = threading.Lock()
 
     def _cleanup_logs(self):
         """Background thread to cleanup old activity logs every 24 hours."""
@@ -160,6 +164,9 @@ class MangaScheduler:
         (camoufox_comix.py) is serialized the same way and gets a lane of
         its own (source_type='comix'), so the two browsers don't queue
         behind each other."""
+        from .site_pause import is_paused
+        if is_paused(source_type):
+            return set()  # not fetched at all - no reason to queue them one at a time
         conn = get_db()
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT series_id FROM series_sources WHERE source_type = ?", (source_type,))
@@ -359,8 +366,12 @@ class MangaScheduler:
         cursor = conn.cursor()
         cursor.execute("UPDATE series SET last_check = ? WHERE id = ?", (timestamp, series_id))
 
-    def _process_chapters(self, series_id, chapters, conn):
+    def _process_chapters(self, series_id, chapters, conn, bump_last_check=True):
+        """Store a series' merged chapter list. bump_last_check=False leaves
+        its last_check alone (a check of a single site: the series' other
+        sources weren't fetched, so it isn't any less due)."""
         cursor = conn.cursor()
+        now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         cursor.execute("DELETE FROM chapters WHERE series_id = ?", (series_id,))
         for ch in chapters:
             cursor.execute("""
@@ -388,13 +399,13 @@ class MangaScheduler:
             )
             cursor.execute("""
                 UPDATE series
-                SET latest_chapter = ?, latest_release = ?, total_chapters = ?, last_check = ?
+                SET latest_chapter = ?, latest_release = ?, total_chapters = ?, last_check = COALESCE(?, last_check)
                 WHERE id = ?
             """, (
                 latest_ch,
                 latest_release,
                 len(chapters),
-                datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                now if bump_last_check else None,
                 series_id
             ))
         else:
@@ -404,9 +415,9 @@ class MangaScheduler:
             # source's "Ch. 116" lingers in Series Settings with nothing behind it.
             cursor.execute("""
                 UPDATE series
-                SET latest_chapter = NULL, latest_release = NULL, total_chapters = 0, last_check = ?
+                SET latest_chapter = NULL, latest_release = NULL, total_chapters = 0, last_check = COALESCE(?, last_check)
                 WHERE id = ?
-            """, (datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'), series_id))
+            """, (now if bump_last_check else None, series_id))
         conn.commit()
 
     def _fetch_source_chapters(self, source, series_id=None, force_related=False):
@@ -613,13 +624,20 @@ class MangaScheduler:
         final_chapters.sort(key=lambda x: x['chapter_number'])
         return final_chapters
 
-    def scan_series(self, series_id, force_related=False):
+    def scan_series(self, series_id, force_related=False, only_source_type=None):
         """
         Scan all sources for a series and merge chapters.
         Fix for Bug #2: Now properly merges chapters from multiple sources.
         force_related: re-read its related series from every source now,
         for a check asked for by hand (see _fetch_source_chapters).
+        only_source_type: fetch just this site's source (Source Sites'
+        "check series"); the others keep what they supplied last time and
+        the series' last_check is left alone.
+        Sources of a site paused on the Scheduler page (site_pause.py) are
+        never fetched: they keep what they supplied last time, unchanged.
         """
+        from .site_pause import is_paused, SitePaused
+        bump = only_source_type is None
         try:
             from .database import get_series_sources, get_db, release_db
             
@@ -648,12 +666,29 @@ class MangaScheduler:
                 if not sources:
                     # Still counts as checked, or it stays due forever and
                     # its status's lap never finishes.
+                    if bump:
+                        conn_none = get_db()
+                        try:
+                            self._update_last_check(series_id, conn_none)
+                        finally:
+                            release_db(conn_none)
+                    return
+
+            # Not fetched this time: a paused site's sources, and every other
+            # site's when checking only one
+            skipped = [s for s in sources
+                       if is_paused(s['source_type'])
+                       or (only_source_type and s['source_type'] != only_source_type)]
+            if len(skipped) == len(sources):
+                # Nothing to fetch - the chapters stay exactly as they are.
+                # Still counts as checked, or it stays due every tick.
+                if bump:
                     conn_none = get_db()
                     try:
                         self._update_last_check(series_id, conn_none)
                     finally:
                         release_db(conn_none)
-                    return
+                return
 
             all_chapters = []
             successful_sources = 0
@@ -685,14 +720,28 @@ class MangaScheduler:
             finally:
                 release_db(conn_prev)
 
+            def keep_unfetched(source):
+                # What a source not fetched this time supplied last time,
+                # as it was (not marked stale: nothing says it's out of
+                # date), and it keeps its place as primary
+                for ch in previous_by_source.get(source['source_type']) or []:
+                    ch['source_id'] = source['id']
+                    ch['source_url'] = source['source_url']
+                    all_chapters.append(ch)
+                reached_ids.add(source['id'])
+
+            for source in skipped:
+                keep_unfetched(source)
+            skipped_ids = {s['id'] for s in skipped}
+
             # Fetch chapters from all sources concurrently instead of one at a
             # time -- each source is an independent network call, and the
             # merge step below is already order-independent (it compares
             # release dates rather than relying on iteration order).
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(sources))) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, len(sources) - len(skipped))) as executor:
                 future_to_source = {
                     executor.submit(self._fetch_source_chapters, source, series_id, force_related): source
-                    for source in sources
+                    for source in sources if source['id'] not in skipped_ids
                 }
                 from .database import record_source_success, record_source_failure
 
@@ -703,6 +752,10 @@ class MangaScheduler:
                         result = future.result()
                         chapters, status = result[0], result[1]
                         emptied_by_bans = len(result) > 2 and result[2]
+                    except SitePaused:
+                        # Paused while this scan was under way
+                        keep_unfetched(source)
+                        continue
                     except Exception as source_error:
                         print(f"[Scheduler] Error fetching from {source_type}: {source_error}")
                         try:
@@ -889,11 +942,12 @@ class MangaScheduler:
             if sources_reached == 0 and not overrides:
                 # Every source is down: nothing new is known, so the stored
                 # chapters stay exactly as they are (links included).
-                conn = get_db()
-                try:
-                    self._update_last_check(series_id, conn)
-                finally:
-                    release_db(conn)
+                if bump:
+                    conn = get_db()
+                    try:
+                        self._update_last_check(series_id, conn)
+                    finally:
+                        release_db(conn)
                 return
 
             # *** FIX: Improved chapter merging logic ***
@@ -904,7 +958,8 @@ class MangaScheduler:
                         # Every source failed to fetch (outage, Cloudflare
                         # block, etc.) - this says nothing about whether
                         # chapters still exist, so don't touch them.
-                        self._update_last_check(series_id, conn)
+                        if bump:
+                            self._update_last_check(series_id, conn)
                     else:
                         # At least one source was actually reached and
                         # confirmed zero chapters - a legitimate empty
@@ -912,7 +967,7 @@ class MangaScheduler:
                         # removed and the remaining ones have none), not a
                         # failure. Clear stale chapters instead of leaving
                         # orphaned rows behind forever.
-                        self._process_chapters(series_id, [], conn)
+                        self._process_chapters(series_id, [], conn, bump_last_check=bump)
                 finally:
                     release_db(conn)
                 return
@@ -929,7 +984,7 @@ class MangaScheduler:
             # Save to database
             conn = get_db()
             try:
-                self._process_chapters(series_id, final_chapters, conn)
+                self._process_chapters(series_id, final_chapters, conn, bump_last_check=bump)
                 print(f"[Scheduler] Successfully saved {len(final_chapters)} chapters for series {series_id}")
             finally:
                 release_db(conn)
@@ -1204,6 +1259,64 @@ class MangaScheduler:
         for future in futures:
             future.cancel()  # no-op (returns False) if already running/done
         return True
+
+    def scan_site_series_now(self, source_type):
+        """Source Sites' "check series": fetch this site's source of every
+        series that has one, now, and nothing else (scan_series with
+        only_source_type). Background thread; progress in
+        site_scan_progress(). Stops early if the site gets paused. Returns
+        False if one is already running for this site, or it's paused."""
+        from .site_pause import is_paused
+        if is_paused(source_type):
+            return False
+        with self._site_scans_lock:
+            if source_type in self._site_scans:
+                return False
+            self._site_scans[source_type] = {'current': 0, 'total': 0}
+
+        def _worker():
+            try:
+                conn = get_db()
+                try:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT DISTINCT series_id FROM series_sources WHERE source_type = ?",
+                                   (source_type,))
+                    series_ids = [r[0] for r in cursor.fetchall()]
+                finally:
+                    release_db(conn)
+                with self._site_scans_lock:
+                    self._site_scans[source_type]['total'] = len(series_ids)
+                # All on one site: gentler than a status scan's 8 workers,
+                # and one at a time for the browser-based sites
+                workers = 1 if source_type in ('kagane', 'comix') else 4
+                with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = [executor.submit(self._site_scan_one, source_type, sid) for sid in series_ids]
+                    for future in concurrent.futures.as_completed(futures):
+                        try:
+                            future.result()
+                        except Exception as e:
+                            print(f"[Scheduler] Unhandled error during scan_site_series_now('{source_type}'): {e}")
+                        with self._site_scans_lock:
+                            self._site_scans[source_type]['current'] += 1
+            except Exception as e:
+                print(f"[Scheduler] scan_site_series_now('{source_type}') error: {e}")
+            finally:
+                with self._site_scans_lock:
+                    self._site_scans.pop(source_type, None)
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return True
+
+    def _site_scan_one(self, source_type, series_id):
+        from .site_pause import is_paused
+        if not self.active or is_paused(source_type):
+            return  # paused mid-run: the rest are skipped
+        self.scan_series(series_id, only_source_type=source_type)
+
+    def site_scan_progress(self):
+        """{source_type: {'current', 'total'}} for each "check series" running."""
+        with self._site_scans_lock:
+            return {t: dict(p) for t, p in self._site_scans.items()}
 
     def start_scanning(self):
         self.thread.start()

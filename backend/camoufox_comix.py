@@ -382,7 +382,9 @@ class ComixBrowserClient:
         once on a reloaded page, then once on a fresh browser - or, when
         Comix itself answered with a server error, just once more. Never
         while Comix has this IP blocked (ComixBlocked at once)."""
+        from .site_pause import ensure_not_paused
         with self.lock:
+            ensure_not_paused('comix')
             self._check_block_pause()
             last_error = None
             for attempt in range(3):
@@ -434,8 +436,9 @@ class ComixBrowserClient:
         "is it only the API that's down?" probe. Leaves the series page the
         API calls run from, so the next call loads one again."""
         from .site_health import browser_page_loads
+        from .site_pause import is_paused
         with self.lock:
-            if time.time() < self._blocked_until:
+            if time.time() < self._blocked_until or is_paused('comix'):
                 return False
             self._ready = False
             try:
@@ -454,8 +457,9 @@ class ComixBrowserClient:
         for ext in set(_COVER_CONTENT_TYPE_EXT.values()):
             if os.path.exists(os.path.join(_COVER_DIR, f"{name}{ext}")):
                 return f"/static/uploads/comix_covers/{name}{ext}"
+        from .site_pause import is_paused
         with self.lock:
-            if time.time() < self._blocked_until:
+            if time.time() < self._blocked_until or is_paused('comix'):
                 return None
             try:
                 body, content_type = self._run(self._cover_async(hid, url), timeout=40)

@@ -238,7 +238,11 @@ class KaganeBrowserClient:
         if not series_id:
             raise ValueError("series_id is required")
 
+        from .site_pause import ensure_not_paused
         with self.lock:
+            # Checked once the lock is ours: a pause made while this fetch
+            # was queued behind another still stops it
+            ensure_not_paused('kagane')
             last_error = None
             # kagane.to's Turnstile occasionally just doesn't clear within the
             # navigation window on the first try (not specific to any one
@@ -287,7 +291,10 @@ class KaganeBrowserClient:
         """Whether a kagane.to page (the home page) loads - the site check's
         "is it only the API that's down?" probe."""
         from .site_health import browser_page_loads
+        from .site_pause import is_paused
         with self.lock:
+            if is_paused('kagane'):
+                return False
             try:
                 return self._run_coro(browser_page_loads(self._page, url), timeout=100)
             except Exception:

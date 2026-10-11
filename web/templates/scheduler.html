@@ -81,10 +81,93 @@
       white-space: nowrap;
     }
 
+    .site-health-dot.paused { background: #475569; box-shadow: inset 0 0 0 2px #94a3b8; }
+
+    .site-health-meta.paused {
+      color: #cbd5e1;
+    }
+
+    .site-health-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
     .site-health-row .btn-scheduler {
       padding: 5px 12px;
       font-size: 13px;
       flex-shrink: 0;
+    }
+
+    /* Go to site / pause / site check: square icon buttons */
+    .site-health-row .btn-scheduler.icon {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+    }
+
+    .btn-scheduler.icon svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .btn-scheduler.icon.is-paused {
+      border-color: #fbbf24;
+      color: #fbbf24;
+    }
+
+    /* Status Fetch / Source Sites switch */
+    .scheduler-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      margin-bottom: 16px;
+      background: #141b2f;
+      border: 1px solid #334155;
+      border-radius: 10px;
+    }
+
+    .scheduler-tab {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 7px;
+      background: transparent;
+      color: #94a3b8;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+
+    .scheduler-tab:hover {
+      color: white;
+    }
+
+    .scheduler-tab.active {
+      background: #1665f4;
+      color: white;
+    }
+
+    .scheduler-tab .tab-badge {
+      display: inline-block;
+      min-width: 8px;
+      height: 8px;
+      margin-left: 6px;
+      border-radius: 50%;
+      vertical-align: middle;
+    }
+
+    .scheduler-tab .tab-badge.down { background: #ef4444; }
+    .scheduler-tab .tab-badge.paused { background: #94a3b8; }
+
+    .scheduler-view[hidden] {
+      display: none;
     }
 
     .site-health-header-actions {
@@ -288,11 +371,26 @@
         min-height: 44px;
       }
 
-      /* Source Sites: the per-site Check stays a small button beside the
-         site, and Check All Now goes under the title */
+      /* Source Sites: the per-site buttons stay small, on their own line
+         under the site, and Check All Now goes under the title */
+      .site-health-row {
+        flex-wrap: wrap;
+        row-gap: 8px;
+      }
+
+      .site-health-actions {
+        width: 100%;
+        justify-content: flex-end;
+      }
+
       .site-health-row .btn-scheduler {
         width: auto;
         min-height: 36px;
+      }
+
+      .site-health-row .btn-scheduler.icon {
+        width: 36px;
+        height: 36px;
       }
 
       #site-health-card .scheduler-status-card-header {
@@ -449,21 +547,30 @@
     <button class="btn-scheduler secondary" id="btn-scheduler-refresh">↻ Refresh</button>
   </div>
 
-  <div class="scheduler-status-card" id="site-health-card">
-    <div class="scheduler-status-card-header">
-      <h2>Source Sites</h2>
-      <div class="site-health-header-actions">
-        <span class="stat-label" id="site-health-next"></span>
-        <button class="btn-scheduler secondary" id="btn-site-health-check-all">Check All Now</button>
-      </div>
-    </div>
-    <div class="site-health-list" id="site-health-list">
-      <p style="color: #94a3b8; margin: 0;">Loading...</p>
+  <div class="scheduler-tabs" role="tablist">
+    <button class="scheduler-tab active" role="tab" data-view="status" aria-selected="true">Status Fetch</button>
+    <button class="scheduler-tab" role="tab" data-view="sites" aria-selected="false">Source Sites<span class="tab-badge" id="sites-tab-badge" hidden></span></button>
+  </div>
+
+  <div class="scheduler-view" id="view-status">
+    <div id="scheduler-cards">
+      <p style="color: #94a3b8;">Loading...</p>
     </div>
   </div>
 
-  <div id="scheduler-cards">
-    <p style="color: #94a3b8;">Loading...</p>
+  <div class="scheduler-view" id="view-sites" hidden>
+    <div class="scheduler-status-card" id="site-health-card">
+      <div class="scheduler-status-card-header">
+        <h2>Source Sites</h2>
+        <div class="site-health-header-actions">
+          <span class="stat-label" id="site-health-next"></span>
+          <button class="btn-scheduler secondary" id="btn-site-health-check-all">Check All Now</button>
+        </div>
+      </div>
+      <div class="site-health-list" id="site-health-list">
+        <p style="color: #94a3b8; margin: 0;">Loading...</p>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -613,9 +720,28 @@ function renderSiteHealth() {
   const next = document.getElementById('site-health-next');
   if (next) next.textContent = siteHealthData.next_check_at ? `Next check: ${formatCountdown(siteHealthData.next_check_at)}` : '';
 
+  // The Source Sites tab gets a dot when a site needs a look: red for a
+  // down site, grey for a paused one
+  const badge = document.getElementById('sites-tab-badge');
+  if (badge) {
+    const used = siteHealthData.sites.filter(s => s.series_count);
+    const kind = used.some(s => !s.paused && s.status === 'down') ? 'down'
+      : used.some(s => s.paused) ? 'paused' : '';
+    badge.className = `tab-badge ${kind}`;
+    badge.hidden = !kind;
+  }
+
   list.innerHTML = siteHealthData.sites.map(site => {
     let dot = '', meta = '', metaClass = '';
-    if (site.checking) {
+    const scan = site.site_scan;
+    if (site.paused) {
+      dot = 'paused';
+      metaClass = 'paused';
+      meta = `Paused ${formatRelativeTime(site.paused_at).toLowerCase()} · not checked or fetched until resumed`;
+    } else if (scan) {
+      dot = 'checking';
+      meta = `Checking series… ${scan.current} / ${scan.total}`;
+    } else if (site.checking) {
       dot = 'checking';
       meta = 'Checking…';
     } else if (!site.series_count) {
@@ -635,20 +761,102 @@ function renderSiteHealth() {
       metaClass = 'down';
       meta = `Down since ${formatRelativeTime(site.down_since)} · checked ${formatRelativeTime(site.checked_at)}`;
     }
-    const error = site.status === 'down' && site.error && !site.checking
+    const error = site.status === 'down' && site.error && !site.checking && !site.paused && !scan
       ? `<div class="site-health-error" title="${escapeHtml(site.error)}">${escapeHtml(site.error)}</div>` : '';
+    const label = escapeHtml(site.label);
+    // Nothing to fetch for an unused site, and nothing at all while paused
+    const idle = !site.series_count || site.paused;
     return `
       <div class="site-health-row">
         <span class="site-health-dot ${dot}"></span>
         <div class="site-health-info">
-          <div class="site-health-name">${escapeHtml(site.label)}<span>${site.series_count} series</span></div>
+          <div class="site-health-name">${label}<span>${site.series_count} series</span></div>
           <div class="site-health-meta ${metaClass}">${meta}</div>
           ${error}
         </div>
-        <button class="btn-scheduler secondary" ${site.checking || !site.series_count ? 'disabled' : ''} onclick="checkSites('${site.source_type}')">Check</button>
+        <div class="site-health-actions">
+          <a class="btn-scheduler secondary icon" href="${escapeHtml(site.homepage || '#')}" target="_blank" rel="noopener noreferrer"
+             title="Go to ${label}" aria-label="Go to ${label}">${ICON_EXTERNAL}</a>
+          <button class="btn-scheduler secondary icon ${site.paused ? 'is-paused' : ''}"
+                  title="${site.paused ? `Resume ${label}` : `Pause ${label}: no checks, no fetches`}"
+                  aria-label="${site.paused ? `Resume ${label}` : `Pause ${label}`}"
+                  onclick="setSitePaused('${site.source_type}', ${!site.paused})">${site.paused ? ICON_PLAY : ICON_PAUSE}</button>
+          <button class="btn-scheduler secondary" ${idle || scan ? 'disabled' : ''}
+                  title="Fetch ${label} for every series that has it (not their other sources)"
+                  onclick="checkSiteSeries('${site.source_type}')">${scan ? 'Checking…' : 'Check series'}</button>
+          <button class="btn-scheduler secondary icon" ${idle || site.checking ? 'disabled' : ''}
+                  title="Check whether ${label} is up" aria-label="Check whether ${label} is up"
+                  onclick="checkSites('${site.source_type}')">${ICON_REFRESH}</button>
+        </div>
       </div>
     `;
   }).join('');
+}
+
+const ICON_EXTERNAL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>';
+const ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>';
+const ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 001.5.86l10.5-6.5a1 1 0 000-1.72L9.5 4.64A1 1 0 008 5.5z"/></svg>';
+const ICON_REFRESH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>';
+
+function siteLabel(sourceType) {
+  return siteHealthData?.sites.find(s => s.source_type === sourceType)?.label || sourceType;
+}
+
+async function setSitePaused(site, paused) {
+  try {
+    const res = await fetch('/api/site-health/pause', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ site, paused })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showNotification(data.error || 'Failed to change the pause', 'error');
+      return;
+    }
+    showNotification(paused ? `${siteLabel(site)} paused` : `${siteLabel(site)} resumed`, paused ? 'delete' : 'added');
+    loadSiteHealth();
+  } catch (e) {
+    showNotification('Failed to change the pause', 'error');
+  }
+}
+
+async function checkSiteSeries(site) {
+  try {
+    const res = await fetch('/api/site-health/scan-series', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ site })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showNotification(data.error || 'Failed to start the check', 'error');
+      return;
+    }
+    showNotification(`Checking ${siteLabel(site)}'s series`, 'added');
+    setTimeout(loadSiteHealth, 300);
+  } catch (e) {
+    showNotification('Failed to start the check', 'error');
+  }
+}
+
+// ─── Status Fetch / Source Sites tabs ───
+// Status Fetch is the default; ?tab=sites opens Source Sites
+function showSchedulerView(view, updateUrl = true) {
+  if (view !== 'sites') view = 'status';
+  document.querySelectorAll('.scheduler-tab').forEach(tab => {
+    const active = tab.dataset.view === view;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  document.getElementById('view-status').hidden = view !== 'status';
+  document.getElementById('view-sites').hidden = view !== 'sites';
+  if (updateUrl) {
+    const url = new URL(window.location.href);
+    if (view === 'sites') url.searchParams.set('tab', 'sites');
+    else url.searchParams.delete('tab');
+    history.replaceState(null, '', url);
+  }
 }
 
 async function loadSiteHealth() {
@@ -723,6 +931,10 @@ async function cancelFetch(status) {
 
 document.addEventListener('DOMContentLoaded', () => {
   initNotifications();
+  showSchedulerView(new URLSearchParams(window.location.search).get('tab'), false);
+  document.querySelectorAll('.scheduler-tab').forEach(tab => {
+    tab.addEventListener('click', () => showSchedulerView(tab.dataset.view));
+  });
   loadSchedulerStatus();
   loadSiteHealth();
   schedulerPollTimer = setInterval(() => {
@@ -805,7 +1017,7 @@ document.addEventListener('DOMContentLoaded', () => {
         void fabRefresh.offsetWidth;
         fabRefresh.classList.add('refreshing');
 
-        await loadSchedulerStatus();
+        await Promise.all([loadSchedulerStatus(), loadSiteHealth()]);
 
         setTimeout(() => {
           fabRefresh.classList.remove('refreshing');

@@ -110,7 +110,11 @@ def _reference_sources(source_type):
 def check_site(source_type, fetch):
     """Check one site now and store the result. `fetch(source)` is the
     scan's own per-source fetch (MangaScheduler._fetch_source_chapters).
-    Returns the stored result, or None if no series uses this site."""
+    Returns the stored result, or None if no series uses this site or it's
+    paused (site_pause.py: not contacted at all, not even to check it)."""
+    from .site_pause import is_paused, SitePaused
+    if is_paused(source_type):
+        return None
     with _check_lock:
         if source_type in _checking:
             return None
@@ -130,6 +134,8 @@ def check_site(source_type, fetch):
                     status, error = 'up', None
                     break
                 error = error or 'Answered, but without a chapter list'
+            except SitePaused:
+                return None  # paused mid-check: says nothing about the site
             except Exception as e:
                 error = error or (str(e) or type(e).__name__)
                 # The site isn't answering at all: another series won't do
@@ -138,6 +144,8 @@ def check_site(source_type, fetch):
                     break
         duration_ms = int((time.time() - started) * 1000)
         website_up = website_loads(source_type) if status == 'down' else None
+        if is_paused(source_type):
+            return None
         _store(source_type, status, (error or '')[:500] or None, used, duration_ms, website_up)
         return get_site_health().get(source_type)
     finally:
@@ -314,13 +322,16 @@ def summary():
     finally:
         release_db(conn)
     health = get_site_health()
+    from .site_pause import paused_sites
+    paused = paused_sites()
     with _check_lock:
         checking = set(_checking)
     return {
         'next_check_at': _next_check_at.isoformat().replace('+00:00', 'Z') if _next_check_at else None,
         'sites': [
             {**(health.get(t) or {'source_type': t, 'status': None}),
-             'label': SITE_LABELS[t], 'series_count': counts.get(t, 0), 'checking': t in checking}
+             'label': SITE_LABELS[t], 'series_count': counts.get(t, 0), 'checking': t in checking,
+             'homepage': HOMEPAGES.get(t), 'paused': t in paused, 'paused_at': paused.get(t)}
             for t in SITES
         ],
     }
@@ -329,8 +340,10 @@ def summary():
 def check_all(fetch, only=None):
     """Check every site (or just `only`), each on its own thread - a slow
     Kagane browser fetch shouldn't hold up the others."""
+    from .site_pause import paused_sites
+    paused = paused_sites()
     threads = [threading.Thread(target=check_site, args=(t, fetch), daemon=True)
-               for t in SITES if only in (None, t)]
+               for t in SITES if only in (None, t) and t not in paused]
     for th in threads:
         th.start()
     return threads
