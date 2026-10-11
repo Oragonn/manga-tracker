@@ -299,6 +299,9 @@ def get_series_info(hid):
     """
     if not hid:
         raise ValueError("hid is required")
+    # Before _client(): a paused Comix shouldn't even start the browser
+    from ..site_pause import ensure_not_paused
+    ensure_not_paused('comix')
     try:
         client = _client()
         detail = client.api(hid, f"/manga/{hid}")

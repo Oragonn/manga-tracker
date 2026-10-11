@@ -4,7 +4,7 @@ import re
 import requests
 
 from .redirects import watch_redirects, SiteRedirectError
-from ..site_pause import guard_session
+from ..site_pause import guard_session, SitePaused
 import threading
 import time
 from urllib.parse import urlparse
@@ -40,7 +40,7 @@ def _delayed_get(url, **kwargs):
                 time.sleep(2 ** attempt)
                 continue
             return resp
-        except SiteRedirectError:
+        except (SiteRedirectError, SitePaused):
             raise
         except Exception as e:
             if attempt == _MAX_RETRIES - 1:
