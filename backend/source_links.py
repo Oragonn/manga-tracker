@@ -44,6 +44,22 @@ _CASE_INSENSITIVE_IDS = {'mangadex', 'kagane', 'thunder'}
 # (Asura's API takes the slug without it), so it's dropped from the id.
 _ASURA_HASH = re.compile(r'-[0-9a-f]{8}$', re.I)
 
+# The domain Kagane is reached on. It has lived on both kagane.to and
+# kagane.org (same site, same API); kagane.to stopped resolving in 2026-10.
+# Every request, every link built (chapter-reader links, search links, the
+# site check) and every stored link uses this one - links saved on the
+# other domain are rewritten to it at startup (see
+# database.move_kagane_links_to_current_domain). Moving back is a matter of
+# changing it here, plus the hard-coded search links in dashboard.js,
+# import_kenmei.html and the extension.
+KAGANE_DOMAIN = 'kagane.org'
+KAGANE_BASE = f'https://{KAGANE_DOMAIN}'
+KAGANE_OTHER_DOMAINS = ('kagane.to',)
+_KAGANE_OTHER_HOST = re.compile(
+    r'^(?:https?://)?(?:www\.)?(?:' + '|'.join(re.escape(d) for d in KAGANE_OTHER_DOMAINS) + r')(?=[/?#]|$)',
+    re.I
+)
+
 _TRACKED_HOST = re.compile(
     _PREFIX + r'(?:mangadex\.org|kagane\.(?:to|org)|atsu\.moe|asurascans\.com|hivetoons\.org|flamecomics\.xyz|en-thunderscans\.com|comix\.to)(?:[/?#]|$)',
     re.I
@@ -56,12 +72,14 @@ def clean_source_url(url):
     sites. A link copied from a browser tab carries UI state along with it
     (MangaDex's ?tab=art / ?tab=chapters, for one) that has no bearing on
     which series it is, and it made the same series look like a different
-    link. Anything else is only trimmed."""
+    link. A Kagane link on its old domain is moved to KAGANE_DOMAIN.
+    Anything else is only trimmed."""
     if not isinstance(url, str):
         return url
     url = url.strip()
     if _TRACKED_HOST.match(url):
         url = re.split(r'[?#]', url, maxsplit=1)[0]
+        url = _KAGANE_OTHER_HOST.sub(KAGANE_BASE, url)
     return url
 
 

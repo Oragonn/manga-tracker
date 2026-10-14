@@ -22,6 +22,8 @@ import time
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from .source_links import KAGANE_BASE
+
 _CHALLENGE_TITLE_MARKERS = (
     'un instant', 'just a moment', 'un momento', 'momento',
     'nur einen moment', 'un attimo', 'loading',
@@ -29,8 +31,8 @@ _CHALLENGE_TITLE_MARKERS = (
 
 # Cover images are behind the same Cloudflare Turnstile challenge as the API,
 # and <img> tags can't run that interactive challenge (it needs a full page
-# navigation), so hotlinking straight to kagane.to would just show a broken
-# image for anyone without an existing kagane.to clearance cookie. Instead,
+# navigation), so hotlinking straight to Kagane would just show a broken
+# image for anyone without an existing Kagane clearance cookie. Instead,
 # download the cover once (via the already-cleared browser page) and cache
 # it locally, keyed by Kagane's own image_id so repeat scans of the same
 # series reuse the cached file instead of re-downloading.
@@ -279,7 +281,7 @@ class KaganeBrowserClient:
             try:
                 from .error_logger import log_error
                 log_error(
-                    source_url=f"https://kagane.to/series/{series_id}",
+                    source_url=f"{KAGANE_BASE}/series/{series_id}",
                     error_message=str(last_error),
                     series_title=_lookup_series_title(series_id) or "Kagane Browser Fetch"
                 )
@@ -288,7 +290,7 @@ class KaganeBrowserClient:
             raise RuntimeError(f"Kagane fetch failed after recovery: {last_error}")
 
     def website_loads(self, url):
-        """Whether a kagane.to page (the home page) loads - the site check's
+        """Whether a Kagane page (the home page) loads - the site check's
         "is it only the API that's down?" probe."""
         from .site_health import browser_page_loads
         from .site_pause import is_paused
@@ -301,7 +303,7 @@ class KaganeBrowserClient:
                 return False
 
     async def _fetch_all_async(self, series_id, with_gallery=False):
-        meta_url = f"https://kagane.to/api/v2/series/{series_id}"
+        meta_url = f"{KAGANE_BASE}/api/v2/series/{series_id}"
         raw = await self._fetch_json_async(meta_url)
         cover_url = await self._get_cached_or_download_cover(raw)
         meta, books = self._transform(raw, cover_url)
@@ -327,7 +329,7 @@ class KaganeBrowserClient:
                 return f"/static/uploads/kagane_covers/{image_id}{ext}"
 
         try:
-            img_url = f"https://kagane.to/api/v2/image/{image_id}/compressed"
+            img_url = f"{KAGANE_BASE}/api/v2/image/{image_id}/compressed"
             result = await self._page.evaluate(_FETCH_IMAGE_AS_DATA_URL_JS, img_url)
             data_url = result.get('dataUrl')
             if not data_url:

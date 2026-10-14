@@ -3,10 +3,11 @@
 import re
 from ..camoufox_kagane import kagane_browser
 from ..tag_utils import merge_tag_lists
+from ..source_links import KAGANE_BASE
 
 def extract_series_id(url):
     """Extract Kagane series ID from a series URL, e.g.
-    https://kagane.to/series/019dda10-c2c5-7dc7-9128-387e20611e51
+    https://kagane.org/series/019dda10-c2c5-7dc7-9128-387e20611e51
     (optionally followed by /reader/... for a chapter-reader link to the
     same series). The UUID must come immediately after /series/ -- Kagane
     also has non-series links under that prefix, e.g. /series/similar/{id}
@@ -365,7 +366,7 @@ def get_series_info(series_id, with_gallery=False):
             final_chapter_num = round(proposed_num, 2)
         taken.add(final_chapter_num)
 
-        chapter_url = f"https://kagane.to/series/{series_id}/reader/{book['id']}"
+        chapter_url = f"{KAGANE_BASE}/series/{series_id}/reader/{book['id']}"
 
         chapters.append({
             'chapter_number': final_chapter_num,

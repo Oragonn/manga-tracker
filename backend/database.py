@@ -10,7 +10,7 @@ import glob
 import re
 
 from .tag_utils import load_tag_rules, resolve_tag
-from .source_links import clean_source_url
+from .source_links import clean_source_url, KAGANE_BASE, KAGANE_OTHER_DOMAINS
 from .search_utils import build_searchable_text
 
 # Bump when the format of series.searchable_text changes; init_db rebuilds
@@ -2029,6 +2029,7 @@ def init_db():
 
     # Run backfill AFTER releasing DB lock
     clean_stored_source_urls()
+    move_kagane_links_to_current_domain()
     repair_double_encoded_columns()
     rebuild_searchable_text_if_needed()
     backfill_searchable_text()
@@ -2373,6 +2374,62 @@ def clean_stored_source_urls():
     if rewritten:
         print(f"[Database] Stripped the query string from {rewritten} stored source link(s)"
               + (f" ({skipped} skipped as duplicates)" if skipped else ""))
+    return rewritten
+
+
+# Every column holding a link that can point at Kagane. chapter_overrides
+# has to move along with chapters: a banned chapter is matched by its link.
+_KAGANE_LINK_COLUMNS = (
+    ('series', 'source_url'),
+    ('series_sources', 'source_url'),
+    ('chapters', 'chapter_url'),
+    ('chapter_overrides', 'chapter_url'),
+    ('later_items', 'url'),
+    ('related_series', 'url'),
+)
+
+
+def move_kagane_links_to_current_domain():
+    """Rewrite stored Kagane links on an old domain (kagane.to) to
+    KAGANE_DOMAIN, so source links, chapter-reader links and per-link
+    chapter bans all point at the site that answers. Kagane's ids are the
+    same on both, so only the host changes.
+
+    A row whose new link is already stored on another row of a unique column
+    is left as it is (UPDATE OR IGNORE) - two series holding the same Kagane
+    series is for the user to merge, not a startup repair. Only rows on an
+    old domain are touched, so it is safe to run on every start. Returns how
+    many links were rewritten."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    tables = {row[0] for row in cursor.fetchall()}
+    rewritten = 0
+    left = 0
+    try:
+        for table, column in _KAGANE_LINK_COLUMNS:
+            if table not in tables:
+                continue
+            for domain in KAGANE_OTHER_DOMAINS:
+                old_base = f'https://{domain}'
+                pattern = old_base + '/%'
+                cursor.execute(
+                    f"UPDATE OR IGNORE {table} SET {column} = ? || substr({column}, ?) "
+                    f"WHERE {column} LIKE ?",
+                    (KAGANE_BASE, len(old_base) + 1, pattern)
+                )
+                rewritten += cursor.rowcount
+                cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} LIKE ?", (pattern,))
+                still_old = cursor.fetchone()[0]
+                if still_old:
+                    left += still_old
+                    print(f"[Database] Left {still_old} {table}.{column} link(s) on {domain} - "
+                          f"the {KAGANE_BASE} link is already stored on another row")
+        conn.commit()
+    finally:
+        release_db(conn)
+    if rewritten:
+        print(f"[Database] Moved {rewritten} stored Kagane link(s) to {KAGANE_BASE}")
     return rewritten
 
 

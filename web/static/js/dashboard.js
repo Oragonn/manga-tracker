@@ -5557,7 +5557,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		switch (site) {
 			case 'mangadex': return `https://mangadex.org/search?q=${q}`;
 			case 'atsu': return `https://atsu.moe/explore?search=${q}`;
-			case 'kagane': return `https://kagane.to/search?q=${q}&size=99`;
+			case 'kagane': return `https://kagane.org/search?q=${q}&size=99`;
 			case 'asura': return `https://asurascans.com/browse?q=${q}`;
 			case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
 			// Flame's search is client-side only and ignores this parameter -

@@ -24,6 +24,8 @@ import threading
 import time
 from datetime import datetime, timezone, timedelta
 
+from .source_links import KAGANE_BASE
+
 SITES = ['mangadex', 'kagane', 'atsu', 'asura', 'hive', 'flame', 'thunder', 'comix']
 SITE_LABELS = {
     'mangadex': 'MangaDex', 'kagane': 'Kagane', 'atsu': 'Atsumaru',
@@ -31,7 +33,7 @@ SITE_LABELS = {
     'thunder': 'Thunderscans', 'comix': 'Comix',
 }
 HOMEPAGES = {
-    'mangadex': 'https://mangadex.org/', 'kagane': 'https://kagane.to/',
+    'mangadex': 'https://mangadex.org/', 'kagane': KAGANE_BASE + '/',
     'atsu': 'https://atsu.moe/', 'asura': 'https://asurascans.com/',
     'hive': 'https://hivetoons.org/', 'flame': 'https://flamecomics.xyz/',
     'thunder': 'https://en-thunderscans.com/', 'comix': 'https://comix.to/',
