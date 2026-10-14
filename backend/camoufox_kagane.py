@@ -118,7 +118,10 @@ class KaganeBrowserClient:
         self._loop.run_forever()
 
     async def _init_browser(self):
-        self._camoufox_cm = AsyncCamoufox(headless=True, humanize=True, geoip=True)
+        # On Paris time, like Comix (browser_env.py): Cloudflare's check
+        # compares the browser's timezone with the IP's location
+        from .browser_env import browser_env
+        self._camoufox_cm = AsyncCamoufox(headless=True, humanize=True, geoip=True, env=browser_env())
         self._browser = await self._camoufox_cm.__aenter__()
         self._page = await self._browser.new_page()
 

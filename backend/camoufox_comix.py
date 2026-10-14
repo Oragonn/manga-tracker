@@ -143,9 +143,12 @@ class ComixBrowserClient:
 
     async def _init_browser(self):
         from camoufox.async_api import AsyncCamoufox
-        # Not Kagane's humanize/geoip options: with them Comix's Cloudflare
-        # answers the site's own script files with a 403 challenge page
-        self._camoufox_cm = AsyncCamoufox(headless=True)
+        # Not Kagane's humanize option: with it Comix's Cloudflare answers
+        # the site's own script files with a 403 challenge page. On Paris
+        # time (browser_env.py): on the server's UTC, Cloudflare's check
+        # never clears
+        from .browser_env import browser_env
+        self._camoufox_cm = AsyncCamoufox(headless=True, env=browser_env())
         self._browser = await self._camoufox_cm.__aenter__()
         self._page = await self._browser.new_page()
         await self._page.route('**/dist/*.js', self._patch_script)
