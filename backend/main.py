@@ -1,4 +1,13 @@
 # backend/main.py
+import sys
+
+# Under systemd stdout is a pipe, so Python buffers it and journald stamps
+# a whole batch of lines with the time it was flushed - one line at a time
+# keeps the log's times real
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(line_buffering=True)
+
 from dotenv import load_dotenv
 load_dotenv()
 

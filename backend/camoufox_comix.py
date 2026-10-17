@@ -78,14 +78,35 @@ _BRIDGE_JS = r"""
         out = { ok: true, data: await window.__cxGet(q.path, q.params) };
       } catch (e) {
         const r = e && e.response;
+        let body = r ? r.data : null;
+        try { if (body != null && typeof body !== 'string') body = stringify(body); } catch (_) { body = String(body); }
         out = { ok: false, error: String((e && e.message) || e), status: (r && r.status) || null,
-                challenge: !!(r && r.headers && String(r.headers['cf-mitigated'] || '').toLowerCase() === 'challenge') };
+                challenge: !!(r && r.headers && String(r.headers['cf-mitigated'] || '').toLowerCase() === 'challenge'),
+                body: body == null ? null : String(body).slice(0, 20000) };
       }
       root.setAttribute('data-cx-res-' + q.rid, stringify(out));
     })();
   }).observe(root, { attributes: true, attributeFilter: ['data-cx-req'] });
 })();
 """
+
+
+def _answer_excerpt(body):
+    """A few words saying what an error answer was: an HTML page's title,
+    a JSON answer's message, else its start."""
+    body = (body or '').strip()
+    m = re.search(r'<title[^>]*>([^<]*)</title>', body, re.I)
+    if m:
+        return m.group(1).strip()[:100]
+    try:
+        data = json.loads(body)
+        if isinstance(data, dict):
+            for key in ('message', 'error', 'detail'):
+                if isinstance(data.get(key), str):
+                    return data[key][:100]
+    except ValueError:
+        pass
+    return re.sub(r'\s+', ' ', body)[:100]
 
 
 class ComixNotFound(Exception):
@@ -338,12 +359,14 @@ class ComixBrowserClient:
             return ComixRejected(f"Comix answered HTTP {resp.status} ({title})")
         return ComixHTTPError(f"Comix answered HTTP {resp.status}{f' ({title})' if title else ''}")
 
-    async def _save_rejected_page(self):
+    async def _save_rejected_page(self, body=None, url=None):
+        """Keep the rejection (the page, or an API call's answer) in logs/."""
         try:
-            html = await self._page.content()
+            if body is None:
+                body, url = await self._page.content(), self._page.url
             os.makedirs(os.path.dirname(_REJECTED_PAGE), exist_ok=True)
             with open(_REJECTED_PAGE, 'w', encoding='utf-8') as f:
-                f.write(f"<!-- {time.strftime('%Y-%m-%d %H:%M:%S')} {self._page.url} -->\n{html}")
+                f.write(f"<!-- {time.strftime('%Y-%m-%d %H:%M:%S')} {url} -->\n{body}")
         except Exception as e:
             print(f"[Comix] Couldn't save the rejection page: {e}")
 
@@ -375,8 +398,14 @@ class ComixBrowserClient:
                 if out.get('status') == 404:
                     raise ComixNotFound(f"Comix has no {path}")
                 if (out.get('status') or 0) >= 500:
-                    challenge = ' (Cloudflare challenge)' if out.get('challenge') else ''
-                    raise ComixHTTPError(f"Comix API {path} answered HTTP {out['status']}{challenge}")
+                    # The rejection reaches the API before the page: on the
+                    # server the calls answered 503 for a while, then the
+                    # page reloaded after them was the rejection page
+                    if 'third-party' in (out.get('body') or '').lower():
+                        await self._save_rejected_page(out['body'], f"API {path}")
+                        raise ComixRejected(f"Comix API {path} answered HTTP {out['status']} (Third-party apps are not supported)")
+                    detail = 'Cloudflare challenge' if out.get('challenge') else _answer_excerpt(out.get('body'))
+                    raise ComixHTTPError(f"Comix API {path} answered HTTP {out['status']}{f' ({detail})' if detail else ''}")
                 raise RuntimeError(f"Comix API {path} failed: {out.get('error')}")
             await asyncio.sleep(0.05)
         raise RuntimeError(f"Comix API {path} timed out after {timeout}s")
@@ -427,11 +456,14 @@ class ComixBrowserClient:
             ensure_not_paused('comix')
             self._check_block_pause()
             last_error = None
+            started = time.monotonic()
             for attempt in range(3):
                 try:
                     data = self._run(self._api_async(hid, path, params), timeout=100)
                     self._block_pause = _BLOCK_PAUSE
                     self._reject_pause = _REJECT_PAUSE
+                    if last_error is not None:
+                        print(f"[Comix] {path} worked on try {attempt + 1}, {time.monotonic() - started:.0f}s after the first")
                     return data
                 except ComixNotFound:
                     raise
@@ -444,6 +476,7 @@ class ComixBrowserClient:
                         raise ComixRejected(f"{e} - {self._paused_message()}")
                     last_error = e
                     # Once more as a new browser: new session, new fingerprint
+                    print(f"[Comix] {path}: {e} - retrying on a fresh browser")
                     time.sleep(_HTTP_RETRY_WAITS[0])
                     try:
                         self._run(self._reinit_browser(), timeout=90)
@@ -464,8 +497,11 @@ class ComixBrowserClient:
                         # answer: wait, then retry from a reloaded page (if
                         # Comix is really down, the reload fails fast)
                         if attempt < 2:
+                            print(f"[Comix] {path}: {e} - retrying from a reloaded page in {_HTTP_RETRY_WAITS[attempt]}s")
                             time.sleep(_HTTP_RETRY_WAITS[attempt])
                         continue
+                    if attempt < 2:
+                        print(f"[Comix] {path}: {e} - retrying {'on a fresh browser' if attempt == 1 else 'from a reloaded page'}")
                     if attempt == 1:
                         try:
                             self._run(self._reinit_browser(), timeout=90)
