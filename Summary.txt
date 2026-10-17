@@ -11,7 +11,7 @@ This file is meant to be handed to a fresh chat/assistant to resume work without
 ## 🖥️ **Where it runs**
 
 - **Production** is a Linux server (`oragon@oragonserver`, checkout at `~/manga-tracker`), running as the systemd service `manga-tracker`.
-  - Deploy: `cd ~/manga-tracker && git pull && sudo systemctl restart manga-tracker`
+  - Deploy (give it to the user exactly like this): `cd ~/manga-tracker/ && sudo git pull && sudo systemctl restart manga-tracker`
   - Scripts on the server: `venv/bin/python3 scripts/<name>.py` (forward slashes, run from `~/manga-tracker` because scripts open the relative `data/tracker.db`). For long ones: `nohup ... > logs/<name>.log 2>&1 &`.
   - Production often lags `master` — several pushed commits can be waiting for a pull + restart.
 - **This Windows desktop checkout is dev only.** Its `data/tracker.db` is **stale** compared with production; never trust it for "is this data right" questions. The user shares server backups (`tracker_backup_YYYYMMDD_HHMMSS.db.gz` in Downloads) for that — test against a gunzipped copy, never the real file.
