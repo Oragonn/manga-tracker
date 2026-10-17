@@ -104,10 +104,25 @@ class ComixBlocked(RuntimeError):
     retrying, which would only keep the block going."""
 
 
+class ComixRejected(RuntimeError):
+    """Comix itself (past Cloudflare) answered the page with its HTTP 503
+    "Third-party apps are not supported" - it took the browser for an app
+    scraping it. Seen on the server only, coming and going; never locally
+    (2026-10-18, 8 fresh browsers, every fingerprint OS). One retry from a
+    fresh browser (new session and fingerprint), then a pause like a block
+    (see _REJECT_PAUSE): reloading the page for every series would only
+    look more like an app."""
+
+
 # After a block: no Comix request at all for this long, doubling each time
 # the block is still there, up to the cap. Reset by the next successful call.
 _BLOCK_PAUSE = 3600       # seconds
 _BLOCK_PAUSE_MAX = 6 * 3600
+# The same after a rejection, shorter: it has passed by itself before
+_REJECT_PAUSE = 600       # seconds
+_REJECT_PAUSE_MAX = 2 * 3600
+# The last rejection page, kept to see what Comix objects to
+_REJECTED_PAGE = os.path.join(os.path.dirname(__file__), '..', 'logs', 'comix_rejected_latest.html')
 # Spacing between API calls: a full chapter-list read is one call per 100
 # uploads, and a burst of them (every series' weekly re-read falling due at
 # once) got this IP blocked on 2026-10-11
@@ -121,6 +136,8 @@ class ComixBrowserClient:
         self.lock = threading.Lock()
         self._blocked_until = 0
         self._block_pause = _BLOCK_PAUSE
+        self._reject_pause = _REJECT_PAUSE
+        self._pause_reason = (ComixBlocked, '')
         self._last_call_at = 0
         self._loop = None
         self._camoufox_cm = None
@@ -316,7 +333,19 @@ class ComixBrowserClient:
             return None  # mid-navigation
         if 'moment' in title.lower():
             return None  # "Just a moment..." - the challenge
+        if 'third-party' in title.lower():
+            await self._save_rejected_page()
+            return ComixRejected(f"Comix answered HTTP {resp.status} ({title})")
         return ComixHTTPError(f"Comix answered HTTP {resp.status}{f' ({title})' if title else ''}")
+
+    async def _save_rejected_page(self):
+        try:
+            html = await self._page.content()
+            os.makedirs(os.path.dirname(_REJECTED_PAGE), exist_ok=True)
+            with open(_REJECTED_PAGE, 'w', encoding='utf-8') as f:
+                f.write(f"<!-- {time.strftime('%Y-%m-%d %H:%M:%S')} {self._page.url} -->\n{html}")
+        except Exception as e:
+            print(f"[Comix] Couldn't save the rejection page: {e}")
 
     async def _call(self, path, params, timeout=30):
         rid = next(self._rid)
@@ -389,8 +418,10 @@ class ComixBrowserClient:
         used to load a page if the browser isn't on comix.to yet. Retries
         once on a reloaded page, then once on a fresh browser - or, when
         Comix itself answered with a server error, twice on a reloaded page
-        after a short wait (_HTTP_RETRY_WAITS). Never while Comix has this
-        IP blocked (ComixBlocked at once)."""
+        after a short wait (_HTTP_RETRY_WAITS), or, when it rejected the
+        browser as a third-party app, once on a fresh browser. Never while
+        Comix has this IP blocked or keeps rejecting the browser (ComixBlocked
+        or ComixRejected at once)."""
         from .site_pause import ensure_not_paused
         with self.lock:
             ensure_not_paused('comix')
@@ -400,12 +431,25 @@ class ComixBrowserClient:
                 try:
                     data = self._run(self._api_async(hid, path, params), timeout=100)
                     self._block_pause = _BLOCK_PAUSE
+                    self._reject_pause = _REJECT_PAUSE
                     return data
                 except ComixNotFound:
                     raise
                 except ComixBlocked as e:
                     self._pause_after_block()
                     raise ComixBlocked(f"{e} - {self._paused_message()}")
+                except ComixRejected as e:
+                    if isinstance(last_error, ComixRejected):
+                        self._pause_after_reject()
+                        raise ComixRejected(f"{e} - {self._paused_message()}")
+                    last_error = e
+                    # Once more as a new browser: new session, new fingerprint
+                    time.sleep(_HTTP_RETRY_WAITS[0])
+                    try:
+                        self._run(self._reinit_browser(), timeout=90)
+                    except Exception:
+                        pass
+                    continue
                 except Exception as e:
                     from .trackers.redirects import SiteRedirectError
                     if isinstance(e, SiteRedirectError):
@@ -431,13 +475,22 @@ class ComixBrowserClient:
 
     def _check_block_pause(self):
         if time.time() < self._blocked_until:
-            raise ComixBlocked(f"Comix has blocked this IP address (Cloudflare) - {self._paused_message()}")
+            error, reason = self._pause_reason
+            raise error(f"{reason} - {self._paused_message()}")
 
     def _pause_after_block(self):
         self._ready = False
         self._blocked_until = time.time() + self._block_pause
+        self._pause_reason = (ComixBlocked, "Comix has blocked this IP address (Cloudflare)")
         print(f"[Comix] Blocked by Comix's Cloudflare - {self._paused_message()}")
         self._block_pause = min(self._block_pause * 2, _BLOCK_PAUSE_MAX)
+
+    def _pause_after_reject(self):
+        self._ready = False
+        self._blocked_until = time.time() + self._reject_pause
+        self._pause_reason = (ComixRejected, "Comix rejected the browser as a third-party app")
+        print(f"[Comix] Rejected as a third-party app twice - {self._paused_message()}")
+        self._reject_pause = min(self._reject_pause * 2, _REJECT_PAUSE_MAX)
 
     def _paused_message(self):
         return f"Comix requests paused until {time.strftime('%H:%M', time.localtime(self._blocked_until))}"
