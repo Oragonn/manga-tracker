@@ -77,7 +77,9 @@ _BRIDGE_JS = r"""
         if (!window.__cxGet) throw new Error('Comix API client not available');
         out = { ok: true, data: await window.__cxGet(q.path, q.params) };
       } catch (e) {
-        out = { ok: false, error: String((e && e.message) || e), status: (e && e.response && e.response.status) || null };
+        const r = e && e.response;
+        out = { ok: false, error: String((e && e.message) || e), status: (r && r.status) || null,
+                challenge: !!(r && r.headers && String(r.headers['cf-mitigated'] || '').toLowerCase() === 'challenge') };
       }
       root.setAttribute('data-cx-res-' + q.rid, stringify(out));
     })();
@@ -110,6 +112,8 @@ _BLOCK_PAUSE_MAX = 6 * 3600
 # uploads, and a burst of them (every series' weekly re-read falling due at
 # once) got this IP blocked on 2026-10-11
 _MIN_CALL_GAP = 1.0       # seconds
+# After a server error (5xx): wait this long before the 2nd and the 3rd try
+_HTTP_RETRY_WAITS = (3, 10)  # seconds
 
 
 class ComixBrowserClient:
@@ -342,7 +346,8 @@ class ComixBrowserClient:
                 if out.get('status') == 404:
                     raise ComixNotFound(f"Comix has no {path}")
                 if (out.get('status') or 0) >= 500:
-                    raise ComixHTTPError(f"Comix API {path} answered HTTP {out['status']}")
+                    challenge = ' (Cloudflare challenge)' if out.get('challenge') else ''
+                    raise ComixHTTPError(f"Comix API {path} answered HTTP {out['status']}{challenge}")
                 raise RuntimeError(f"Comix API {path} failed: {out.get('error')}")
             await asyncio.sleep(0.05)
         raise RuntimeError(f"Comix API {path} timed out after {timeout}s")
@@ -383,8 +388,9 @@ class ComixBrowserClient:
         '/manga/<hid>/chapters'). `hid` is the series the call is about,
         used to load a page if the browser isn't on comix.to yet. Retries
         once on a reloaded page, then once on a fresh browser - or, when
-        Comix itself answered with a server error, just once more. Never
-        while Comix has this IP blocked (ComixBlocked at once)."""
+        Comix itself answered with a server error, twice on a reloaded page
+        after a short wait (_HTTP_RETRY_WAITS). Never while Comix has this
+        IP blocked (ComixBlocked at once)."""
         from .site_pause import ensure_not_paused
         with self.lock:
             ensure_not_paused('comix')
@@ -404,16 +410,18 @@ class ComixBrowserClient:
                     from .trackers.redirects import SiteRedirectError
                     if isinstance(e, SiteRedirectError):
                         raise
-                    # A fresh page or browser won't change Comix's own answer
-                    if isinstance(e, ComixHTTPError):
-                        if isinstance(last_error, ComixHTTPError):
-                            break
-                        last_error = e
-                        continue
                     last_error = e
                     # A cleared session or the page's signing key can expire:
                     # reload the page first, then start over with a new browser
                     self._ready = False
+                    if isinstance(e, ComixHTTPError):
+                        # Comix's 5xx usually pass within seconds, and an
+                        # immediate retry from the same page got the same
+                        # answer: wait, then retry from a reloaded page (if
+                        # Comix is really down, the reload fails fast)
+                        if attempt < 2:
+                            time.sleep(_HTTP_RETRY_WAITS[attempt])
+                        continue
                     if attempt == 1:
                         try:
                             self._run(self._reinit_browser(), timeout=90)
