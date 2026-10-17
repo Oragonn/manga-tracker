@@ -83,7 +83,7 @@ const SITE_PATTERNS = [
   { re: /^https:\/\/mangadex\.org\//, site: 'mangadex' },
   { re: /^https:\/\/atsu\.moe\//, site: 'atsu' },
   { re: /^https:\/\/asurascans\.com\//, site: 'asura' },
-  { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' },
+  { re: /^https:\/\/kagane\.[a-z]{2,10}\//, site: 'kagane' },
   { re: /^https:\/\/hivetoons\.org\//, site: 'hive' },
   { re: /^https:\/\/flamecomics\.xyz\//, site: 'flame' },
   { re: /^https:\/\/en-thunderscans\.com\//, site: 'thunder' },

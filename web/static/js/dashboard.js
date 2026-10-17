@@ -2223,7 +2223,7 @@ async function addNewSource() {
 	}
 
 	// Validate URL — NOTE: fixed extra spaces in comparison
-	if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/') && !url.startsWith('https://en-thunderscans.com/comics/') && !url.startsWith('https://comix.to/title/')) {
+	if (!url.startsWith('https://mangadex.org/') && !/^https:\/\/kagane\.[a-z]{2,10}\//.test(url) && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/') && !url.startsWith('https://en-thunderscans.com/comics/') && !url.startsWith('https://comix.to/title/')) {
 		showNotification('Only MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, Flame Comics, Thunderscans, and Comix sources are supported', 'error');
 		return;
 	}
@@ -5557,7 +5557,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		switch (site) {
 			case 'mangadex': return `https://mangadex.org/search?q=${q}`;
 			case 'atsu': return `https://atsu.moe/explore?search=${q}`;
-			case 'kagane': return `https://kagane.org/search?q=${q}&size=99`;
+			// The address in use (it moves - see kagane_mirror.py), from the page's <meta>
+			case 'kagane': return `${document.querySelector('meta[name="kagane-base"]')?.content || 'https://kagane.si'}/search?q=${q}&size=99`;
 			case 'asura': return `https://asurascans.com/browse?q=${q}`;
 			case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
 			// Flame's search is client-side only and ignores this parameter -
@@ -5755,7 +5756,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	// AsuraScans' rotating -<hash> left out).
 	const ADD_PREVIEW_SOURCES = [
 		{ label: 'MangaDex', pattern: new RegExp(`^(?:https?://)?(?:www\\.)?(mangadex\\.org/title/${UUID_PATTERN}.*)$`, 'i'), id: new RegExp(`/title/(${UUID_PATTERN})`, 'i') },
-		{ label: 'Kagane', pattern: new RegExp(`^(?:https?://)?(?:www\\.)?(kagane\\.(?:to|org)/series/${UUID_PATTERN}.*)$`, 'i'), id: new RegExp(`/series/(${UUID_PATTERN})`, 'i') },
+		{ label: 'Kagane', pattern: new RegExp(`^(?:https?://)?(?:www\\.)?(kagane\\.[a-z]{2,10}/series/${UUID_PATTERN}.*)$`, 'i'), id: new RegExp(`/series/(${UUID_PATTERN})`, 'i') },
 		{ label: 'Atsumaru', pattern: /^(?:https?:\/\/)?(?:www\.)?(atsu\.moe\/(?:manga|read)\/[A-Za-z0-9_-]+.*)$/i, id: /\/(?:manga|read)\/([A-Za-z0-9_-]+)/ },
 		{ label: 'AsuraScans', pattern: /^(?:https?:\/\/)?(?:www\.)?(asurascans\.com\/comics\/[A-Za-z0-9-]+.*)$/i, id: /\/comics\/([A-Za-z0-9-]+?)(?:-[0-9a-f]{8})?(?=[\/?#]|$)/i },
 		{ label: 'HiveToons', pattern: /^(?:https?:\/\/)?(?:www\.)?(hivetoons\.org\/series\/[A-Za-z0-9-]+.*)$/i, id: /\/series\/([A-Za-z0-9-]+)/ },
@@ -11232,7 +11233,7 @@ async function addMobileNewSource() {
     return;
   }
   
-  if (!url.startsWith('https://mangadex.org/') && !url.startsWith('https://kagane.to/') && !url.startsWith('https://kagane.org/') && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/') && !url.startsWith('https://en-thunderscans.com/comics/') && !url.startsWith('https://comix.to/title/')) {
+  if (!url.startsWith('https://mangadex.org/') && !/^https:\/\/kagane\.[a-z]{2,10}\//.test(url) && !url.startsWith('https://atsu.moe/') && !url.startsWith('https://asurascans.com/comics/') && !url.startsWith('https://hivetoons.org/series/') && !url.startsWith('https://flamecomics.xyz/series/') && !url.startsWith('https://en-thunderscans.com/comics/') && !url.startsWith('https://comix.to/title/')) {
     showNotification('This source is not supported', 'error');
     return;
   }

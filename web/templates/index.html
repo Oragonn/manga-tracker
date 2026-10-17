@@ -30,6 +30,8 @@
     }
   </style>
   <meta name="csrf-token" content="{{ csrf_token() }}" />
+  <!-- The Kagane address in use: it moves (backend/kagane_mirror.py). Read by the search links and the extension. -->
+  <meta name="kagane-base" content="{{ kagane_base() }}" />
   <!-- ADDED: Notification system -->
   <script src="{{ static_url('js/notifications.js') }}"></script>
 </head>

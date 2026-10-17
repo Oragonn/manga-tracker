@@ -16,6 +16,13 @@
 // on the source tab itself rather than here.
 
 (function () {
+  // The Kagane address the tracker last said it uses (saved by
+  // content_dashboard.js / content_import.js from the tracker's pages)
+  let kaganeBase = 'https://kagane.si';
+  chrome.storage.local.get('kaganeBase').then((data) => {
+    if (data && /^https:\/\/kagane\.[a-z]{2,10}$/.test(data.kaganeBase || '')) kaganeBase = data.kaganeBase;
+  }).catch(() => {});
+
   function isTypingTarget(el) {
     if (!el) return false;
     const tag = el.tagName;
@@ -29,7 +36,7 @@
     switch (site) {
       case 'mangadex': return `https://mangadex.org/search?q=${q}`;
       case 'atsu': return `https://atsu.moe/explore?search=${q}`;
-      case 'kagane': return `https://kagane.org/search?q=${q}&size=99`;
+      case 'kagane': return `${kaganeBase}/search?q=${q}&size=99`;
       case 'asura': return `https://asurascans.com/browse?q=${q}`;
       case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
       case 'flame': return `https://flamecomics.xyz/browse?search=${q}`;

@@ -10,7 +10,7 @@ init_auth(app)
 import re
 from .activity_logger import get_logs, mark_log_undone
 from .database import add_series as db_add_series
-from .source_links import clean_source_url
+from .source_links import clean_source_url, is_kagane_url
 import os
 import json
 import csv
@@ -1306,7 +1306,7 @@ def api_add_source(series_id):
         # Detect source type
         if 'mangadex.org' in source_url:
             source_type = 'mangadex'
-        elif 'kagane.org' in source_url or 'kagane.to' in source_url:
+        elif is_kagane_url(source_url):
             source_type = 'kagane'
         elif 'atsu.moe' in source_url:
             source_type = 'atsu'

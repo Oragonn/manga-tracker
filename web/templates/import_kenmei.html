@@ -6,6 +6,8 @@
   <title>Kenmei Import - Manga Tracker</title>
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
   <meta name="csrf-token" content="{{ csrf_token() }}" />
+  <!-- The Kagane address in use: it moves (backend/kagane_mirror.py). Read by the search links and the extension. -->
+  <meta name="kagane-base" content="{{ kagane_base() }}" />
   <link rel="stylesheet" href="{{ static_url('css/style.css') }}" />
   <script src="{{ static_url('js/notifications.js') }}"></script>
   <style>
@@ -396,7 +398,7 @@
     switch (site) {
       case 'mangadex': return `https://mangadex.org/search?q=${q}`;
       case 'atsu': return `https://atsu.moe/explore?search=${q}`;
-      case 'kagane': return `https://kagane.org/search?q=${q}&size=99`;
+      case 'kagane': return `${document.querySelector('meta[name="kagane-base"]')?.content || 'https://kagane.si'}/search?q=${q}&size=99`;
       case 'asura': return `https://asurascans.com/browse?q=${q}`;
       case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
       case 'flame': return `https://flamecomics.xyz/browse?search=${q}`;
@@ -428,7 +430,7 @@
 
   function detectSourceType(url) {
     if (/^https:\/\/mangadex\.org\/title\//.test(url)) return true;
-    if (/^https:\/\/kagane\.(to|org)\/series\//.test(url)) return true;
+    if (/^https:\/\/kagane\.[a-z]{2,10}\/series\//.test(url)) return true;
     if (/^https:\/\/atsu\.moe\/(manga|read)\//.test(url)) return true;
     if (/asurascans\.com\/comics\//.test(url)) return true;
     if (/hivetoons\.org\/series\//.test(url)) return true;

@@ -1,8 +1,8 @@
-# 📚 **Manga Tracker – Complete Project Summary (Updated October 4, 2026)**
+# 📚 **Manga Tracker – Complete Project Summary (Updated October 17, 2026)**
 
 ## 🎯 **Project Overview**
 
-A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across **eight sources** — MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, Flame Comics, Thunderscans and Comix — with manual chapter control, automated background checking (8 series in parallel, plus one-at-a-time lanes for the two browser-driven sites), bulk operations, an activity log with undo for almost every change, hourly database backups (plus a daily CSV export and an optional daily Discord upload), multi-source support per series, saved filter/sort views, a relevance-ranked search with "Did you mean", a Kenmei-style Add Series preview, a library-wide Related Series list, a Fixes page for correcting bad chapters/tags, a Scheduler page with site up/down checks, a redesigned statistics page, series notes, a Save for Later scratch list, full mobile UI, and a single-user login gate so it can be reached from outside the home network.
+A self-hosted manga/manhwa tracking application (Flask + SQLite + vanilla JS) that monitors series across **eight sources** — MangaDex, Kagane, Atsumaru, AsuraScans, HiveToons, Flame Comics, Thunderscans and Comix — with manual chapter control, automated background checking (8 series in parallel, plus one-at-a-time lanes for the two browser-driven sites), bulk operations, an activity log with undo for almost every change, hourly database backups (plus a daily CSV export and an optional daily Discord upload), multi-source support per series, saved filter/sort views, a relevance-ranked search with "Did you mean", a Kenmei-style Add Series preview, a library-wide Related Series list, a Fixes page for correcting bad chapters/tags, a Scheduler page with site up/down checks and per-site pause, a redesigned statistics page, series notes, a Save for Later scratch list, full mobile UI, and a single-user login gate so it can be reached from outside the home network.
 
 This file is meant to be handed to a fresh chat/assistant to resume work without re-exploring the whole codebase. It describes **current state**, not a changelog — check `git log` for history.
 
@@ -23,9 +23,9 @@ This file is meant to be handed to a fresh chat/assistant to resume work without
 ### **Tech Stack**
 - **Backend**: Python 3.9+, Flask (threaded dev server), SQLite (WAL mode), APScheduler-style background threads
 - **Frontend**: Vanilla JavaScript, custom CSS (no frameworks, no build step)
-- **Browser automation**: camoufox (stealth Firefox, via Playwright) for **Kagane** and **Comix** (Cloudflare)
+- **Browser automation**: camoufox (stealth Firefox, via Playwright) for **Kagane** and **Comix** (Cloudflare); both browsers run with `TZ=Europe/Paris` (`browser_env.py`) because Cloudflare compares the browser's timezone with the IP's location and the server is on UTC
 - **Integrations**: MangaDex API, Kagane (camoufox), Atsumaru API, AsuraScans API, HiveToons (HTML), Flame Comics (`__NEXT_DATA__`), Thunderscans (WordPress HTML), Comix (camoufox + the site's own signed API), AniList (titles only, for MangaDex series — no longer used for covers)
-- **Browser extension**: `extension/` (Manifest V3, v1.1.3) — helper for the Kenmei import page, Kenmei itself, source sites and the dashboard's source searches (see Extension section)
+- **Browser extension**: `extension/` (Manifest V3, v1.1.12) — helper for the Kenmei import page, Kenmei itself (incl. "already tracked" badges), source sites and the dashboard's source searches (see Extension section)
 
 ### **File Structure**
 ```
@@ -36,20 +36,23 @@ manga-tracker/
 │   ├── database.py               # SQLite schema + migrations (init_db), global DB lock, CRUD, stats history (~3000 lines)
 │   ├── scheduler.py              # Background scanning: per-status intervals, 8 workers + Kagane/Comix lanes, chapter merge, site checks (~1200 lines)
 │   ├── search_utils.py           # Search normaliser, relevance tiers, "Did you mean", duplicate-title finder
-│   ├── source_links.py           # Parse any source URL -> (site, id); clean ?query strings; find tracked series by link
+│   ├── source_links.py           # Parse any source URL -> (site, id); clean ?query strings; find tracked series by link; the Kagane address in use (kagane_domain/kagane_base)
 │   ├── source_metadata.py        # Per-source titles/tags/rating cache; SOURCE_RATING_PRIORITY; strip a removed source's leftovers
 │   ├── title_utils.py            # Merge a new source's titles into alt_titles
 │   ├── tag_utils.py              # Tag merge/ban rules applied at READ time; per-series tag editing
 │   ├── related_series.py         # Related series (sequels/spin-offs) from MangaDex + Atsumaru; "Has Related" auto tag
 │   ├── gallery_covers.py         # Background cover-gallery fetches (MangaDex/Atsumaru/Kagane)
-│   ├── site_health.py            # 30-min site up/down probes, own site_health table
+│   ├── site_health.py            # 30-min site up/down probes (+ home-page probe for orange "API down"), own site_health table
+│   ├── site_pause.py             # Sites paused by hand on /scheduler (data/paused_sites.json): nothing contacts them
+│   ├── kagane_mirror.py          # Moves Kagane to a working address after each Kagane site check (see Kagane address)
+│   ├── browser_env.py            # Environment (TZ=Europe/Paris) for the camoufox browsers
 │   ├── activity_logger.py        # Activity log + undo snapshots (30-day retention, tag events kept forever)
 │   ├── error_logger.py           # 7-day rotating error logs, unread badge, per-site Acknowledge mutes
 │   ├── failed_sources_logger.py  # Failing-source bookkeeping
 │   ├── backup_manager.py         # Hourly DB backups (SQLite backup API), upload/import, restore (re-runs init_db)
 │   ├── series_backup_manager.py  # Daily Kenmei-shaped CSV export
 │   ├── discord_backup_uploader.py# Daily DB backup to a Discord webhook (optional)
-│   ├── camoufox_kagane.py        # Singleton camoufox client for Kagane
+│   ├── camoufox_kagane.py        # Singleton camoufox client for Kagane (+ probe_domain for the mirror check)
 │   ├── camoufox_comix.py         # Singleton camoufox client for Comix (patches the site's JS to expose its API)
 │   ├── auth.py / auth_logger.py / visitor_logger.py   # Login gate, CSRF, rate limit, logs
 │   └── trackers/
@@ -57,7 +60,7 @@ manga-tracker/
 │       ├── flamecomics.py  thunderscans.py  comix.py
 │       ├── redirects.py          # SiteRedirectError: "site down or moved" when a site 3xx's to another host
 │       └── anilist.py
-├── data/tracker.db               # Main SQLite database (+ muted_error_sites.json, last_errors_visit.txt)
+├── data/tracker.db               # Main SQLite database (+ muted_error_sites.json, last_errors_visit.txt, paused_sites.json, kagane_domain.json)
 ├── logs/                         # Error logs (7-day), auth log, visitor IP log
 ├── backups/database/             # Hourly .db.gz backups (7-day + 2 GB cap) and safety_before_restore_* copies
 ├── backups/series_csv/           # Daily CSV export (30-day)
@@ -137,7 +140,7 @@ notes TEXT                         -- series note (markdown subset), max 2000
 - `filter_bookmarks` — saved views (`name, is_builtin, position, filter_state JSON`); built-in "Default" seeded and protected.
 - `stats_history` — per day/week/month/year `series_added`, `chapters_read`. **Day rows are never pruned** (the heatmap needs them).
 - `meta` — key/value (`schema_version`, `search_text_version`, `related_tag_id`, `last_dashboard_visit`, …).
-- `site_health` — per site: `status up/down, checked_at, error, checked_url, duration_ms, down_since, last_up_at`.
+- `site_health` — per site: `status up/down, checked_at, error, checked_url, duration_ms, down_since, last_up_at, website_up` (1 = down but its home page loads → "API down", orange).
 - `comix_uploads`, `comix_sync` — Comix's incremental upload cache (see Comix).
 
 ---
@@ -149,7 +152,7 @@ notes TEXT                         -- series note (markdown subset), max 2000
 2. **Covers** — MangaDex cards use the `.512.jpg` thumbnail (falls back to the full image); Atsumaru/Kagane/Comix covers are cached locally under `web/static/uploads/`; covers load 1500 px ahead of scrolling.
 3. **Filters** — status, sort + direction, Content Type, Tags (genres + custom tags + content rating in one dropdown, each tag include/exclude, Mature/Explicit excluded by default, search box), Publication Status, Readable On (all 8 sites; list scrolls with Select All/Clear pinned underneath), pagination with a jump-to-any-page "…".
 4. **Filter Bookmarks** — saved views dropdown left of the status filter (desktop) / bottom of the filter drawer (mobile); "Save as new view" / "Update current view" / Manage Views. `applyFilterBookmarkState(fs)` is the canonical "set all filters from an object" function.
-5. **Search** (see Search section) — titles, alt titles, or a pasted source link; relevance-ranked; "Did you mean" chips on zero results; "N more in Completed…" hint when other statuses/filters hide matches ("Search all statuses" / "Show anyway"); on zero results, "Search the sources for X". `/dashboard?search=<title>` runs a search across all statuses (used by Stats links).
+5. **Search** (see Search section) — titles, alt titles, or a pasted source link; relevance-ranked; "Did you mean" chips on zero results; "N more in Completed…" hint when other statuses/filters hide matches ("Search all statuses" / "Show anyway"); on zero results, "Search the sources for X" (on phones it saves the query to Save for Later instead). `/dashboard?search=<title>` runs a search across all statuses (used by Stats links).
 6. **Bulk Edit** — select cards (long-press on mobile): Mark as Read, Change Status, Custom Tags (tri-state per tag, one request, undoable), Check for New Chapters, Delete. Requests run 4 at a time.
 7. **Save for Later** — bookmark-plus button (desktop toolbar + mobile toolbar) opens a scratch list of titles/links (link field is a textarea: Shift+Enter new line on desktop, Return on phones). Click a title for a popover with the full text; every `http(s)` URL in it is a clickable link. Edit/delete inline. No undo (disposable list).
 8. **Source Alerts bell** — series whose sources failed 3+ scans in a row, grouped into one **outage** row when ≥5 series fail on the same site (or the site check says it's down); clicking a row jumps to the series.
@@ -165,7 +168,7 @@ notes TEXT                         -- series note (markdown subset), max 2000
 ### Series Settings (modal, shared desktop/mobile)
 - Loads with one request: `GET /api/series/<id>/settings-data` (sources + site health, uploaded/gallery covers, custom tags, effective tags, genres list, chapters). Data is **prefetched** while the mouse rests on a card / when the mobile sheet opens; prefetches are dropped whenever any write request runs.
 - Title picker (any known title), cover picker (current/uploaded/gallery/upload), chapter picker (with release dates, or manual Vol/Ch entry), status, **Custom Tags**, and one **"Type, Rating & Tags"** button (content type + content rating segmented controls + per-series tag editor working on effective tags).
-- **Sources list**: green/red health dot per source (red = failing or site down, tooltip has the error), star = make primary **instantly** (logged, undoable, triggers a background rescan), add sources (comma-separated paste OK), remove (non-primary only; strips titles/tags/rating/cover/title that only that source provided, undoable), "Check Now".
+- **Sources list**: green/orange/red health dot per source (red = failing or site down, orange = only the site's API is down, tooltip has the error), star = make primary **instantly** (logged, undoable, triggers a background rescan), add sources (comma-separated paste OK), remove (non-primary only; strips titles/tags/rating/cover/title that only that source provided, undoable), "Check Now".
 - **Notes** button → Write/Preview dialog (markdown subset: headings, bold/italic/strike, code, links, lists, quotes); saves on its own, not via the Save button.
 - **Related Series (N)** button (disabled with a reason when there's none) opens that series' related list on top of Settings.
 - Hard layout rule: **the modal must not grow or scroll** — any new control must fit the cover's height (desktop buttons are 32 px for that reason).
@@ -175,7 +178,7 @@ Full responsive UI (≤768 px): hamburger nav, filter drawer, 2-column cards, bo
 
 ### Related Series
 - Read **while chapters are fetched**, no separate scan: Atsumaru from the same page response; MangaDex from the status request (primary sources every scan, non-primary at most daily). "Check now" in the Related view does a full pass; Settings' Check Now forces it for one series.
-- Add modal's Related view: one card per tracked series (cover, title, status pill, links to its own sources, "Show related (N)" with NEW count); relation-type chips (doujinshi/colored/monochrome hidden by default), "In library" chip, sort (newest related / newest series) and status filter, hide per tracked series (comes back when a new relation appears), red NEW badge. Related covers are fetched only when shown.
+- Add modal's Related view: one card per tracked series (cover, title, status pill, links to its own sources, "Show related (N)" with NEW count); relation-type chips (doujinshi/colored/monochrome hidden by default), "In library" chip, sort (newest related / newest series) and status filter, hide per tracked series (comes back when a new relation appears), red NEW badge. Related covers are fetched only when shown. **Add** on a related series runs the cross-source search for its title (it doesn't fill in the MangaDex/Atsumaru link).
 - **"Has Related"** custom tag is kept in sync automatically on every series related to *another tracked* series (deleting the tag opts out).
 
 ### Background Scheduler
@@ -194,7 +197,12 @@ Full responsive UI (≤768 px): hamburger nav, filter drawer, 2-column cards, bo
 - Also runs: activity-log cleanup (startup + daily), backup managers, Discord uploader, the 30-min site check, the "Has Related" tag sync.
 
 ### Scheduler page (`/scheduler`)
-Per-status cards (next fetch countdown, due / left to fetch (DB-derived), last scanned, live progress, Scan Now — scans every series of that status) and a **Source Sites** card: each site's up/down state, last check, error, Check / Check All Now. Probes use up to 2 of your series per site that have stored chapters.
+Two tabs: **Status Fetch** (default) and **Source Sites** (`?tab=sites`; the tab gets a red dot when a used site is down, grey when one is paused).
+- Status Fetch: per-status cards (next fetch countdown, due / left to fetch (DB-derived), last scanned, live progress, Scan Now — scans every series of that status).
+- Source Sites: per site a dot (green up / **orange = API down but the website loads** / red down / grey paused), last check, error, and buttons: go to site, **pause/resume**, **Check series** (fetches that site for every series that has it, only that source, no `last_check` bump), refresh = site check. Check All Now runs every unpaused site.
+- The site check (every 30 min, `site_health.py`) fetches up to 2 of your series per site that have stored chapters, exactly like a scan; a site only counts as up if a chapter list comes back. When down, its home page is loaded too (Kagane/Comix through their browsers) → orange if it loads. Kagane/Comix fail fast on a server error page instead of waiting out timeouts.
+- **Pause** (`site_pause.py`, `data/paused_sites.json`, survives restore): a paused site is not contacted at all — tracker request sessions and the Kagane/Comix browser clients refuse, so scans (stored chapters kept as they are), site checks, Add preview, metadata refresh and covers all stop. Made for Comix's IP block.
+- The Kagane row also shows the **address** in use and its last move (see Kagane address).
 
 ### Fixes page (`/fixes`)
 - **Chapter tab** — pick a series (search, 5 / 20 / all results), Current Chapters table (10 rows then Show more/Show all/Hide all, search by number, sort, Provider column), per-source ban of one exact link, edit a link, manually add a chapter; "Your Corrections" list. **Atsumaru Providers** section: ban/unban a scanlator group for that one series (filtered before Atsu picks one posting per chapter, so another group's copy is used).
@@ -202,7 +210,8 @@ Per-status cards (next fetch countdown, due / left to fetch (DB-derived), last s
 
 ### Activity Log (`/logs`)
 - 30-day retention (`ACTIVITY_LOG_RETENTION_DAYS`), **7-day undo window**; tag merge/ban events (`TAG_ACTION_TYPES`) are never cleaned up.
-- Action types: `added, deleted, progress, status, edited` (title/cover/type/rating/tags/notes/primary change), `source_added, source_removed, source_cleanup, custom_tags, chapter_override_*, provider_banned/unbanned, tag_merged/unmerged/banned/unbanned, bookmark_added/updated/deleted`.
+- Action types: `added, deleted, progress, status, edited` (title/cover/type/rating/tags/notes/primary change), `source_added, source_removed, source_cleanup, custom_tags, chapter_override_*, provider_banned/unbanned, tag_merged/unmerged/banned/unbanned, bookmark_added/updated/deleted`, and `site_moved` (Kagane moved to another address; not undoable, shown under the Sources filter).
+- The Last Read chapter chosen in the Add preview is saved as a progress entry flagged `on_add` ("(set when added)") and counts 0 chapters read.
 - **Two separate undo implementations** in `main.py`: single (`api_undo_log`) and bulk (`api_undo_bulk`). A new loggable action needs both. Deleting a series snapshots its sources, custom tags, notes etc. so undo restores everything.
 - Inline "Undo this? Cancel / Undo" confirm (no native dialogs).
 
@@ -214,7 +223,7 @@ Per-status cards (next fetch countdown, due / left to fetch (DB-derived), last s
 - Optional **Discord upload**: once a day at `DISCORD_DB_BACKUP_HOUR` (Europe/Paris, default 4) the newest backup is posted to `DISCORD_DB_BACKUP_WEBHOOK_URL` (size limit `DISCORD_DB_BACKUP_MAX_MB`, default 10).
 
 ### Stats (`/stats`)
-Redesigned (hand-built SVG/HTML charts, no chart library): library totals, donuts per breakdown (status, type, rating, publication status), type-by-status, sources, 30-day activity charts, 53-week heatmap, last-12-months bars, per-year list, top genres, biggest backlogs, most read, "no release in 90+ days" modal. Days with >500 chapters read (`BULK_DAY_CHAPTERS`, i.e. Kenmei imports/mass edits) are flagged bulk: hatched, and excluded from today/week/month/year, averages and streaks. Series titles link to `/dashboard?search=`.
+Redesigned (hand-built SVG/HTML charts, no chart library): library totals, donuts per breakdown (status, type, rating, publication status), type-by-status, sources, 30-day activity charts, 53-week heatmap, last-12-months bars, per-year list, top genres, biggest backlogs, most read, "no release in 90+ days" modal. Days are cut in local time (`database.stats_tz()`: Europe/Paris unless `TIMEZONE` in `.env`). A day's reading = each series' **net** change that day, never below 0 (correcting a series down doesn't eat other reading); the chapter set when adding a series counts 0. `scripts/recount_daily_reads.py --apply` rebuilds the day rows under these rules. Days with >500 chapters read (`BULK_DAY_CHAPTERS`, i.e. Kenmei imports/mass edits) are flagged bulk: hatched, and excluded from today/week/month/year, averages and streaks. Series titles link to `/dashboard?search=`.
 
 ### Kenmei import (`/import-kenmei`, not in nav)
 Personal helper to import a Kenmei CSV row by row: per-row site searches, paste links, Skip (X), extension keys. A link that turns out to be an already-tracked series is reported as a duplicate, never merged into it.
@@ -241,31 +250,39 @@ Personal helper to import a Kenmei CSV row by row: per-row site searches, paste 
 - **Removing a source** (non-primary only): drops titles/tags only that source reported, reverts the rating if it set it, deletes its gallery covers, resets cover/title to the primary's if they came from it. All recorded so undo restores them.
 - Source links are stored without `?query`/`#fragment` (`clean_source_url`).
 - Health: `consecutive_failures` per source (Source Alerts at ≥3, red dot at >0) + site-level `site_health`.
-- Trackers raise `SiteRedirectError` ("site down or moved") when a site redirects to another host (e.g. flamecomics.xyz now 302s to its Discord — Flame is effectively dead as of 2026-10-03).
+- Trackers raise `SiteRedirectError` ("site down or moved") when a site redirects to another host (flamecomics.xyz 302'd to its Discord for a while in early 2026-10; it's back since 2026-10-09).
 
 ---
 
 ## 🌐 **Per-source notes**
 
 - **MangaDex** (`mangadex.py`) — official API, throttled (`_delayed_get` with a lock). Keeps every tag group + demographic. Reads all `altTitles` (`collect_titles`). Status + relations come from one extra `/manga/<id>` request (primary every scan). Unnumbered uploads collapse to one 0.0 oneshot per volume, **except** when every chapter is unnumbered and each title has a distinct part number ("Part 1/2") → chapters 1..N. When a MangaDex series/source is added, AniList is searched by title to fill missing `title_en`/`title_romaji`/`title_native` and add its synonyms to `alt_titles` (`enrich_with_anilist`, best-effort; no other site gets this). **Covers always come from MangaDex** — the old AniList cover fallback was removed 2026-09-27 (`reapply_mangadex_covers.py` cleans up leftover anilist.co covers). Cover thumbnails: `<cover>.512.jpg`.
-- **Kagane** (`kagane.py` + `camoufox_kagane.py`) — camoufox clears Cloudflare Turnstile (nothing is solved; the fingerprint just passes). One call: `/api/v2/series/{id}` includes `series_books`. Season-aware numbering (resets get an offset; a reset never lands on/before the previous chapter). Untitled books use the API's `chapter_no` (anchored to titled chapters, only when it never decreases); `Special Episode N` / Prologue / Extra etc. become x.01 side entries; notices (Hiatus, Break, Announcement, Afterword, Creator's Note…) are dropped; a lone unnumbered book = 0.0 oneshot. Missing `published_on` → upload time (`date_is_upload`). Gallery via `/image/<id>/compressed`. Fetches get extra time + a retry; own scan lane.
+- **Kagane** (`kagane.py` + `camoufox_kagane.py`) — camoufox clears Cloudflare Turnstile (nothing is solved; the fingerprint just passes). Two calls: `/api/v2/series/{id}` (meta) and, since 2026-10, `/api/v2/series/{id}/books?limit=500` for the chapters (they left the series response — scans silently got 0 chapters for ~2 days before this was noticed); pages continue with `?before=<next_cursor>` (Tower of God, 652 books = 2 pages). If the series says `current_books > 0` but no books come back, the fetch fails loudly instead of passing as "no chapters". Season-aware numbering (resets get an offset; a reset never lands on/before the previous chapter). Untitled books use the API's `chapter_no` (anchored to titled chapters, only when it never decreases); an untitled book right after a side entry is a side entry too; `Special Episode N` / Prologue / Extra etc. become x.01 side entries; notices (Hiatus, Break, Announcement, Afterword, Creator's Note…) are dropped; a lone unnumbered book = 0.0 oneshot. Missing `published_on` → upload time (`date_is_upload`). Gallery via `/image/<id>/compressed`. Fetches get extra time + a retry; own scan lane. Domain: see Kagane address below.
 - **Atsumaru** (`atsu.py`) — plain JSON API. Several scanlator groups can post the same number: banned links/providers are skipped first, then Atsu's own upvote score picks one (release date = earliest posting). Rating from `isAdult` + `Sexual Content` tags. Covers cached locally (`_cdn_get`, separate from the API throttle). Records providers per series for the Fixes page. "Manwha" typo normalised.
 - **AsuraScans** (`asura.py`) — JSON API, premium chapters dropped, no rating system (always safe → lowest priority). Rotating slug hash handled in `source_links`.
 - **HiveToons** (`hivetoons.py`) — no public API; parses the series page (moved off Astro islands to a new page format on 2026-09-22). Coin-locked chapters dropped. Rating from an "Adult" genre.
-- **Flame Comics** (`flamecomics.py`, source `flame`) — `__NEXT_DATA__` from `/series/<id>`; dupes keep the earliest posting; cover via `/_next/image`; rating from tags; "Coming Soon" → plan_to_read. Source-only by request: not in the extension, Kenmei import or source-search links. **Site currently gone** (redirects to Discord).
-- **Thunderscans** (`thunderscans.py`, source `thunder`) — WordPress series page `/comics/<slug>/` (REST API disabled, no Cloudflare). **Free chapters only** (coin-locked early access skipped, so it can lag the site's newest). Day-only dates. Chapter numbers with labels ("25-[S1 END]") parse the leading number. Same scope limits as Flame.
-- **Comix** (`comix.py` + `camoufox_comix.py`, source `comix`) — camoufox loads comix.to once and patches the site's JS so its own signed/decrypting API client can be called (~0.3 s per call). **Incremental scans**: `comix_uploads` keeps every upload seen; rescans read newest-first and stop at a known one; a full re-read happens on count mismatch, many new pages, or every 7 days. One chapter per number = earliest English upload; provider = scan group. Covers fetched through the page and cached locally. Plain `headless=True` (Kagane's humanize/geoip options get 403'd). Own scan lane; recovers when Cloudflare clearance expires mid-request; 5-min back-off after a failed browser start.
+- **Flame Comics** (`flamecomics.py`, source `flame`) — `__NEXT_DATA__` from `/series/<id>`; dupes keep the earliest posting; cover via `/_next/image`; rating from tags; "Coming Soon" → plan_to_read. In every search-all-sources flow since 2026-10-09: its search is client-side only (`/browse` ignores URL parameters), so links carry `?search=` and the extension types it into the search box. No Kenmei import mapping.
+- **Thunderscans** (`thunderscans.py`, source `thunder`) — WordPress series page `/comics/<slug>/` (REST API disabled, no Cloudflare). **Free chapters only** (coin-locked early access skipped, so it can lag the site's newest). Day-only dates. Chapter numbers with labels ("25-[S1 END]") parse the leading number. In every search-all-sources flow.
+- **Comix** (`comix.py` + `camoufox_comix.py`, source `comix`) — camoufox loads comix.to once and patches the site's JS so its own signed/decrypting API client can be called (~0.3 s per call). **Incremental scans**: `comix_uploads` keeps every upload seen; rescans read newest-first and stop at a known one; a full re-read happens on count mismatch, many new pages, or every 7 days. One chapter per number = earliest English upload; provider = scan group. Covers fetched through the page and cached locally. Plain `headless=True` (Kagane's humanize/geoip options get 403'd). Own scan lane; recovers when Cloudflare clearance expires mid-request; 5-min back-off after a failed browser start. The API client is found **by its code**, across all `dist/*.js` chunks (Comix renamed its scripts and later started mangling method names). **IP-block guard**: Cloudflare's "you have been blocked" page raises `ComixBlocked` with no retries and pauses every Comix request for 1 h, doubling up to 6 h while still blocked (2026-10-11: an overdue batch of weekly full re-reads got the IP blocked); API calls are spaced ≥1 s apart and weekly full re-reads limited to one per 10 min. Comix answering `502 Bad gateway` is Comix's own server being down, not a block.
+
+### Kagane address (mirrors)
+Kagane moves between domains (kagane.to died 2026-10-14; then kagane.org — the address Kagane says to bookmark — became a "Choose an address" page listing mirrors: kagane.si, .cx, .moe, .net; its API still answered but every series/reader/search page showed the list). The address is **not hard-coded**:
+- `source_links.kagane_domain()` / `kagane_base()` = `data/kagane_domain.json` (`domain, previous, moved_at, reason, mirrors`), default `kagane.si`. Every request, chapter/reader link, cover, search link and the site check use it. Any `kagane.<tld>` link is recognised (`KAGANE_HOST_PATTERN`, `is_kagane_url`), and stored/pasted links are rewritten to the current address (`database.move_kagane_links_to_current_domain`: at startup, on a move, and after every Kagane check to catch links a running scan wrote during a move).
+- `kagane_mirror.after_check()` runs after every Kagane site check: (1) kagane.org is used whenever it serves the real site again; (2) otherwise the current address is left at once if its home page is the mirror list, or after **2 failed checks in a row**; (3) the new one is the first that passes `kagane_browser.probe_domain()` (home page loads, isn't the mirror list, API returns chapters for one of your series), in kagane.org's listed order (recommended first), then saved/known mirrors. None works → no change. A move logs `site_moved` and shows on /scheduler's Kagane row.
+- Pages carry `<meta name="kagane-base">` (jinja global `kagane_base`), read by the dashboard / Kenmei import search links and by the extension (saved to `chrome.storage` for kenmei.co). Editing the JSON by hand needs a restart (it's cached in memory). The extension manifest can't wildcard a TLD, so a brand-new mirror domain still needs a manifest entry for K/Y/U on its tabs.
 
 ---
 
 ## 🧩 **Browser extension (`extension/`)**
 
-Unpacked MV3 extension (v1.1.3, must be reloaded in chrome://extensions after manifest changes). Content scripts:
+Unpacked MV3 extension (v1.1.12, must be reloaded in chrome://extensions after manifest changes). Searches open all 8 sources, in this order: Atsumaru, AsuraScans, MangaDex, HiveToons, Flame, Thunderscans, Comix, Kagane (Comix and Kagane last — slowest Cloudflare tabs). Content scripts:
 - `content_import.js` — on `/import-kenmei`: I (or a row's All button) starts a row: opens every site's search in tabs and copies the title. Once all of that row's tabs are closed, the captured links are submitted automatically.
-- `content_source.js` — on the source sites' tabs: **K** = open the first search result, **Y** = capture this tab's link and close it, **U** = no match, close it.
-- `content_dashboard.js` — gives the dashboard's Add-modal and Settings source searches the same K/Y/U tab flow (mode `'dashboard'`).
+- `content_source.js` — on the source sites' tabs: **K** = open the first search result, **Y** = capture this tab's link and close it, **U** = no match, close it, **I** = re-run the search. Types the title into Flame's client-side search box.
+- `content_dashboard.js` — gives the dashboard's Add-modal and Settings source searches the same K/Y/U tab flow (mode `'dashboard'`); for an Add search, the captured links land in the Add modal's link box once every tab is closed (Settings searches stay clipboard-only).
 - `content_kenmei.js` — on a kenmei.co series page, I starts the same lookup for that series (matches the whole site because Kenmei is a single-page app; the `/series/` path is checked at keypress).
-- `background.js` keeps state in `chrome.storage.session`. See `extension/README.md`.
+- `content_kenmei_tracked.js` (+ `content_kenmei_hook.js` in the MAIN world, reading Kenmei's API responses for alt titles) — badges series you already track on kenmei.co search, discovery, series pages and Similar cards (status/progress; click = tracker dashboard search). Matches by source links and by title (word order ignored) against `/api/series/title-index` (ETag'd; the last copy is kept in `chrome.storage.local` so badges show at once after a browser start).
+- The Kagane search link uses the tracker's current Kagane address (read from the page's `<meta name="kagane-base">`, remembered for kenmei.co).
+- `background.js` keeps state in `chrome.storage.session`, learns the tracker's origin from its pages. See `extension/README.md`.
 
 ---
 
@@ -281,7 +298,7 @@ Unpacked MV3 extension (v1.1.3, must be reloaded in chrome://extensions after ma
 - **Compression**: JSON/JS/CSS gzipped by an `after_request` hook; **HTML is not gzipped** (it carries the CSRF token → BREACH).
 - Remote access: `scripts/run_tunnel.py` runs a free Cloudflare Quick Tunnel and emails/Discord-pings the changing URL (`NOTIFY_*` env vars).
 
-**`.env` keys**: required `SECRET_KEY`, `AUTH_PASSWORD_HASH`; optional `LAN_CIDR_RANGES`, `NOTIFY_GMAIL_ADDRESS`, `NOTIFY_GMAIL_APP_PASSWORD`, `NOTIFY_GMAIL_TO`, `NOTIFY_DISCORD_WEBHOOK_URL`, `NOTIFY_DISCORD_USER_ID`, `DISCORD_DB_BACKUP_WEBHOOK_URL`, `DISCORD_DB_BACKUP_HOUR`, `DISCORD_DB_BACKUP_MAX_MB`. `.env` is gitignored; treat webhook URLs like passwords.
+**`.env` keys**: required `SECRET_KEY`, `AUTH_PASSWORD_HASH`; optional `LAN_CIDR_RANGES`, `NOTIFY_GMAIL_ADDRESS`, `NOTIFY_GMAIL_APP_PASSWORD`, `NOTIFY_GMAIL_TO`, `NOTIFY_DISCORD_WEBHOOK_URL`, `NOTIFY_DISCORD_USER_ID`, `DISCORD_DB_BACKUP_WEBHOOK_URL`, `DISCORD_DB_BACKUP_HOUR`, `DISCORD_DB_BACKUP_MAX_MB`, `TIMEZONE` (stats day boundaries, default Europe/Paris). `.env` is gitignored; treat webhook URLs like passwords.
 
 ---
 
@@ -307,6 +324,7 @@ All open the relative `data/tracker.db`; most are dry-run unless `--apply`.
 - `find_duplicate_series.py [--db PATH]` — pairs of series sharing a title.
 - `audit_source_accuracy.py` — read-only live-vs-stored chapter comparison (`--db/--out/--series-ids/--source-types/--limit/--workers`).
 - `audit_after_restore.py` — read-only diff of the live DB vs a safety_before_restore copy.
+- `recount_daily_reads.py [--apply]` — rebuilds the stats day rows (local-time days, per-series net change ≥ 0, add-time chapter not counted).
 - `seed_bookmark_examples.py` — sample filter bookmarks.
 
 ---
@@ -331,10 +349,11 @@ See `Bugs.txt` (local, gitignored) for the current list. Open threads worth know
 - The local `data/tracker.db` is stale; ask for / use a server backup for data questions, and test on copies (delete a copy's `-wal`/`-shm` before reusing it).
 - **UI verification harness** (the Browser pane may be unavailable and the real server needs login): run `backend.api.app` on a spare port in a thread with `backend.database.DB_PATH` pointed at a DB copy and `app.jinja_env.globals['csrf_token'] = lambda: 'x'`, then drive it with the venv's Playwright using `executable_path="C:/Users/Oragon/AppData/Local/ms-playwright/chromium-1194/chrome-win/chrome.exe"`. Importing `backend.main` turns on auth/CSRF (patch `is_lan_request` and `WTF_CSRF_ENABLED`). Patch trackers' cover dirs to a scratch folder so tests don't fill `web/static/uploads`.
 - Menus that are moved to `<body>` while open (Type/Rating/Tags menu, cover menu) aren't matched by CSS scoped under `#edit-series-modal`.
-- **Line endings are mixed**: `kagane.py`, `main.py`, `database.py`, `notifications.js` (and some others) are CRLF; `api.py`, `search_utils.py`, `dashboard.js`, `style.css`, `index.html` are LF. Keep each file's style.
+- **Line endings**: the files are stored CRLF (checked 2026-10-17: backend, templates, JS, CSS, extension, this file), `core.autocrlf=true`. Python's `read_text`/`write_text` on Windows keeps CRLF; when editing with exact-string matches, normalise `\r\n` first and convert back.
 - Any code reading `genres` for display/filtering must go through `tag_utils` with rules loaded from the **same** cursor (the DB lock isn't reentrant). Never apply tag rules at write time.
 - Don't make scan-critical SQL depend on a column added by a fresh migration (a restore without migrations once crashed every scan) — restore now re-runs `init_db()`, but stay defensive.
 - Chapter merging/banning must stay keyed per source (and per exact link for bans), never per chapter number globally — this bug class has been hit several times.
 - The scheduler deletes and re-inserts a series' chapters on every scan, so tracker parsing fixes heal each series on its next scan (no data migration needed).
 - `scheduler.get_check_interval()` values are sometimes lowered for testing — check before committing.
+- Kagane's address moves on its own (Kagane address section) — never hard-code a Kagane domain; use `kagane_base()` / `is_kagane_url()` / `KAGANE_HOST_PATTERN`, or the page's `<meta name="kagane-base">` in JS.
 - If the server fails to start: `SECRET_KEY`/`AUTH_PASSWORD_HASH` missing → `.env`; `CamoufoxNotInstalled` → `camoufox fetch`; socket error → `app.run(host='0.0.0.0')`. When testing locally, check for stray processes on port 8080 (`Get-NetTCPConnection -LocalPort 8080`).

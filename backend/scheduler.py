@@ -5,6 +5,7 @@ import os
 import concurrent.futures
 from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
+from .source_links import is_kagane_url
 from .trackers.mangadex import extract_manga_id, get_latest_chapters, get_status_and_related
 from .trackers.kagane import extract_series_id, get_series_info
 from .trackers import atsu as atsu_tracker
@@ -658,7 +659,7 @@ class MangaScheduler:
                     # Create missing source entry
                     from .database import add_source_to_series
                     source_url = row[0]
-                    source_type = 'mangadex' if 'mangadex.org' in source_url else 'kagane' if ('kagane.org' in source_url or 'kagane.to' in source_url) else 'atsu' if 'atsu.moe' in source_url else 'asura' if 'asurascans.com' in source_url else 'hive' if 'hivetoons.org' in source_url else 'flame' if 'flamecomics.xyz' in source_url else 'thunder' if 'en-thunderscans.com' in source_url else 'comix' if 'comix.to' in source_url else 'unknown'
+                    source_type = 'mangadex' if 'mangadex.org' in source_url else 'kagane' if is_kagane_url(source_url) else 'atsu' if 'atsu.moe' in source_url else 'asura' if 'asurascans.com' in source_url else 'hive' if 'hivetoons.org' in source_url else 'flame' if 'flamecomics.xyz' in source_url else 'thunder' if 'en-thunderscans.com' in source_url else 'comix' if 'comix.to' in source_url else 'unknown'
                     add_source_to_series(series_id, source_url, source_type, is_primary=True)
                     # Retry getting sources
                     sources = get_series_sources(series_id)

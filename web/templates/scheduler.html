@@ -764,6 +764,11 @@ function renderSiteHealth() {
     const error = site.status === 'down' && site.error && !site.checking && !site.paused && !scan
       ? `<div class="site-health-error" title="${escapeHtml(site.error)}">${escapeHtml(site.error)}</div>` : '';
     const label = escapeHtml(site.label);
+    // Kagane moves between addresses on its own (kagane_mirror.py): which one, and the last move
+    const addr = site.address;
+    const address = addr ? `<div class="site-health-meta">Address: ${escapeHtml(addr.domain)}${addr.moved_at
+      ? ` · moved from ${escapeHtml(addr.previous || '?')} ${formatRelativeTime(addr.moved_at).toLowerCase()}${addr.reason ? ` (${escapeHtml(addr.reason)})` : ''}`
+      : ''}</div>` : '';
     // Nothing to fetch for an unused site, and nothing at all while paused
     const idle = !site.series_count || site.paused;
     return `
@@ -772,6 +777,7 @@ function renderSiteHealth() {
         <div class="site-health-info">
           <div class="site-health-name">${label}<span>${site.series_count} series</span></div>
           <div class="site-health-meta ${metaClass}">${meta}</div>
+          ${address}
           ${error}
         </div>
         <div class="site-health-actions">

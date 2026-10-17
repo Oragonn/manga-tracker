@@ -5,24 +5,26 @@
 # plain Selenium can no longer pass. camoufox (a patched, stealth-hardened
 # Firefox build) reliably gets through it on real page navigation.
 #
-# The old /api/v2/books/{id} endpoint this client used to call for chapters
-# no longer exists / is far more strictly gated than /api/v2/series/{id} --
-# the current site embeds the full chapter list (series_books) directly in
-# the series metadata response, so a single fetch now covers both meta and
-# chapters.
+# Chapters: the series response used to carry the whole chapter list
+# (series_books); since 2026-10 it's fetched separately from
+# /api/v2/series/{id}/books (see _fetch_books_async).
+#
+# Requests go to whichever Kagane address is in use (source_links.kagane_base);
+# probe_domain() is how the site check tests the others (kagane_mirror.py).
 
 import asyncio
 import base64
 import concurrent.futures
 import json
 import os
+import re
 import threading
 import time
 
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from .source_links import KAGANE_BASE
+from .source_links import kagane_base, KAGANE_HOST_PATTERN
 
 _CHALLENGE_TITLE_MARKERS = (
     'un instant', 'just a moment', 'un momento', 'momento',
@@ -69,7 +71,7 @@ _FETCH_IMAGE_AS_DATA_URL_JS = """async (url) => {
 def _lookup_series_title(series_id):
     """Best-effort: this client only knows the Kagane UUID, not which of our
     tracked series it belongs to - look it up by matching the UUID against
-    stored source_urls (either kagane.to or kagane.org, whichever the source
+    stored source_urls (on whichever Kagane domain the source
     was originally added with) so failure logs show a real title instead of
     the generic "Kagane Browser Fetch" placeholder."""
     try:
@@ -86,6 +88,21 @@ def _lookup_series_title(series_id):
         return row[0] if row else None
     except Exception:
         return None
+
+
+_MIRROR_LINK = re.compile(r'href="https://(' + KAGANE_HOST_PATTERN + r')/?"', re.I)
+
+
+def is_mirror_list_page(title, html):
+    """Whether a Kagane page is the "Choose an address" mirror list
+    (kagane.org since 2026-10) rather than the site itself."""
+    return title.lower().startswith('mirrors') or 'Choose an address' in (html or '')
+
+
+def parse_mirror_list(html):
+    """The addresses a mirror list page links to, in the order it shows
+    them - the recommended one (the highlighted "Open") first."""
+    return list(dict.fromkeys(m.lower() for m in _MIRROR_LINK.findall(html or '')))
 
 
 class KaganeHTTPError(RuntimeError):
@@ -284,7 +301,7 @@ class KaganeBrowserClient:
             try:
                 from .error_logger import log_error
                 log_error(
-                    source_url=f"{KAGANE_BASE}/series/{series_id}",
+                    source_url=f"{kagane_base()}/series/{series_id}",
                     error_message=str(last_error),
                     series_title=_lookup_series_title(series_id) or "Kagane Browser Fetch"
                 )
@@ -305,14 +322,78 @@ class KaganeBrowserClient:
             except Exception:
                 return False
 
+    def probe_domain(self, domain, series_id=None):
+        """Can Kagane be used on `domain`? Its home page must load and be
+        the site itself - not the "Choose an address" mirror list kagane.org
+        turned into - and, given a series_id, the API there must return that
+        series' books. Returns {'ok', 'why', 'mirrors'}: 'mirrors' is the
+        list of addresses when the page was the mirror list (in the order
+        it shows them, the recommended one first). Never raises."""
+        from .site_pause import is_paused
+        with self.lock:
+            if is_paused('kagane'):
+                return {'ok': False, 'why': 'Kagane is paused', 'mirrors': []}
+            try:
+                return self._run_coro(self._probe_async(domain, series_id), timeout=120)
+            except Exception as e:
+                return {'ok': False, 'why': str(e).splitlines()[0] if str(e) else type(e).__name__, 'mirrors': []}
+
+    async def _probe_async(self, domain, series_id):
+        from .site_health import browser_page_loads
+        base = f"https://{domain}"
+        if not await browser_page_loads(self._page, base + '/'):
+            return {'ok': False, 'why': "home page doesn't load", 'mirrors': []}
+        try:
+            title = (await self._page.title() or '').strip()
+            html = await self._page.content()
+        except Exception:
+            title, html = '', ''
+        if is_mirror_list_page(title, html):
+            return {'ok': False, 'why': 'only shows the list of mirrors',
+                    'mirrors': [m for m in parse_mirror_list(html) if m != domain]}
+        if series_id:
+            page = await self._fetch_json_async(f"{base}/api/v2/series/{series_id}/books?limit=1", timeout=30)
+            if not (isinstance(page, dict) and page.get('items')):
+                return {'ok': False, 'why': 'its API returned no chapters', 'mirrors': []}
+        return {'ok': True, 'why': None, 'mirrors': []}
+
     async def _fetch_all_async(self, series_id, with_gallery=False):
-        meta_url = f"{KAGANE_BASE}/api/v2/series/{series_id}"
+        meta_url = f"{kagane_base()}/api/v2/series/{series_id}"
         raw = await self._fetch_json_async(meta_url)
+        if 'series_books' not in raw:
+            raw['series_books'] = await self._fetch_books_async(series_id)
+        # The series response says how many books it has: an empty list
+        # next to a non-zero count means the books moved again, and must
+        # fail loudly rather than pass as "no chapters" (it did, for days,
+        # when they left the series response in 2026-10)
+        if not raw['series_books'] and (raw.get('current_books') or 0) > 0:
+            raise KaganeHTTPError(f"Kagane lists {raw['current_books']} books for {series_id} "
+                                  f"but returned none - its books API may have changed")
         cover_url = await self._get_cached_or_download_cover(raw)
         meta, books = self._transform(raw, cover_url)
         if with_gallery:
             meta['gallery_covers'] = await self._download_gallery(raw)
         return meta, books
+
+    async def _fetch_books_async(self, series_id):
+        """Every book of a series. Since 2026-10 they're no longer in the
+        series response but at /series/<id>/books, a page at a time: each
+        answer carries a next_cursor that goes back as ?before= for the next
+        page (none on the last one). limit=500 gets almost every series in
+        one request."""
+        books = []
+        cursor = None
+        seen = set()
+        while True:
+            url = f"{kagane_base()}/api/v2/series/{series_id}/books?limit=500"
+            if cursor:
+                url += f"&before={cursor}"
+            page = await self._fetch_json_async(url)
+            books.extend(page.get('items') or [])
+            cursor = page.get('next_cursor')
+            if not cursor or cursor in seen:
+                return books
+            seen.add(cursor)
 
     async def _get_cached_or_download_cover(self, raw):
         covers = raw.get('series_covers') or []
@@ -332,7 +413,7 @@ class KaganeBrowserClient:
                 return f"/static/uploads/kagane_covers/{image_id}{ext}"
 
         try:
-            img_url = f"{KAGANE_BASE}/api/v2/image/{image_id}/compressed"
+            img_url = f"{kagane_base()}/api/v2/image/{image_id}/compressed"
             result = await self._page.evaluate(_FETCH_IMAGE_AS_DATA_URL_JS, img_url)
             data_url = result.get('dataUrl')
             if not data_url:

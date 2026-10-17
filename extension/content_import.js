@@ -20,6 +20,13 @@
 
   chrome.runtime.sendMessage({ type: 'registerImportTab' });
 
+  // The Kagane address the tracker uses right now (it moves between domains
+  // on its own - backend/kagane_mirror.py), from the page's <meta>. Saved for
+  // content_kenmei.js, which runs on kenmei.co and can't read it there.
+  const kaganeMeta = document.querySelector('meta[name="kagane-base"]')?.content;
+  const kaganeBase = kaganeMeta || 'https://kagane.si';
+  if (kaganeMeta) chrome.storage.local.set({ kaganeBase }); // not every tracker page has it
+
   // Tab-opening order, independent of the page's own MD/AT/AS/KG/HT button
   // layout (left untouched). Comix and Kagane go last since their Cloudflare
   // challenges make them the slowest tabs to load.
@@ -28,7 +35,7 @@
     { re: /^https:\/\/mangadex\.org\//, site: 'mangadex' },
     { re: /^https:\/\/atsu\.moe\//, site: 'atsu' },
     { re: /^https:\/\/asurascans\.com\//, site: 'asura' },
-    { re: /^https:\/\/kagane\.(to|org)\//, site: 'kagane' },
+    { re: /^https:\/\/kagane\.[a-z]{2,10}\//, site: 'kagane' },
     { re: /^https:\/\/hivetoons\.org\//, site: 'hive' },
     { re: /^https:\/\/flamecomics\.xyz\//, site: 'flame' },
     { re: /^https:\/\/en-thunderscans\.com\//, site: 'thunder' },

@@ -261,7 +261,7 @@
   const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
   const LINK_PATTERNS = [
     ['mangadex', new RegExp(LINK_PREFIX + 'mangadex\\.org/(?:title|manga)/(' + UUID + ')', 'i')],
-    ['kagane', new RegExp(LINK_PREFIX + 'kagane\\.(?:to|org)/series/(' + UUID + ')', 'i')],
+    ['kagane', new RegExp(LINK_PREFIX + 'kagane\\.[a-z]{2,10}/series/(' + UUID + ')', 'i')],
     ['atsu', new RegExp(LINK_PREFIX + 'atsu\\.moe/(?:manga|read)/([A-Za-z0-9_-]+)', 'i')],
     ['asura', new RegExp(LINK_PREFIX + 'asurascans\\.com/comics/([A-Za-z0-9-]+)', 'i')],
     ['hive', new RegExp(LINK_PREFIX + 'hivetoons\\.org/series/([A-Za-z0-9-]+)', 'i')],

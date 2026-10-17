@@ -8,6 +8,7 @@ import html
 import json
 from datetime import datetime, timezone, timedelta
 from .database import get_db, release_db
+from .source_links import is_kagane_url
 
 # How long Activity Log entries are kept before cleanup_old_logs() deletes them.
 ACTIVITY_LOG_RETENTION_DAYS = 30
@@ -49,7 +50,7 @@ def detect_source_type(url):
     """Detect source type from URL."""
     if 'mangadex.org' in url:
         return 'MangaDex'
-    elif 'kagane.org' in url or 'kagane.to' in url:
+    elif is_kagane_url(url):
         return 'Kagane'
     elif 'atsu.moe' in url:
         return 'Atsumaru'
@@ -76,7 +77,7 @@ def log_activity(action_type, series_id=None, series_title=None, old_value=None,
                      'bookmark_added', 'bookmark_updated', 'bookmark_deleted',
                      'tag_merged', 'tag_unmerged', 'tag_banned', 'tag_unbanned',
                      'provider_banned', 'provider_unbanned',
-                     'custom_tags'
+                     'custom_tags', 'site_moved' (a site check moving Kagane to another address)
         series_id: ID of the series (None if deleted, or not series-scoped)
         series_title: Title of the series (or bookmark name, for bookmark events;
                       the tag/provider name(s), for tag and provider events)
@@ -266,7 +267,7 @@ def get_logs(type_filter='all', time_filter='all', search_query='', limit=100):
         # Type filter. 'source', 'bookmark' and 'tag' are grouped filters
         # covering multiple underlying action_type values (added/removed/updated).
         if type_filter == 'source':
-            where_parts.append("action_type IN ('source_added', 'source_removed', 'source_cleanup')")
+            where_parts.append("action_type IN ('source_added', 'source_removed', 'source_cleanup', 'site_moved')")
         elif type_filter == 'bookmark':
             where_parts.append("action_type IN ('bookmark_added', 'bookmark_updated', 'bookmark_deleted')")
         elif type_filter == 'tag':

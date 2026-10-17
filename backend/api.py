@@ -10,7 +10,7 @@ import time
 import uuid
 from queue import Queue, Empty
 from .activity_logger import log_activity, get_series_snapshot, detect_source_type
-from .source_links import clean_source_url
+from .source_links import clean_source_url, is_kagane_url, kagane_base
 from .search_utils import find_same_title_series
 
 
@@ -109,7 +109,7 @@ def _source_for_add(url):
     can't add that link."""
     if url.startswith("https://mangadex.org/title/"):
         return 'mangadex'
-    if url.startswith("https://kagane.to/series/") or url.startswith("https://kagane.org/series/"):
+    if is_kagane_url(url) and "/series/" in url:
         return 'kagane'
     if url.startswith("https://atsu.moe/manga/") or url.startswith("https://atsu.moe/read/"):
         return 'atsu'
@@ -1568,6 +1568,8 @@ def static_url(filename):
     return url_for('static', filename=filename, v=cached[1])
 
 app.jinja_env.globals['static_url'] = static_url
+# The Kagane address in use, for the templates' <meta name="kagane-base">
+app.jinja_env.globals['kagane_base'] = kagane_base
 
 @app.after_request
 def _compress_and_cache(response):

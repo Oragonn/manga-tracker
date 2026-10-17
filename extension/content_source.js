@@ -40,7 +40,7 @@
     { hostRe: /(^|\.)mangadex\.org$/, hrefRe: /\/title\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i },
     { hostRe: /(^|\.)atsu\.moe$/, hrefRe: /\/(manga|read)\// },
     { hostRe: /(^|\.)asurascans\.com$/, hrefRe: /\/comics\// },
-    { hostRe: /(^|\.)kagane\.(to|org)$/, hrefRe: /\/series\// },
+    { hostRe: /(^|\.)kagane\.[a-z]{2,10}$/, hrefRe: /\/series\// },
     // Requires an actual slug after /series/ - HiveToons' own nav has a bare
     // "/series/" link (its all-series browse page) that a plain substring
     // check would wrongly match if it sits earlier in the DOM than the

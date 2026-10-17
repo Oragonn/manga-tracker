@@ -10,7 +10,7 @@ import glob
 import re
 
 from .tag_utils import load_tag_rules, resolve_tag
-from .source_links import clean_source_url, KAGANE_BASE, KAGANE_OTHER_DOMAINS
+from .source_links import clean_source_url, is_kagane_url, is_kagane_domain, kagane_base
 from .search_utils import build_searchable_text
 
 # Bump when the format of series.searchable_text changes; init_db rebuilds
@@ -192,7 +192,7 @@ def migrate_to_multi_source():
             # Detect source type
             if 'mangadex.org' in source_url:
                 source_type = 'mangadex'
-            elif 'kagane.org' in source_url or 'kagane.to' in source_url:
+            elif is_kagane_url(source_url):
                 source_type = 'kagane'
             elif 'atsu.moe' in source_url:
                 source_type = 'atsu'
@@ -2147,7 +2147,7 @@ def add_series(title, source_url, status="plan_to_read", cover_url=None, banner_
         # Detect source type from URL
         if 'mangadex.org' in source_url:
             detected_source_type = 'mangadex'
-        elif 'kagane.org' in source_url or 'kagane.to' in source_url:
+        elif is_kagane_url(source_url):
             detected_source_type = 'kagane'
         elif 'atsu.moe' in source_url:
             detected_source_type = 'atsu'
@@ -2390,46 +2390,54 @@ _KAGANE_LINK_COLUMNS = (
 
 
 def move_kagane_links_to_current_domain():
-    """Rewrite stored Kagane links on an old domain (kagane.to) to
-    KAGANE_DOMAIN, so source links, chapter-reader links and per-link
-    chapter bans all point at the site that answers. Kagane's ids are the
-    same on both, so only the host changes.
+    """Rewrite stored Kagane links on any other Kagane domain (kagane.org,
+    .to, ...) to the one in use (source_links.kagane_domain()), so source
+    links, chapter-reader links and per-link chapter bans all point at the
+    site that answers. Kagane's ids are the same on every domain, so only the
+    host changes. Runs at startup and whenever the site check moves Kagane
+    to another address (kagane_mirror.py).
 
     A row whose new link is already stored on another row of a unique column
     is left as it is (UPDATE OR IGNORE) - two series holding the same Kagane
-    series is for the user to merge, not a startup repair. Only rows on an
-    old domain are touched, so it is safe to run on every start. Returns how
-    many links were rewritten."""
+    series is for the user to merge, not a startup repair. Only rows on
+    another domain are touched, so it is safe to run on every start. Returns
+    how many links were rewritten."""
+    base = kagane_base()
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
     tables = {row[0] for row in cursor.fetchall()}
     rewritten = 0
-    left = 0
     try:
         for table, column in _KAGANE_LINK_COLUMNS:
             if table not in tables:
                 continue
-            for domain in KAGANE_OTHER_DOMAINS:
-                old_base = f'https://{domain}'
+            # Every Kagane host this column has links on ("https://kagane.org")
+            cursor.execute(
+                f"SELECT DISTINCT substr({column}, 1, instr(substr({column}, 9), '/') + 7) "
+                f"FROM {table} WHERE {column} LIKE 'https://kagane.%/%'"
+            )
+            hosts = [row[0] for row in cursor.fetchall()]
+            for old_base in hosts:
+                if old_base == base or not is_kagane_domain(old_base[len('https://'):]):
+                    continue
                 pattern = old_base + '/%'
                 cursor.execute(
                     f"UPDATE OR IGNORE {table} SET {column} = ? || substr({column}, ?) "
                     f"WHERE {column} LIKE ?",
-                    (KAGANE_BASE, len(old_base) + 1, pattern)
+                    (base, len(old_base) + 1, pattern)
                 )
                 rewritten += cursor.rowcount
                 cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE {column} LIKE ?", (pattern,))
                 still_old = cursor.fetchone()[0]
                 if still_old:
-                    left += still_old
-                    print(f"[Database] Left {still_old} {table}.{column} link(s) on {domain} - "
-                          f"the {KAGANE_BASE} link is already stored on another row")
+                    print(f"[Database] Left {still_old} {table}.{column} link(s) on {old_base} - "
+                          f"the {base} link is already stored on another row")
         conn.commit()
     finally:
         release_db(conn)
     if rewritten:
-        print(f"[Database] Moved {rewritten} stored Kagane link(s) to {KAGANE_BASE}")
+        print(f"[Database] Moved {rewritten} stored Kagane link(s) to {base}")
     return rewritten
 
 

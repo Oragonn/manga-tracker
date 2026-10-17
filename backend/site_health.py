@@ -24,7 +24,7 @@ import threading
 import time
 from datetime import datetime, timezone, timedelta
 
-from .source_links import KAGANE_BASE
+from .source_links import kagane_base
 
 SITES = ['mangadex', 'kagane', 'atsu', 'asura', 'hive', 'flame', 'thunder', 'comix']
 SITE_LABELS = {
@@ -33,11 +33,20 @@ SITE_LABELS = {
     'thunder': 'Thunderscans', 'comix': 'Comix',
 }
 HOMEPAGES = {
-    'mangadex': 'https://mangadex.org/', 'kagane': KAGANE_BASE + '/',
+    'mangadex': 'https://mangadex.org/',
     'atsu': 'https://atsu.moe/', 'asura': 'https://asurascans.com/',
     'hive': 'https://hivetoons.org/', 'flame': 'https://flamecomics.xyz/',
     'thunder': 'https://en-thunderscans.com/', 'comix': 'https://comix.to/',
 }
+
+
+def homepage(source_type):
+    # Kagane's moves between domains (kagane_mirror.py)
+    if source_type == 'kagane':
+        return kagane_base() + '/'
+    return HOMEPAGES.get(source_type)
+
+
 _USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
 # A fetch error meaning the site didn't answer (timed out, refused the
 # connection) rather than answering something wrong about one series
@@ -145,6 +154,17 @@ def check_site(source_type, fetch):
                 if _NOT_ANSWERING.search(str(e)):
                     break
         duration_ms = int((time.time() - started) * 1000)
+        if source_type == 'kagane':
+            # Move Kagane to another address if this one stopped working
+            # (or kagane.org is the site again) - then check it there
+            from .kagane_mirror import after_check
+            if after_check(status, used) and status == 'down':
+                try:
+                    result = fetch(references[0])
+                    if result and result[0]:
+                        status, error, used = 'up', None, references[0]['source_url']
+                except Exception as e:
+                    error = str(e) or type(e).__name__
         website_up = website_loads(source_type) if status == 'down' else None
         if is_paused(source_type):
             return None
@@ -195,7 +215,7 @@ async def browser_page_loads(page, url, timeout=30):
 
 def website_loads(source_type):
     """Whether the site's home page loads. Never raises."""
-    url = HOMEPAGES.get(source_type)
+    url = homepage(source_type)
     if not url:
         return False
     try:
@@ -333,9 +353,23 @@ def summary():
         'sites': [
             {**(health.get(t) or {'source_type': t, 'status': None}),
              'label': SITE_LABELS[t], 'series_count': counts.get(t, 0), 'checking': t in checking,
-             'homepage': HOMEPAGES.get(t), 'paused': t in paused, 'paused_at': paused.get(t)}
+             'homepage': homepage(t), 'paused': t in paused, 'paused_at': paused.get(t),
+             **({'address': kagane_address()} if t == 'kagane' else {})}
             for t in SITES
         ],
+    }
+
+
+def kagane_address():
+    """The Kagane address in use and its last move, for the Scheduler page."""
+    from .source_links import kagane_domain, kagane_state
+    state = kagane_state()
+    moved = state.get('domain') == kagane_domain() and state.get('moved_at')
+    return {
+        'domain': kagane_domain(),
+        'previous': state.get('previous') if moved else None,
+        'moved_at': state.get('moved_at') if moved else None,
+        'reason': state.get('reason') if moved else None,
     }
 
 

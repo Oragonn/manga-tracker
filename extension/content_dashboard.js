@@ -22,13 +22,20 @@
 // keep their plain open-8-tabs behavior.
 
 (function () {
+  // The Kagane address the tracker uses right now (it moves between domains
+  // on its own - backend/kagane_mirror.py), from the page's <meta>. Saved for
+  // content_kenmei.js, which runs on kenmei.co and can't read it there.
+  const kaganeMeta = document.querySelector('meta[name="kagane-base"]')?.content;
+  const kaganeBase = kaganeMeta || 'https://kagane.si';
+  if (kaganeMeta) chrome.storage.local.set({ kaganeBase }); // not every tracker page has it
+
   // Mirrors addSeriesSearchUrl() in dashboard.js.
   function searchUrl(site, title) {
     const q = encodeURIComponent(title);
     switch (site) {
       case 'mangadex': return `https://mangadex.org/search?q=${q}`;
       case 'atsu': return `https://atsu.moe/explore?search=${q}`;
-      case 'kagane': return `https://kagane.org/search?q=${q}&size=99`;
+      case 'kagane': return `${kaganeBase}/search?q=${q}&size=99`;
       case 'asura': return `https://asurascans.com/browse?q=${q}`;
       case 'hive': return `https://hivetoons.org/series/?searchTerm=${q}`;
       case 'flame': return `https://flamecomics.xyz/browse?search=${q}`;
