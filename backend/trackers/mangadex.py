@@ -39,6 +39,12 @@ def _delayed_get(url, **kwargs):
             if resp.status_code == 429:
                 time.sleep(2 ** attempt)
                 continue
+            # MangaDex's 5xx (mostly a 500 on the chapter feed) usually pass
+            # within seconds: try again, and hand the last one back to the
+            # caller if they don't
+            if resp.status_code >= 500 and attempt < _MAX_RETRIES - 1:
+                time.sleep(2 ** attempt)
+                continue
             return resp
         except (SiteRedirectError, SitePaused):
             raise
