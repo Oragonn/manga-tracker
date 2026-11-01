@@ -5,6 +5,7 @@ import hashlib
 import sqlite3
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -1600,6 +1601,38 @@ def cached_upload(filename):
         filename,
         max_age=31536000
     )
+
+# MangaDex covers, served from here since the browser can't load them
+# straight from uploads.mangadex.org anymore (see download_cover_image()).
+# The database keeps the real uploads.mangadex.org URL; the page asks for
+# /mangadex-cover/<manga id>/<file> instead (displayCoverUrl() in
+# dashboard.js). A cover's filename is its own uuid, so a file fetched once
+# is kept on disk for good and the browser may cache it forever too.
+_MANGADEX_COVER_ID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+_MANGADEX_COVER_FILE = re.compile(r'^[0-9a-f-]{36}\.(jpe?g|png|gif|webp)(\.(256|512)\.jpg)?$', re.I)
+
+@app.route('/mangadex-cover/<manga_id>/<filename>')
+def mangadex_cover(manga_id, filename):
+    from flask import send_from_directory, abort
+    from .trackers.mangadex import download_cover_image
+    if not _MANGADEX_COVER_ID.match(manga_id) or not _MANGADEX_COVER_FILE.match(filename):
+        abort(404)
+    folder = os.path.join(app.static_folder, 'uploads', 'mangadex_covers', manga_id)
+    path = os.path.join(folder, filename)
+    if not os.path.exists(path):
+        try:
+            content, _ = download_cover_image(manga_id, filename)
+        except Exception as e:
+            print(f"[MangaDex cover] {e}")
+            abort(502)
+        os.makedirs(folder, exist_ok=True)
+        # Written aside then moved in, so a page asking for the same cover
+        # twice at once never gets half a file
+        temp_path = f"{path}.{uuid.uuid4().hex}.part"
+        with open(temp_path, 'wb') as f:
+            f.write(content)
+        os.replace(temp_path, path)
+    return send_from_directory(folder, filename, max_age=31536000)
 
 @app.route('/api/unread-error-count')
 def api_unread_error_count():

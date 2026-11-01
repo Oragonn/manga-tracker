@@ -120,6 +120,24 @@ def get_covers_for_manga(manga_ids):
                     break
     return found
 
+def download_cover_image(manga_id, filename):
+    """(bytes, content type) of one cover from uploads.mangadex.org.
+
+    Since 2026-11 MangaDex sends any request with a browser User-Agent to a
+    JavaScript bot check (mangadex.org/edge/challenge) - including the
+    browser's own <img> loads of a hotlinked cover, which then show nothing.
+    Requests like ours that say what they are still get the image, so covers
+    are fetched here and served to the browser by the tracker itself. Raises
+    if MangaDex doesn't hand back an image (a redirect to the check
+    included)."""
+    resp = _session.get(f"https://uploads.mangadex.org/covers/{manga_id}/{filename}",
+                        timeout=15, allow_redirects=False)
+    content_type = resp.headers.get('content-type', '').split(';')[0].strip()
+    if resp.status_code != 200 or not content_type.startswith('image/'):
+        where = f" to {resp.headers.get('location')}" if resp.is_redirect else ''
+        raise Exception(f"MangaDex cover {manga_id}/{filename} returned HTTP {resp.status_code}{where} ({content_type or 'no type'})")
+    return resp.content, content_type
+
 _STATUS_MAP = {
     'ongoing': 'reading',
     'completed': 'completed',

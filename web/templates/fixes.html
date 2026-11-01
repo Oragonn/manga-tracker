@@ -1144,6 +1144,14 @@
     `
   };
 
+  // MangaDex covers can't be loaded straight from uploads.mangadex.org by
+  // the browser anymore (bot check), so they come through the tracker -
+  // same as displayCoverUrl() in dashboard.js
+  function displayCoverUrl(url) {
+    const match = /^https:\/\/uploads\.mangadex\.org\/covers\/([^/]+)\/([^/?#]+\.(jpe?g|png|gif|webp))$/i.exec(url || '');
+    return match ? `/mangadex-cover/${match[1]}/${match[2]}.256.jpg` : url;
+  }
+
   const PICKER_PAGE_SIZE = 5;
   const PICKER_EXPANDED_SIZE = 20;
 
@@ -1242,7 +1250,7 @@
       const fullChapterCount = (s.chapters || []).filter(c => Number.isInteger(c.chapter_number)).length;
       return `
       <div class="picker-row" data-id="${s.id}" data-title="${escapeHtml(s.title)}" data-cover="${s.cover_url ? escapeHtml(s.cover_url) : ''}">
-        ${s.cover_url ? `<img src="${escapeHtml(s.cover_url)}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/static/placeholder.png'" />` : ''}
+        ${s.cover_url ? `<img src="${escapeHtml(displayCoverUrl(s.cover_url))}" alt="" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/static/placeholder.png'" />` : ''}
         <div>
           <div class="picker-row-title">${escapeHtml(s.title)}</div>
           <div class="picker-row-sub">${fullChapterCount} chapters</div>
@@ -1284,7 +1292,7 @@
   async function selectSeries(id, title, coverUrl) {
     selectedSeriesId = id;
     wsTitle.textContent = title;
-    wsCover.src = coverUrl || '/static/placeholder.png';
+    wsCover.src = displayCoverUrl(coverUrl) || '/static/placeholder.png';
     workspace.style.display = 'block';
     chapterSearchInput.value = '';
     chaptersVisible = CHAPTERS_PAGE_SIZE;

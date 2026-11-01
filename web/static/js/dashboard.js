@@ -1419,13 +1419,13 @@ function openEditModal(series) {
 	const coverSrc = (series.cover_protected_url || series.cover_url || '/static/placeholder.png').replace(/\s+/g, '');
 	// An <img> keeps painting its old picture until the new src has loaded,
 	// so the last series' cover would flash here -- hide it until then.
-	if (coverImg.getAttribute('src') !== coverSrc) {
+	if (coverImg.getAttribute('src') !== displayCoverUrl(coverSrc)) {
 		coverImg.style.visibility = 'hidden';
 		const reveal = () => { coverImg.style.visibility = ''; };
 		coverImg.addEventListener('load', reveal, { once: true });
 		coverImg.addEventListener('error', reveal, { once: true });
 	}
-	coverImg.src = coverSrc;
+	coverImg.src = displayCoverUrl(coverSrc);
 	coverImg.alt = series.title || '';
 
 	// The Source selector/list and Custom Tags are only filled in once their
@@ -3290,12 +3290,23 @@ function createSkeletonCard() {
 }
 
 // ─── Lazy Loading Image Observer ─────────────────────────────────
-// MangaDex serves every cover 512px wide too (<cover>.512.jpg): about a
-// fifth of the original's 500-800 KB, and still sharp at card size on a 2x
-// screen. The card falls back to the original if that one ever fails.
+// The address to show a cover from. Since 2026-11 MangaDex sends the
+// browser's own requests to uploads.mangadex.org to a bot check, so its
+// covers come through the tracker instead (/mangadex-cover/ in api.py).
+// Only for showing: the real MangaDex URL is still what gets saved.
+// MangaDex also serves every cover 256 and 512px wide (<cover>.512.jpg),
+// a fraction of the original's 500-800 KB: pass size for one of those.
+function displayCoverUrl(url, size) {
+	const match = /^https:\/\/uploads\.mangadex\.org\/covers\/([^/]+)\/([^/?#]+\.(jpe?g|png|gif|webp))$/i.exec(url || '');
+	if (!match) return url;
+	const file = size && !/\.(256|512)\.jpg$/i.test(match[2]) ? `${match[2]}.${size}.jpg` : match[2];
+	return `/mangadex-cover/${match[1]}/${file}`;
+}
+
+// 512px still looks sharp at card size on a 2x screen. The card falls back
+// to the original if that one ever fails.
 function cardCoverUrl(url) {
-	const isMangaDexCover = /^https:\/\/uploads\.mangadex\.org\/covers\/[^/]+\/[^/]+\.(jpe?g|png|gif|webp)$/i.test(url);
-	return isMangaDexCover && !/\.(256|512)\.jpg$/i.test(url) ? `${url}.512.jpg` : url;
+	return displayCoverUrl(url, 512);
 }
 
 const imageObserver = new IntersectionObserver((entries) => {
@@ -3430,7 +3441,7 @@ function renderSeriesCard(series, chapters = null) {
 </svg>
 </div>
 <div class="card-cover-badges"></div>
-<img class="series-cover loading" src="${placeholderUrl}" data-src="${cardCoverUrl(cleanCoverUrl)}" data-full-src="${cleanCoverUrl}" decoding="async" referrerpolicy="no-referrer" onerror="this.src='/static/placeholder.png'">
+<img class="series-cover loading" src="${placeholderUrl}" data-src="${cardCoverUrl(cleanCoverUrl)}" data-full-src="${displayCoverUrl(cleanCoverUrl)}" decoding="async" referrerpolicy="no-referrer" onerror="this.src='/static/placeholder.png'">
 ${releaseText ? `<div class="last-release">${releaseText}</div>` : ''}
 ${isMobileDevice() ? `<div class="mobile-card-title"><span>${escapeHtml(series.title)}</span></div>` : ''}
 </div>
@@ -6301,7 +6312,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		const img = document.getElementById('add-preview-cover');
 		img.onerror = () => { img.onerror = null; img.src = '/static/placeholder.png'; };
-		img.src = ((tracked ? tracked.cover_url : data.cover_url) || '/static/placeholder.png').replace(/\s+/g, '');
+		img.src = displayCoverUrl(((tracked ? tracked.cover_url : data.cover_url) || '/static/placeholder.png').replace(/\s+/g, ''));
 		img.alt = tracked ? tracked.title : data.title;
 		document.getElementById('add-preview-title').textContent = tracked ? tracked.title : data.title;
 		addSourceInfo.set(addLinkSeriesKey(addPreviewUrl), addSourceInfoFrom(data));
@@ -6940,7 +6951,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			? item.cover_url : '/static/placeholder.png';
 		return `
 			<div class="add-related-row${tracked ? ' tracked' : ''}" data-group="${g}" data-index="${i}">
-				<img class="add-related-row-cover" src="${escapeHtml(cover)}" data-related-ids="${escapeHtml(item.ids.join(','))}" alt="" loading="lazy" referrerpolicy="no-referrer" />
+				<img class="add-related-row-cover" src="${escapeHtml(displayCoverUrl(cover, 256))}" data-related-ids="${escapeHtml(item.ids.join(','))}" alt="" loading="lazy" referrerpolicy="no-referrer" />
 				<div class="add-related-row-info">
 					<div class="add-related-row-title">
 						<span class="add-related-relation">${escapeHtml(item.relations.map(relationLabel).join(' · '))}</span>
@@ -6997,7 +7008,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			item.cover_url = found.find(Boolean) || '';
 			if (!item.cover_url || !isSafeUrl(item.cover_url)) return;
 			container?.querySelectorAll(`img[data-related-ids="${item.ids.join(',')}"]`)
-				.forEach(img => { img.src = item.cover_url; });
+				.forEach(img => { img.src = displayCoverUrl(item.cover_url, 256); });
 		});
 	}
 
@@ -7050,7 +7061,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const status = STATUS_LABELS_FOR_BOOKMARKS[group.status] ? group.status : '';
 			return `
 				<div class="add-related-group" data-group="${g}">
-					<img class="add-related-cover" src="${escapeHtml(cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/static/placeholder.png'" />
+					<img class="add-related-cover" src="${escapeHtml(displayCoverUrl(cover, 256))}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src='/static/placeholder.png'" />
 					<div class="add-related-group-body">
 						<div class="add-related-group-head">
 							<button type="button" class="add-related-series" data-series-id="${group.series_id}" title="Open its Series Settings">${escapeHtml(group.title)}</button>
@@ -7490,7 +7501,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	function stageCover(url) {
 		if (!url) return;
 		pendingCoverUrl = url;
-		document.getElementById('edit-series-cover-img').src = url;
+		document.getElementById('edit-series-cover-img').src = displayCoverUrl(url);
 		updateSaveButtonState();
 	}
 
@@ -7506,7 +7517,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	// at a now-dead URL until the user happens to hit Save.
 	async function commitCoverChange(url) {
 		if (!url || !currentSeriesIdForEdit) return;
-		document.getElementById('edit-series-cover-img').src = url;
+		document.getElementById('edit-series-cover-img').src = displayCoverUrl(url);
 		try {
 			const res = await fetch(`/api/series/${currentSeriesIdForEdit}`, {
 				method: 'PATCH',
@@ -7562,7 +7573,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 
 		list.innerHTML = withCovers.map(s => `
-			<img src="${escapeHtml(s.cover_url)}" class="settings-cover-source-thumb"
+			<img src="${escapeHtml(displayCoverUrl(s.cover_url, 256))}" class="settings-cover-source-thumb"
 				data-cover-url="${escapeHtml(s.cover_url)}" referrerpolicy="no-referrer"
 				title="${escapeHtml(sourceTypeLabel[s.source_type] || s.source_type)}" />
 		`).join('');
@@ -7595,7 +7606,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const volume = c.volume ? `Vol. ${c.volume}` : 'No volume';
 			const tooltip = `${source} · ${volume}${c.locale ? ` (${c.locale})` : ''}${c.note ? ` - ${c.note}` : ''}`;
 			return `
-				<img src="${escapeHtml(c.cover_url)}" class="settings-cover-source-thumb"
+				<img src="${escapeHtml(displayCoverUrl(c.cover_url, 256))}" class="settings-cover-source-thumb"
 					data-cover-url="${escapeHtml(c.cover_url)}" referrerpolicy="no-referrer"
 					title="${escapeHtml(tooltip)}" />
 			`;
