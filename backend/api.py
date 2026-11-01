@@ -5,7 +5,6 @@ import hashlib
 import sqlite3
 import json
 import os
-import re
 import threading
 import time
 import uuid
@@ -1476,6 +1475,10 @@ def _add_worker():
                         read_relations_soon(result['id'])
                     except Exception as related_err:
                         print(f"[Add Worker] Couldn't schedule the related-series read: {related_err}")
+                    # Its MangaDex covers saved before it's first shown (the
+                    # gallery and related covers come in a little after)
+                    from .mangadex_covers import warm_covers_soon
+                    warm_covers_soon(delay=15)
                 with _add_lock:
                     _add_results[task.task_id] = result
                 _add_queue.task_done()
@@ -1603,36 +1606,20 @@ def cached_upload(filename):
     )
 
 # MangaDex covers, served from here since the browser can't load them
-# straight from uploads.mangadex.org anymore (see download_cover_image()).
-# The database keeps the real uploads.mangadex.org URL; the page asks for
-# /mangadex-cover/<manga id>/<file> instead (displayCoverUrl() in
-# dashboard.js). A cover's filename is its own uuid, so a file fetched once
-# is kept on disk for good and the browser may cache it forever too.
-_MANGADEX_COVER_ID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
-_MANGADEX_COVER_FILE = re.compile(r'^[0-9a-f-]{36}\.(jpe?g|png|gif|webp)(\.(256|512)\.jpg)?$', re.I)
-
+# straight from uploads.mangadex.org anymore - see mangadex_covers.py. A
+# cover's filename is its own uuid, so the browser may keep it forever.
 @app.route('/mangadex-cover/<manga_id>/<filename>')
 def mangadex_cover(manga_id, filename):
     from flask import send_from_directory, abort
-    from .trackers.mangadex import download_cover_image
-    if not _MANGADEX_COVER_ID.match(manga_id) or not _MANGADEX_COVER_FILE.match(filename):
+    from .mangadex_covers import valid_name, ensure_cover
+    if not valid_name(manga_id, filename):
         abort(404)
-    folder = os.path.join(app.static_folder, 'uploads', 'mangadex_covers', manga_id)
-    path = os.path.join(folder, filename)
-    if not os.path.exists(path):
-        try:
-            content, _ = download_cover_image(manga_id, filename)
-        except Exception as e:
-            print(f"[MangaDex cover] {e}")
-            abort(502)
-        os.makedirs(folder, exist_ok=True)
-        # Written aside then moved in, so a page asking for the same cover
-        # twice at once never gets half a file
-        temp_path = f"{path}.{uuid.uuid4().hex}.part"
-        with open(temp_path, 'wb') as f:
-            f.write(content)
-        os.replace(temp_path, path)
-    return send_from_directory(folder, filename, max_age=31536000)
+    try:
+        path = ensure_cover(manga_id, filename)
+    except Exception as e:
+        print(f"[MangaDex cover] {e}")
+        abort(502)
+    return send_from_directory(os.path.dirname(path), filename, max_age=31536000)
 
 @app.route('/api/unread-error-count')
 def api_unread_error_count():
@@ -3418,6 +3405,8 @@ def dashboard():
 def run_server():
     init_db() 
     manga_scheduler.start_scanning()
+    from .mangadex_covers import start_hourly_warmups
+    start_hourly_warmups()
     # threaded=True so the dev server can serve many concurrent static cover
     # requests (kagane_covers, atsu_covers) at once instead of one-at-a-time -
     # without it, a page with hundreds of locally-cached covers loads them

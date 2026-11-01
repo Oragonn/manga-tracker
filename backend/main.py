@@ -1403,6 +1403,11 @@ def api_add_source(series_id):
             _log_source_add_failure(series_id, source_url, 'Failed to add source')
             return jsonify({'error': 'Failed to add source'}), 500
 
+        # Its MangaDex covers saved before they're first shown
+        if source_type == 'mangadex':
+            from .mangadex_covers import warm_covers_soon
+            warm_covers_soon(delay=5)
+
         # Remember what this source contributes, so removing it later can
         # take exactly that back out (backend/source_metadata.py).
         if new_metadata:
